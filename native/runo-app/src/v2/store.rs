@@ -302,6 +302,8 @@ pub struct Job {
     /// and its id there (0 while it's on its way).
     pub remote_on: String,
     pub remote: u64,
+    /// Its worktree on the server, so its work can be brought home.
+    pub remote_dir: String,
 }
 
 /// One file a job changed.
@@ -375,6 +377,7 @@ impl Default for Job {
             context: String::new(),
             remote_on: String::new(),
             remote: 0,
+            remote_dir: String::new(),
         }
     }
 }
