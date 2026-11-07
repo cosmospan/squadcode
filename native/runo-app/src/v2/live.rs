@@ -64,7 +64,7 @@ impl Shell {
             .into_any_element()
     }
 
-    fn live_main(&mut self, job: &Job, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn live_main(&mut self, job: &Job, cx: &mut Context<Self>) -> impl IntoElement {
         let who = job.bot;
         let running = job.status == Status::Running;
         let mood = match job.status {

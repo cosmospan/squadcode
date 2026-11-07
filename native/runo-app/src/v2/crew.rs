@@ -34,7 +34,7 @@ impl Shell {
         let n = all.len();
         let busy = self.crew.store.running().count();
         // The crew as a grid of cards, three across on a wide window.
-        let wide = self.view_w - super::sidebar::WIDTH > 1100.;
+        let wide = self.view_w - self.side_w() > 1100.;
         let mut list = div()
             .w_full()
             .grid()

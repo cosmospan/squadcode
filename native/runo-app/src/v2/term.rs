@@ -240,7 +240,7 @@ impl Shell {
             Some(rest) if !home.is_empty() => format!("~{rest}"),
             _ => dir,
         };
-        let width = self.view_w - super::sidebar::WIDTH - 24.;
+        let width = self.view_w - self.side_w() - 24.;
         self.drawer(id, dir, quick, width, cx)
     }
 

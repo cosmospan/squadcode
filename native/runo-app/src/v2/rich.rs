@@ -158,12 +158,23 @@ fn tidy(text: &str) -> String {
         .map(|l| {
             let l = l.trim_end();
             let l = l.trim_start_matches('#').trim_start();
-            l.replace("**", "").replace("__", "")
+            let l = l.replace("**", "").replace("__", "");
+            // A Markdown list item reads as a bullet.
+            match l.strip_prefix("- ").or_else(|| l.strip_prefix("* ")) {
+                Some(rest) => format!("\u{2022}  {rest}"),
+                None => l,
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")
         .trim()
         .to_string()
+}
+
+/// A piece of a message: words, or fenced code with its language.
+enum Block {
+    Words(String),
+    Code(String, String),
 }
 
 impl Shell {
@@ -180,7 +191,39 @@ impl Shell {
         let me = cx.entity().downgrade();
         let mut out = div().flex().flex_col().gap(px(8.));
         let mut all: Vec<Act> = Vec::new();
-        for (n, para) in tidy(text).split("\n\n").enumerate() {
+        // Fenced code reads as a block of its own with a Copy button; the
+        // words around it as paragraphs.
+        let mut paras: Vec<Block> = Vec::new();
+        for (k, part) in text.split("```").enumerate() {
+            if k % 2 == 1 {
+                let (lang, code) = match part.split_once('\n') {
+                    Some((first, rest)) if !first.trim().contains(' ') => {
+                        (first.trim().to_string(), rest)
+                    }
+                    _ => (String::new(), part),
+                };
+                let code = code.trim_matches('\n').to_string();
+                if !code.is_empty() {
+                    paras.push(Block::Code(lang, code));
+                }
+            } else {
+                paras.extend(
+                    tidy(part)
+                        .split("\n\n")
+                        .filter(|p| !p.trim().is_empty())
+                        .map(|p| Block::Words(p.to_string())),
+                );
+            }
+        }
+        for (n, block) in paras.into_iter().enumerate() {
+            let para = match block {
+                Block::Words(w) => w,
+                Block::Code(lang, code) => {
+                    out = out.child(self.code_block(format!("{key}-code{n}"), &lang, code, cx));
+                    continue;
+                }
+            };
+            let para = para.as_str();
             let p = parse(para);
             let code_bg = ca(ui::ink(), 0.07);
             let mut runs: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
@@ -268,6 +311,66 @@ impl Shell {
             out = out.child(chips);
         }
         out
+    }
+
+    /// A block of code in a message: monospace on a sunken ground, its
+    /// language and a Copy button on top.
+    fn code_block(&mut self, id: String, lang: &str, code: String, cx: &mut Context<Self>) -> Div {
+        let copy = code.clone();
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .rounded(px(8.))
+            .border_1()
+            .border_color(c(ui::line()))
+            .bg(ca(ui::ink(), 0.04))
+            .overflow_hidden()
+            .child(
+                div()
+                    .h(px(28.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(c(ui::line2()))
+                    .text_size(px(11.))
+                    .text_color(c(ui::faint()))
+                    .child(div().flex_1().child(if lang.is_empty() {
+                        "code".to_string()
+                    } else {
+                        lang.to_string()
+                    }))
+                    .child(
+                        div()
+                            .id(SharedString::from(id))
+                            .px(px(6.))
+                            .h(px(20.))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .rounded(px(5.))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                            .child(Icon::new(IconName::Copy).size(px(12.)))
+                            .child("Copy")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                                this.say("Copied.");
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .px(px(12.))
+                    .py(px(10.))
+                    .font_family(ui::MONO)
+                    .text_size(px(12.5))
+                    .line_height(px(19.))
+                    .text_color(c(ui::ink()))
+                    .child(code),
+            )
     }
 
     /// Does what a message offered.

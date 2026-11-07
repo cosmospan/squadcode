@@ -430,7 +430,8 @@ pub fn seed() -> Store {
             question: "Where does the tax get added to the total?".into(),
             answer: Some(super::store::Said::bot(
                 "In src/checkout/total.ts: totalWithTax() adds it after discounts, \
-                 so gift cards and coupons come off before tax is worked out."
+                 so gift cards and coupons come off before tax is worked out.\n\n\
+                 ```ts\nconst subtotal = items.sum() - discounts;\nreturn subtotal + tax(subtotal);\n```"
                     .into(),
                 "Claude Code \u{b7} 9s".into(),
             )),
@@ -447,6 +448,8 @@ pub fn seed() -> Store {
         set_up: true,
         steps: Vec::new(),
         guide_hidden: true,
+        try_hidden: false,
+        reactions: Default::default(),
         offered: Vec::new(),
         pinned: vec![Member::Made(2)],
         goals: vec![
