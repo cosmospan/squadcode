@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
-<!-- Peek with the "needs you" dot, set clear of its right ear. -->
-<path d="M4.6 6.78C5 3.6 7.2 3.6 7.6 6.6M10.4 6.6C10.8 3.6 13 3.6 13.4 6.78" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"/><rect x="1.6" y="6.6" width="14.8" height="8.4" rx="4.2" fill="none" stroke="#000" stroke-width="1.6"/><circle cx="6.3" cy="10.8" r="1.55" fill="none" stroke="#000" stroke-width="1.4"/><circle cx="11.7" cy="10.8" r="1.55" fill="none" stroke="#000" stroke-width="1.4"/>
+<!-- The same glyph with the "needs you" dot, top right, clear of the window. -->
+<path d="M2.2 9.6V4.2a2 2 0 0 1 2-2h6.2a2 2 0 0 1 1.6 .8" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"/><path d="M4.4 4.9l1.5 1.1-1.5 1.1" fill="none" stroke="#000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path fill="#000" fill-rule="evenodd" d="M8.6 7.6Q9.1 5.4 9.9 7.6H12.4Q13.2 5.4 13.7 7.6H14A2.6 2.6 0 0 1 16.6 10.2V13.4A2.6 2.6 0 0 1 14 16H8.4A2.6 2.6 0 0 1 5.8 13.4V10.2A2.6 2.6 0 0 1 8.4 7.6ZM9.6 11.9a1.05 1.05 0 1 0 2.1 0a1.05 1.05 0 1 0-2.1 0ZM11.9 11.9a1.05 1.05 0 1 0 2.1 0a1.05 1.05 0 1 0-2.1 0Z"/>
 <circle cx="16" cy="2.6" r="2" fill="#000"/>
 </svg>
