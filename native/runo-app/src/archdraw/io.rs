@@ -1362,14 +1362,10 @@ fn render_svg(doc: &Doc, view: &View, animated: bool) -> String {
 /// A Lucide icon drawn at (x, y), `size` across, in `color`: the same glyphs the canvas
 /// shows, so an export looks like the diagram.
 fn lucide(name: &str, x: f32, y: f32, size: f32, color: &str) -> Option<String> {
-    use gpui_kit::AssetSource;
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return None;
     }
-    let bytes = gpui_kit::assets::AllAssets
-        .load(&format!("icons/{name}.svg"))
-        .ok()??;
-    let text = String::from_utf8(bytes.into_owned()).ok()?;
+    let text = crate::icons::svg(name)?;
     let start = text.find("<svg")?;
     let open = start + text[start..].find('>')? + 1;
     let close = text.rfind("</svg>")?;
