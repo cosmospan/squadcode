@@ -546,7 +546,7 @@ impl Shell {
                         .py(px(8.))
                         .rounded(px(9.))
                         .cursor_pointer()
-                        .hover(|s| s.bg(c(ui::hover())))
+                        .map(|d| super::motion::hover_fill(d, None, ui::hover()))
                         .text_size(px(13.))
                         .child(Icon::new(IconName::Plus).size(px(14.)))
                         .child("Add a folder…")

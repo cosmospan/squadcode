@@ -52,7 +52,7 @@ impl Shell {
             .flex()
             .flex_col()
             .gap(px(8.));
-        for j in &jobs {
+        for (n, j) in jobs.iter().enumerate() {
             let id = j.id;
             let on = id == pick;
             let face = self.avatar(j.bot, 30.);
@@ -60,6 +60,7 @@ impl Shell {
             list = list.child(
                 div()
                     .id(("inbox", id as usize))
+                    .map(|d| super::motion::enter(d, super::motion::key(("inbox", id)), n))
                     .flex()
                     .gap(px(12.))
                     .p(px(14.))
@@ -504,7 +505,12 @@ impl Shell {
                     .cursor_pointer()
                     .map(|d| {
                         if on {
-                            d.bg(c(ui::raised())).text_color(c(ui::ink()))
+                            let k = super::motion::shown(
+                                super::motion::key(("hist-filter-on", i)),
+                                super::motion::QUICK,
+                                0.,
+                            );
+                            d.bg(ca(ui::raised(), k)).text_color(c(ui::ink()))
                         } else {
                             d.text_color(c(ui::muted()))
                                 .hover(|s| s.text_color(c(ui::ink())))
@@ -558,6 +564,7 @@ impl Shell {
         ];
         let mut body = div().flex().flex_col().gap(px(26.));
         let mut any = false;
+        let mut shown = 0;
         for (key, label, dot, rows) in groups {
             if (filter != 0 && filter != key) || rows.is_empty() {
                 continue;
@@ -565,11 +572,14 @@ impl Shell {
             any = true;
             let mut cards = div().flex().flex_col().gap(px(8.));
             for j in &rows {
-                cards = cards.child(if j.status == Status::Running {
+                let card = if j.status == Status::Running {
                     self.running_job_card(j, cx).into_any_element()
                 } else {
                     self.job_card(j, cx).into_any_element()
-                });
+                };
+                let k = super::motion::key(("history-card", j.id));
+                cards = cards.child(super::motion::enter(div().child(card), k, shown));
+                shown += 1;
             }
             body = body.child(
                 div()
@@ -653,8 +663,7 @@ impl Shell {
         let frac = j
             .progress()
             .map(|(d, n)| self.glide_bar(id, d as f32 / n.max(1) as f32));
-        let pulse =
-            0.4 + 0.6 * runo_holo::anim::alternate(self.now(), 0.9, runo_holo::anim::SOFT) as f32;
+        let pulse = 0.4 + 0.6 * super::motion::breath();
         let what = match j.progress() {
             Some((d, n)) => format!("Step {} of {n}", (d + 1).min(n)),
             None => "Working".to_string(),

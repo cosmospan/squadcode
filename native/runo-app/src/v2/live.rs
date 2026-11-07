@@ -327,8 +327,7 @@ impl Shell {
         let mut feed = div().flex().flex_col().gap(px(10.)).px(px(30.)).py(px(20.));
         let mut tools: Vec<(String, String, u8)> = Vec::new();
         // A step in progress shows a dot that breathes.
-        let breathe =
-            0.35 + 0.65 * runo_holo::anim::alternate(self.now(), 0.9, runo_holo::anim::SOFT) as f32;
+        let breathe = 0.35 + 0.65 * super::motion::breath();
         let flush = |feed: Div, tools: &mut Vec<(String, String, u8)>| -> Div {
             if tools.is_empty() {
                 return feed;
@@ -671,7 +670,7 @@ impl Shell {
                     .py(px(5.))
                     .rounded(px(8.))
                     .cursor_pointer()
-                    .hover(|s| s.bg(c(ui::hover())))
+                    .map(|d| super::motion::hover_fill(d, None, ui::hover()))
                     .child(
                         Icon::new(IconName::FileText)
                             .size(px(13.))
@@ -745,7 +744,7 @@ impl Shell {
                     .py(px(5.))
                     .rounded(px(9.))
                     .cursor_pointer()
-                    .hover(|s| s.bg(c(ui::hover())))
+                    .map(|d| super::motion::hover_fill(d, None, ui::hover()))
                     .child(
                         div()
                             .size(px(7.))

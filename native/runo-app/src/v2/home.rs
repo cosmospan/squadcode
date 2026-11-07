@@ -7,7 +7,7 @@ use runo_holo::{Framing, Mood};
 
 use super::store::{self, Job, Status};
 use super::ui::{self, c, ca};
-use super::{Place, Shell};
+use super::{motion, Place, Shell};
 
 impl Shell {
     /// Running, needs you, done today and what today cost.
@@ -127,7 +127,15 @@ impl Shell {
     ) -> AnyElement {
         // Crew Chat: the conversation in front, and the Jobs panel on its right
         // only when you open it from the top bar.
-        let list = self.jobs_open.then(|| self.job_list(pick, cx));
+        let list = self.jobs_open.then(|| {
+            // Slides in from the right edge when opened.
+            motion::panel(
+                div().h_full().flex_none().child(self.job_list(pick, cx)),
+                motion::key("jobs-panel"),
+                18.,
+                0.,
+            )
+        });
         div()
             .size_full()
             .flex()
@@ -207,7 +215,13 @@ impl Shell {
                     .cursor_pointer()
                     .map(|d| {
                         if on {
-                            d.bg(c(ui::raised())).text_color(c(ui::ink()))
+                            // The picked filter's chip fades in as it moves.
+                            let k = motion::shown(
+                                motion::key(("list-filter-on", i)),
+                                motion::QUICK,
+                                0.,
+                            );
+                            d.bg(ca(ui::raised(), k)).text_color(c(ui::ink()))
                         } else {
                             d.text_color(c(ui::muted()))
                                 .hover(|s| s.text_color(c(ui::ink())))
@@ -324,6 +338,7 @@ impl Shell {
             (3, "Done", ui::GREEN, done),
         ];
         let mut any = false;
+        let mut shown = 0;
         for (key, label, color, rows) in groups {
             if (filter != 0 && filter != key) || rows.is_empty() {
                 continue;
@@ -336,7 +351,9 @@ impl Shell {
                     .pb(px(6.)),
             );
             for j in &rows {
-                body = body.child(self.list_row(j, pick == Some(j.id), cx));
+                let row = self.list_row(j, pick == Some(j.id), cx);
+                body = body.child(motion::enter(row, motion::key(("list-row", j.id)), shown));
+                shown += 1;
             }
         }
         if !any {
@@ -365,7 +382,7 @@ impl Shell {
 
     /// One job in the list: the bot's face, the title, its state, and a thin
     /// progress line while it runs.
-    fn list_row(&mut self, j: &Job, on: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn list_row(&mut self, j: &Job, on: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = j.id;
         let is_running = j.status == Status::Running;
         let face = if is_running {
@@ -403,18 +420,20 @@ impl Shell {
             .cursor_pointer()
             .map(|d| {
                 if on {
-                    d.bg(c(ui::raised())).child(
+                    // Picked: the tint and the accent mark grow in.
+                    let k = motion::shown(motion::key(("list-row-on", id)), motion::BASE, 0.);
+                    d.bg(ca(ui::raised(), k)).child(
                         div()
                             .absolute()
                             .left(px(-8.))
-                            .top(px(12.))
-                            .bottom(px(12.))
+                            .top(px(12. + 8. * (1. - k)))
+                            .bottom(px(12. + 8. * (1. - k)))
                             .w(px(3.))
                             .rounded_r(px(3.))
-                            .bg(c(accent)),
+                            .bg(ca(accent, k)),
                     )
                 } else {
-                    d.hover(|s| s.bg(c(ui::hover())))
+                    motion::hover_fill(d, None, ui::hover())
                 }
             })
             .child(
@@ -467,7 +486,7 @@ impl Shell {
                             .gap(px(6.))
                             .text_size(px(11.5))
                             .text_color(c(ui::muted()))
-                            .child(div().size(px(6.)).flex_none().rounded_full().bg(c(tone.0)))
+                            .child(motion::dot(tone.0, 6., is_running || j.needs_you()))
                             .child(div().flex_none().text_color(c(tone.0)).child(word))
                             .child(div().flex_none().text_color(c(ui::faint())).child("·"))
                             .child(div().min_w_0().truncate().child(sub)),

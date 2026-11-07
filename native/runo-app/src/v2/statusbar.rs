@@ -212,7 +212,8 @@ impl Shell {
             .gap(px(8.))
             .rounded_full()
             .cursor_pointer()
-            .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+            .map(|d| super::motion::hover_fill(d, None, ui::hover()))
+            .hover(|s| s.text_color(c(ui::ink())))
             // Not while the popover is open: it would cover the popover's links.
             .when(!open, |d| {
                 d.tooltip(move |window, cx| {
@@ -458,7 +459,8 @@ impl Shell {
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(c(ui::body()))
                 .cursor_pointer()
-                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                .map(|d| super::motion::hover_fill(d, None, ui::hover()))
+                .hover(|s| s.text_color(c(ui::ink())))
                 .child(label)
         };
         let foot = div()

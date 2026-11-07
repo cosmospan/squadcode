@@ -25,6 +25,7 @@ mod home;
 mod jobs;
 mod live;
 mod mascot;
+mod motion;
 mod myserver;
 mod palette;
 mod prefs;
@@ -2539,6 +2540,7 @@ impl Render for Shell {
             || self.inbox_at.elapsed() < Duration::from_millis(700)
             || self.chat_at.elapsed() < Duration::from_millis(500)
             || self.nav_at.elapsed() < Duration::from_millis(600)
+            || motion::settling()
             || (self.hovered.is_some() && self.hover_at.elapsed() < Duration::from_millis(400))
             || self
                 .toast
@@ -2594,7 +2596,10 @@ impl Render for Shell {
         self.dozing
             .store(doze, std::sync::atomic::Ordering::Relaxed);
         self.holos.begin(window, cx);
-        self.motion = cx.global::<crate::settings::AppSettings>().animations;
+        // Settings → Animations, and Reduce motion in macOS, both calm everything.
+        self.motion =
+            cx.global::<crate::settings::AppSettings>().animations && !crate::motion::calm(cx);
+        motion::begin(self.motion);
         mascot::sync(cx.global::<crate::settings::AppSettings>());
         let body = match self.place {
             Place::Today => self.channel(cx),
@@ -2613,7 +2618,7 @@ impl Render for Shell {
             Place::Welcome => self.welcome(cx),
         };
         // Each place eases in: a short fade and a lift of a few pixels.
-        let k = runo_holo::anim::spring(self.entered.elapsed().as_secs_f64(), 0.32) as f32;
+        let k = motion::ease(self.entered, motion::GENTLE, 0.0);
         let body = div()
             .size_full()
             .opacity(0.35 + 0.65 * k)
@@ -2629,7 +2634,7 @@ impl Render for Shell {
             .clone()
             .filter(|(_, at)| at.elapsed() < Duration::from_millis(3500));
         let toast_el = toast.map(|(text, at)| {
-            let k = (at.elapsed().as_secs_f32() / 0.25).min(1.0);
+            let k = motion::ease(at, motion::BASE, 0.0);
             let fade = ((3.5 - at.elapsed().as_secs_f32()) / 0.4).clamp(0.0, 1.0);
             div()
                 .absolute()
@@ -2785,17 +2790,28 @@ impl Render for Shell {
             .children(toast_el)
             // Deferred, so it paints over the crew's frames too.
             .when(self.usage_open && !setup, |d| {
-                d.child(self.usage_popover(cx))
+                d.child(motion::panel(
+                    div().absolute().inset_0().child(self.usage_popover(cx)),
+                    motion::key("usage-popover"),
+                    0.,
+                    6.,
+                ))
             })
             .when(self.palette, |d| d.child(self.palette_view(cx)))
-            .children(self.delete_dialog(cx))
-            .children(self.remove_dialog(cx))
+            .children(self.delete_dialog(cx).map(|d| dialog(d, "delete")))
+            .children(self.remove_dialog(cx).map(|d| dialog(d, "remove")))
             // Painted last: with RUNO_FRAME_STATS set, the frame's timing is noted.
             .child(
                 canvas(|_, _, _| (), |_, _, _, _| crate::framestats::painted())
                     .absolute()
                     .size_0(),
             );
+        // Anything that started easing while the page was built (a hover, a
+        // panel coming in) gets its next frame straight away.
+        if motion::settling() {
+            window.request_animation_frame();
+        }
+        motion::end();
         crate::framestats::rendered();
         // A stand-in desktop under a see-through window, for screenshots taken where
         // the window can't really be see-through (Xvfb): RUNO_BACKDROP names an image.
@@ -3032,4 +3048,14 @@ fn mentioned(text: &str) -> Option<(Member, String)> {
         }
     }
     found.map(|m| (m, rest.join(" ")))
+}
+
+/// A dialog over the window, fading in with its scrim.
+fn dialog(el: AnyElement, name: &'static str) -> Div {
+    motion::panel(
+        div().absolute().inset_0().child(el),
+        motion::key(("dialog", name)),
+        0.,
+        0.,
+    )
 }

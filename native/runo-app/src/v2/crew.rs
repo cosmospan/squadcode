@@ -40,8 +40,13 @@ impl Shell {
             .grid()
             .grid_cols(if wide { 3 } else { 2 })
             .gap(px(14.));
-        for who in all {
-            list = list.child(self.crew_row(who, cx));
+        for (n, who) in all.into_iter().enumerate() {
+            let card = self.crew_row(who, cx);
+            list = list.child(super::motion::enter(
+                card,
+                super::motion::key(("crew-row", who.key())),
+                n,
+            ));
         }
         let page = div()
             .w_full()
@@ -139,7 +144,8 @@ impl Shell {
                 .text_size(px(12.))
                 .text_color(c(ui::muted()))
                 .cursor_pointer()
-                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                .map(|d| super::motion::hover_fill(d, None, ui::hover()))
+                .hover(|s| s.text_color(c(ui::ink())))
                 .child(label)
         };
         let key = who.key() as usize;

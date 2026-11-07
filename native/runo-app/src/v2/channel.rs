@@ -587,9 +587,7 @@ impl Shell {
             )
             .child(if running {
                 // Working: a pill in the bot's own colour, with how long so far.
-                let k = 0.4
-                    + 0.6
-                        * runo_holo::anim::alternate(self.now(), 0.9, runo_holo::anim::SOFT) as f32;
+                let k = 0.4 + 0.6 * super::motion::breath();
                 let what = match j.progress() {
                     Some((d, n)) => format!("Step {} of {n}", (d + 1).min(n)),
                     None => "Working".to_string(),
@@ -655,10 +653,7 @@ impl Shell {
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::ink()))
                     .child({
-                        let k = 0.35
-                            + 0.65
-                                * runo_holo::anim::alternate(self.now(), 0.9, runo_holo::anim::SOFT)
-                                    as f32;
+                        let k = 0.35 + 0.65 * super::motion::breath();
                         div()
                             .size(px(8.))
                             .mx(px(3.))

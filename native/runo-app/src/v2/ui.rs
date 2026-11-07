@@ -214,7 +214,7 @@ fn ghost_base(id: impl Into<ElementId>) -> Stateful<Div> {
         .font_weight(FontWeight::MEDIUM)
         .text_color(c(ink()))
         .cursor_pointer()
-        .hover(|s| s.bg(c(hover())))
+        .map(|d| super::motion::hover_fill(d, None, hover()))
         .active(|s| s.bg(c(press())))
 }
 
@@ -246,12 +246,11 @@ fn solid_base(id: impl Into<ElementId>) -> Stateful<Div> {
         .justify_center()
         .gap(px(6.))
         .rounded(px(8.))
-        .bg(c(fill()))
         .text_size(px(13.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(c(on_fill()))
         .cursor_pointer()
-        .hover(|s| s.bg(c(fill_hover())))
+        .map(|d| super::motion::hover_fill(d, Some(fill()), fill_hover()))
         .active(|s| s.bg(c(fill_press())))
 }
 
@@ -265,9 +264,8 @@ pub fn icon_btn(id: impl Into<ElementId>, icon: IconName) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .rounded(px(8.))
-        .text_color(c(muted()))
         .cursor_pointer()
-        .hover(|s| s.bg(c(hover())).text_color(c(ink())))
+        .map(|d| super::motion::hover_paint(d, None, hover(), Some((muted(), ink()))))
         .active(|s| s.bg(c(press())))
         .child(Icon::new(icon).size(px(16.)))
 }
@@ -291,6 +289,17 @@ pub fn pill_i(
 }
 
 fn pill_base(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
+    let id: ElementId = id.into();
+    // A newly picked pill's tint fades in as the choice moves to it.
+    let k = if on {
+        super::motion::shown(
+            super::motion::key(("pill-on", &id)),
+            super::motion::QUICK,
+            0.,
+        )
+    } else {
+        1.
+    };
     div()
         .id(id)
         .px(px(10.))
@@ -304,10 +313,9 @@ fn pill_base(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
         .cursor_pointer()
         .map(|d| {
             if on {
-                d.bg(c(raised())).text_color(c(ink()))
+                d.bg(ca(raised(), k)).text_color(c(ink()))
             } else {
-                d.text_color(c(muted()))
-                    .hover(|s| s.bg(c(hover())).text_color(c(ink())))
+                super::motion::hover_paint(d, None, hover(), Some((muted(), ink())))
                     .active(|s| s.bg(c(press())))
             }
         })
@@ -329,8 +337,14 @@ pub fn badge(tone: Tone, label: impl Into<SharedString>) -> Div {
         .text_size(px(12.))
         .font_weight(FontWeight::MEDIUM)
         .text_color(c(text))
-        .child(div().size(px(6.)).rounded_full().bg(c(text)))
+        .child(super::motion::dot(text, 6., live_tone(tone)))
         .child(label.into())
+}
+
+/// Whether a badge in `tone` is for something live: running, or waiting on
+/// you. Its dot breathes.
+fn live_tone(tone: Tone) -> bool {
+    tone == super::theme::run_tone() || tone == ask_tone()
 }
 
 /// A keyboard hint, like "⌘K".
@@ -490,9 +504,7 @@ pub fn sweep(color: u32, _phase: f32) -> Div {
 
 /// Eases an element in: `k` runs 0 → 1, fading it up from a few pixels lower.
 pub fn rise<E: Styled>(el: E, k: f32) -> E {
-    el.opacity(k.clamp(0.0, 1.0))
-        .relative()
-        .top(px(8. * (1. - k)))
+    super::motion::rise(el, k)
 }
 
 /// Puts text in a box with the caret after it, so typing carries on from there.
