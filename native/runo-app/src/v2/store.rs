@@ -36,6 +36,8 @@ pub struct Store {
     pub steps: Vec<Step>,
     /// The getting-started card was put away.
     pub guide_hidden: bool,
+    /// The sidebar's Try list was put away.
+    pub try_hidden: bool,
     /// Bot ideas Fin already offered (`brain::ideas`), so each is offered once.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub offered: Vec<String>,
@@ -47,6 +49,9 @@ pub struct Store {
     /// When you last looked at each thread, by "folder#id", for unread dots.
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub seen_at: HashMap<String, u64>,
+    /// Reactions you put on messages in threads, by "job-<id>" or "talk-<id>".
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub reactions: HashMap<String, Vec<String>>,
     /// Questions asked in threads, with the answers that came back.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub talks: Vec<Talk>,
@@ -833,6 +838,20 @@ impl Store {
     }
 
     /// You're looking at a thread now: it has nothing unread.
+    /// Puts `emoji` on a message, or takes it off when it's already there.
+    pub fn toggle_reaction(&mut self, key: &str, emoji: &str) {
+        let list = self.reactions.entry(key.to_string()).or_default();
+        if let Some(i) = list.iter().position(|e| e == emoji) {
+            list.remove(i);
+        } else {
+            list.push(emoji.to_string());
+        }
+        if list.is_empty() {
+            self.reactions.remove(key);
+        }
+        self.save();
+    }
+
     pub fn mark_seen(&mut self, folder: &str, thread: u64) {
         self.seen_at.insert(format!("{folder}#{thread}"), now());
     }
