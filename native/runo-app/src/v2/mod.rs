@@ -24,6 +24,7 @@ mod history;
 mod home;
 mod jobs;
 mod live;
+mod machine;
 mod mascot;
 mod myserver;
 mod palette;
@@ -31,9 +32,12 @@ mod prefs;
 mod race;
 mod remote;
 mod review;
+mod rfb;
 mod rich;
 mod runtime;
+mod screenview;
 pub mod server;
+mod serverpage;
 mod setup;
 mod ship;
 mod sidebar;
@@ -85,6 +89,10 @@ pub enum Place {
     Settings(Pane),
     /// What the crew cost and did lately.
     Usage,
+    /// Your server: how it's doing, and its controls.
+    Server,
+    /// Your server's screen, live.
+    Screen,
     /// The first-run walkthrough.
     Welcome,
 }
@@ -558,6 +566,35 @@ pub struct Shell {
     server_sign_in: Option<remote::SignIn>,
     server_brain_log: Vec<String>,
     server_brain_failed: bool,
+    /// The Your server page: the server read every few seconds while it's
+    /// open, what it looked like last, and why it couldn't be read.
+    server_watch: Option<machine::Watch>,
+    server_look: Option<machine::Look>,
+    server_look_err: String,
+    /// Things being done there, what they said (what, output, failed), the
+    /// button waiting for a second click, and processes asked to stop.
+    server_acts: Vec<(
+        machine::Act,
+        std::sync::mpsc::Receiver<Result<String, String>>,
+    )>,
+    server_out: Vec<(String, String, bool)>,
+    server_arm: Option<(String, Instant)>,
+    server_stopped: std::collections::HashSet<u32>,
+    server_cmd: Entity<InputState>,
+    /// The server's screen: being set up, and once it's shared, the tunnel
+    /// that keeps it reachable.
+    server_screen_rx: Option<std::sync::mpsc::Receiver<Result<machine::Screen, String>>>,
+    server_screen: Option<machine::Screen>,
+    /// Watching that screen in Squad: the connection, the picture and the
+    /// frame it was made from, pictures to let go of, where it's drawn and
+    /// the focus that sends keys to it.
+    screen_view: Option<rfb::Viewer>,
+    screen_img: Option<Arc<RenderImage>>,
+    screen_seen: u64,
+    screen_built: Instant,
+    screen_retired: Vec<Arc<RenderImage>>,
+    screen_bounds: std::rc::Rc<std::cell::Cell<Bounds<Pixels>>>,
+    screen_focus: FocusHandle,
     server_url: Option<String>,
     palette_sel: usize,
     palette_at: Instant,
@@ -668,7 +705,9 @@ fn nav_slot(place: Place) -> Option<f32> {
         Place::History | Place::Live(_) | Place::Race(_) | Place::Goal(_) => 2,
         Place::Chat(_) => 3,
         Place::Crew => 4,
-        Place::Settings(_) | Place::Usage | Place::Welcome => return None,
+        Place::Settings(_) | Place::Usage | Place::Server | Place::Screen | Place::Welcome => {
+            return None
+        }
     };
     Some(i as f32 * 46.)
 }
@@ -751,6 +790,9 @@ impl Shell {
             InputState::new(window, cx)
                 .placeholder("New password for the server")
                 .masked(true)
+        });
+        let server_cmd = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("df -h, docker ps, systemctl status nginx…")
         });
         let server_code =
             cx.new(|cx| InputState::new(window, cx).placeholder("Paste the code from Claude"));
@@ -912,6 +954,13 @@ impl Shell {
                     }
                 }
             }),
+            cx.subscribe_in(&server_cmd, window, |this, _, event, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    if this.place == Place::Server {
+                        this.run_server_command(window, cx);
+                    }
+                }
+            }),
             cx.subscribe_in(&live_input, window, |this, input, event, window, cx| {
                 if let InputEvent::PressEnter { .. } = event {
                     let text = input.read(cx).value().trim().to_string();
@@ -985,6 +1034,7 @@ impl Shell {
             Ok("mascot") => Place::Settings(Pane::Mascot),
             Ok("appearance") => Place::Settings(Pane::Appearance),
             Ok("usage") => Place::Usage,
+            Ok("machine") => Place::Server,
             Ok("needs") => Place::Inbox,
             Ok("goal") => store
                 .goals
@@ -1114,6 +1164,23 @@ impl Shell {
             server_sign_in: None,
             server_brain_log: Vec::new(),
             server_brain_failed: false,
+            server_watch: None,
+            server_look: None,
+            server_look_err: String::new(),
+            server_acts: Vec::new(),
+            server_out: Vec::new(),
+            server_arm: None,
+            server_stopped: Default::default(),
+            server_cmd,
+            server_screen_rx: None,
+            server_screen: None,
+            screen_view: None,
+            screen_img: None,
+            screen_seen: u64::MAX,
+            screen_built: Instant::now(),
+            screen_retired: Vec::new(),
+            screen_bounds: Default::default(),
+            screen_focus: cx.focus_handle(),
             server_url: None,
             palette_sel: 0,
             palette_at: Instant::now(),
@@ -2282,6 +2349,7 @@ impl Shell {
             _ => None,
         };
         self.poll_server_setup(cx);
+        self.poll_machine(cx);
         let finished = self.crew.poll(&st, viewing);
         self.poll_reading(cx);
         for note in std::mem::take(&mut self.crew.notes) {
@@ -2610,6 +2678,8 @@ impl Render for Shell {
             Place::History => self.history(cx),
             Place::Settings(pane) => self.settings(pane, cx),
             Place::Usage => self.usage(cx),
+            Place::Server => self.server_page(cx),
+            Place::Screen => self.screen_page(window, cx),
             Place::Welcome => self.welcome(cx),
         };
         // Each place eases in: a short fade and a lift of a few pixels.
@@ -2693,8 +2763,11 @@ impl Render for Shell {
                 // the project's everywhere else (or when that one is open).
                 if m.control && key == "`" && this.place != Place::Welcome {
                     match this.place {
-                        Place::Live(id) if !this.term_open.is_some_and(term::is_project) => {
+                        Place::Live(id) if !this.term_open.is_some_and(term::is_shared) => {
                             this.toggle_term(id, window, cx)
+                        }
+                        Place::Server if this.crew.link.is_some() => {
+                            this.toggle_server_term(window, cx)
                         }
                         _ => this.toggle_project_term(window, cx),
                     }

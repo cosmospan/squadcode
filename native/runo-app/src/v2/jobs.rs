@@ -212,6 +212,7 @@ pub fn start(
         trusted: false,
     };
     let (tx, rx) = channel();
+    super::machine::use_server_screen();
     let handle = agent::run_agent(Target::Terminal(job.id), &spec, &dir, None, tx)?;
     job.agent = p.id.to_string();
     job.engine = engine::label_of(i, &model);

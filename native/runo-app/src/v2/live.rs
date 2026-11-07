@@ -191,6 +191,11 @@ impl Shell {
                     )
                 },
             )
+            // A job on your server: its screen, where anything the bot
+            // opens (a browser, the app it's testing) shows up.
+            .when(running && !job.remote_on.is_empty(), |d| {
+                d.child(self.screen_button("job-screen", "Watch its screen", cx))
+            })
             .when(running, |d| {
                 let id = job.id;
                 d.child(

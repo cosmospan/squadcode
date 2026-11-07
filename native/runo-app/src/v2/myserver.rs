@@ -499,13 +499,27 @@ impl Shell {
         let status = action_row(
             host.clone(),
             link.line(),
-            ui::ghost("server-disconnect", "Disconnect").on_click(cx.listener(|this, _, _, cx| {
-                remote::forget();
-                this.crew.link = None;
-                this.server_brain_log.clear();
-                this.say("Disconnected. The server keeps running; connect again any time.");
-                cx.notify();
-            })),
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    ui::ghost_i("server-open-page", IconName::Activity, "See and control it")
+                        .on_click(cx.listener(|this, _, _, cx| this.go(super::Place::Server, cx))),
+                )
+                .child(
+                    ui::ghost("server-disconnect", "Disconnect").on_click(cx.listener(
+                        |this, _, _, cx| {
+                            remote::forget();
+                            this.crew.link = None;
+                            this.server_brain_log.clear();
+                            this.server_look = None;
+                            this.say(
+                                "Disconnected. The server keeps running; connect again any time.",
+                            );
+                            cx.notify();
+                        },
+                    )),
+                ),
         );
         let names = if projects.is_empty() {
             "None yet. Jobs only run there on projects it has.".to_string()

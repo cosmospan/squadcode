@@ -129,6 +129,7 @@ impl Shell {
                 "Settings: My server",
                 "",
             ),
+            (Place::Server, IconName::Server, "Your server", ""),
             (Place::Usage, IconName::ChartColumn, "Usage", "⌘7"),
         ];
         for (p, icon, label, key) in places {

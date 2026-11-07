@@ -218,7 +218,24 @@ impl Shell {
                     .child(Icon::new(IconName::Users).size(px(16.)))
                     .child("Your crew")
                     .on_click(cx.listener(|this, _, _, cx| this.go(Place::Crew, cx))),
-            );
+            )
+            // Your server, once there is one, with a dot for whether it answers.
+            .when_some(self.crew.link.as_ref().map(|l| l.up()), |d, up| {
+                d.child(
+                    row(
+                        "side-server",
+                        matches!(place, Place::Server | Place::Screen),
+                    )
+                    .child(Icon::new(IconName::Server).size(px(16.)))
+                    .child("Your server")
+                    .child(div().ml_auto().size(px(7.)).rounded_full().bg(c(if up {
+                        ui::t_green()
+                    } else {
+                        ui::faint()
+                    })))
+                    .on_click(cx.listener(|this, _, _, cx| this.go(Place::Server, cx))),
+                )
+            });
 
         // The project's # threads: group chats with a few bots each. #general
         // is always there; the one you're in is lit while you're on it.
@@ -670,6 +687,8 @@ impl Shell {
             },
             Place::Settings(_) => "Settings".into(),
             Place::Usage => "Usage".into(),
+            Place::Server => "Your server".into(),
+            Place::Screen => "Your server / Screen".into(),
             Place::Welcome => "Welcome".into(),
         };
         // Settings apply to every project, so they get a plain title, not a path.
