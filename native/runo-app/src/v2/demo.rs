@@ -242,7 +242,7 @@ pub fn seed() -> Store {
     );
     j.status = Status::Review;
     j.seen = false;
-    j.handoff = "This is a build job, so I'm bringing in Builder.".into();
+    j.handoff = "This is a build job. Onboarding Builder: it's new to this project, so it'll look around the code first.".into();
     j.short = "Gift cards at checkout".into();
     j.summary = "7m · 12 turns · $0.41 · 62% from cache".into();
     j.changes = vec![

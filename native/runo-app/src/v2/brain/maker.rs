@@ -8,8 +8,8 @@
 //!    files and connected apps already on this computer and writing new skills
 //!    where none fit. [`parse_full`] checks the answer.
 //! 2. [`quick`], at once and built in, for when no engine can run: the kind
-//!    of work from what the bot is for, its skills from the words that name its
-//!    subject, and a safe set of rules for that kind ([`draft`]).
+//!    of work the person picked (building, if none), its skills from the words
+//!    that name its subject, and a safe set of rules for that kind ([`draft`]).
 //!
 //! The skills are what routing matches a new job against, so a job about
 //! Stripe goes to the bot that knows Stripe.
@@ -22,7 +22,7 @@ use crate::agent::{self, Event};
 use crate::settings::AppSettings;
 
 use super::super::data::{Member, Mode};
-use super::{route, words};
+use super::words;
 
 /// A bot's setup, before it joins the crew.
 #[derive(Clone, Debug, PartialEq)]
@@ -97,19 +97,8 @@ pub fn rules_for(like: Member) -> Vec<String> {
 /// The built-in setup for a bot named `name` that's for `role`. `like` is the
 /// kind of work the person picked, or None to work it out from the role.
 pub fn draft(name: &str, role: &str, like: Option<Member>) -> Design {
-    let about = if role.trim().is_empty() { name } else { role };
-    let like = like.unwrap_or_else(|| {
-        // A bot's job reads like a description ("fixes billing bugs"), where
-        // the keyword rules do better than the classifier trained on requests.
-        let about = base_forms(about);
-        let rules = route::by_rules(&about, &[]);
-        let mode = if rules.sure >= route::Route::SURE {
-            rules.mode
-        } else {
-            route::built_in(&about, &[]).mode
-        };
-        Member::for_mode(mode)
-    });
+    // With no kind picked, a made bot builds; the person can change it.
+    let like = like.unwrap_or(Member::Builder);
     let role = if role.trim().is_empty() {
         like.role().to_string()
     } else {
@@ -121,28 +110,6 @@ pub fn draft(name: &str, role: &str, like: Option<Member>) -> Design {
         role,
         like,
     }
-}
-
-/// "fixes billing bugs" → "fix billing bug": a description's verbs and plurals
-/// in the form the routing rules know.
-fn base_forms(text: &str) -> String {
-    words(text)
-        .into_iter()
-        .map(|w| {
-            if w.len() > 4
-                && ["xes", "ches", "shes", "sses"]
-                    .iter()
-                    .any(|e| w.ends_with(e))
-            {
-                w[..w.len() - 2].to_string()
-            } else if w.len() > 3 && w.ends_with('s') && !w.ends_with("ss") {
-                w[..w.len() - 1].to_string()
-            } else {
-                w
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Everything the engine drafts for a new bot, checked.
@@ -477,12 +444,21 @@ mod tests {
 
     #[test]
     fn a_bot_for_bugs_works_like_fixer_and_knows_its_subject() {
-        let d = draft("Stripe Pro", "fixes Stripe webhook and billing bugs", None);
+        let d = draft(
+            "Stripe Pro",
+            "fixes Stripe webhook and billing bugs",
+            Some(Member::Fixer),
+        );
         assert_eq!(d.like, Member::Fixer);
         assert!(d.skills.contains(&"stripe".to_string()), "{:?}", d.skills);
         assert!(d.skills.contains(&"billing".to_string()));
         assert!(!d.skills.contains(&"fixes".to_string()));
         assert!(!d.rules.is_empty());
+    }
+
+    #[test]
+    fn with_no_pick_and_no_engine_a_bot_builds() {
+        assert_eq!(draft("Helper", "does things", None).like, Member::Builder);
     }
 
     #[test]
@@ -498,7 +474,11 @@ mod tests {
 
     #[test]
     fn a_review_bot_changes_nothing() {
-        let d = draft("Lock", "reviews auth changes for security risks", None);
+        let d = draft(
+            "Lock",
+            "reviews auth changes for security risks",
+            Some(Member::Guard),
+        );
         assert_eq!(d.like, Member::Guard);
         assert!(d.rules[0].contains("Change nothing"));
     }

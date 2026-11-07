@@ -129,6 +129,24 @@ pub fn recap_input(job: &Job) -> String {
     )
 }
 
+/// "server.js and server.test.js", or "a.js, b.js and 3 more", by name only.
+fn files_named(files: &[String]) -> String {
+    let names: Vec<&str> = files
+        .iter()
+        .map(|f| f.rsplit(['/', '\\']).next().unwrap_or(f))
+        .collect();
+    match names.len() {
+        0 => String::new(),
+        1 => names[0].to_string(),
+        2 | 3 => format!(
+            "{} and {}",
+            names[..names.len() - 1].join(", "),
+            names[names.len() - 1]
+        ),
+        n => format!("{}, {} and {} more", names[0], names[1], n - 2),
+    }
+}
+
 /// How a job ended, from facts only (its status, the diff, the checks): the
 /// line notices use, and the recap until Peek's arrives.
 pub fn facts(job: &Job) -> String {
@@ -175,6 +193,9 @@ pub fn facts(job: &Job) -> String {
         Status::Interrupted => "Interrupted before it finished.".into(),
         Status::Shipped => format!("Shipped. {}", job.shipped),
         _ if !job.changes.is_empty() => format!("{}.{}", changed(), checks()),
+        // Not on its own branch (a folder that isn't a git project): no diff
+        // to count, but the bot's own steps name what it wrote.
+        _ if !job.files.is_empty() => format!("Changed {}.{}", files_named(&job.files), checks()),
         _ => "Done, with no files changed.".into(),
     }
 }
@@ -401,6 +422,21 @@ mod tests {
         assert!(i.contains("Rewrote the header row"), "{i}");
         assert!(i.contains("Updated the snapshot"), "{i}");
         assert!(i.contains("Checks: all passed"), "{i}");
+    }
+
+    #[test]
+    fn a_job_outside_git_still_says_what_it_wrote() {
+        let job = Job {
+            status: Status::Done,
+            files: vec!["/Users/a/test/server.js".into(), "server.test.js".into()],
+            ..Default::default()
+        };
+        assert_eq!(facts(&job), "Changed server.js and server.test.js.");
+        let none = Job {
+            status: Status::Done,
+            ..Default::default()
+        };
+        assert_eq!(facts(&none), "Done, with no files changed.");
     }
 
     #[test]

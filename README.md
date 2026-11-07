@@ -182,13 +182,9 @@ See [provider setup](docs/providers.md) for installing and signing in to each on
 
 ## Fin: Squad's own intelligence
 
-Squad Code decides the small things for itself: which bot and kind of job a sentence is, whether a job runs here or on your server (and why, in the job's feed), when to suggest a bot you keep needing, and what Fin says. It does that in three steps, each used only when the one before isn't sure:
+Peek reads every message you send with your own engine (Claude Code, Codex, Grok and the others, on your own plan) and decides: reply, ask back, stop what's running, run the app, answer a question about the project, or hand the work to the bot whose role fits. There are no keyword rules or built-in classifiers. When your engine can't be reached, Peek says so and starts nothing. Claude Code is kept warm in the background, so a message reads in about two seconds.
 
-1. **A tiny classifier built into the app** (370 KB, no download, always on). It gets 117 of 120 messy test sentences right, against 70 for keyword rules alone.
-2. **Keyword rules.**
-3. **Smart Fin**, if you turn it on: Squad's own small model (Qwen3.5-0.8B, fine-tuned here, 505 MB) run by a `llama-server` that Squad starts only when it's unsure and stops after 5 idle minutes. Its answer is kept only if it names a real kind of job and a bot on the crew. Smart Fin also works with a model you already serve through llama-server or Ollama.
-
-Turn Smart Fin on in **Settings → Engines**, or with `squad brain install`. Nothing leaves your computer. The test sets, training data and scripts to train the model yourself (on a free Colab GPU or an Apple silicon Mac) are in [`training/`](training).
+Squad Code still decides some things for itself: whether a job runs here or on your server (and why, in the job's feed), when to suggest a bot you keep needing, and what Peek says. Smart Fin, if you turn it on, writes card titles and recaps with a small model on your computer. Turn it on in **Settings → Engines**, or with `squad brain install`.
 
 ## Themes
 
@@ -228,14 +224,12 @@ squad brain why tidy up the old feature flags  # where Fin would send a job, and
 | `squad new <words…>` | A Build job in this folder |
 | `squad fix\|test\|tidy\|review <words…>` | A job of that kind |
 | `squad new --bot <name> <words…>` | A job for one bot |
-| `squad do <words…>` | Fin picks the bot and the kind of job |
+| `squad do <words…>` | Your engine picks the bot and the kind of job |
 | `squad approve <id>` / `discard <id>` / `stop <id>` | Approve a job waiting for review, throw its changes away, or stop it |
 | `squad serve [--listen <address>\|tailscale]` | Run the crew here with no window ([below](#run-the-crew-on-a-server)) |
 | `squad pair [name]` / `devices` / `unpair <name>` | Pair a device with the server, list them, or cut one off |
 | `squad brain why <words…>` | Where Fin would send a job, and why |
 | `squad brain ideas` | A bot Fin thinks you could use |
-| `squad brain export <file>` | Your finished jobs as training examples |
-| `squad brain eval [hard\|file]` | Score Fin's routing on the fixed test sets |
 | `squad brain install [file]` / `remove` | Turn Smart Fin on with Squad's own model, or off and delete it |
 
 Jobs run in the Squad Code app while it's open, or in `squad serve`.

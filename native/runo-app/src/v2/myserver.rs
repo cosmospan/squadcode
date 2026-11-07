@@ -216,6 +216,59 @@ impl Shell {
         }
     }
 
+    /// The composer's "where it runs" switch, once there's a server: Squad
+    /// picks, then your server, then this computer.
+    pub(super) fn run_on_pill(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let link = self.crew.link.as_ref()?;
+        let (run, label) = (link.cfg.run.clone(), link.cfg.label());
+        let (icon, text, tip) = match run.as_str() {
+            "server" => (
+                IconName::Cloud,
+                format!("On {label}"),
+                format!("Runs on your server, {label}, and keeps going with this computer closed. Click to run it here instead."),
+            ),
+            "here" => (
+                IconName::Laptop,
+                "This computer".to_string(),
+                "Runs on this computer. Click to let Squad pick.".to_string(),
+            ),
+            _ => (
+                IconName::Sparkles,
+                "Squad picks".to_string(),
+                format!("Long work goes to {label}, quick work stays here. Click to always use {label}."),
+            ),
+        };
+        Some(
+            ui::pill_i("run-on", icon, text, run == "server")
+                .tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let next = match run.as_str() {
+                        "" => "server",
+                        "server" => "here",
+                        _ => "",
+                    };
+                    this.set_run(next, cx);
+                })),
+        )
+    }
+
+    /// Where jobs run from now on: "" lets Squad pick, "server" or "here".
+    pub(super) fn set_run(&mut self, run: &str, cx: &mut Context<Self>) {
+        if let Some(link) = &mut self.crew.link {
+            link.cfg.run = run.to_string();
+            remote::set_run(run);
+            let label = link.cfg.label();
+            self.say(match run {
+                "server" => format!("Jobs run on {label} from now on."),
+                "here" => "Jobs run on this computer from now on.".to_string(),
+                _ => format!("Squad picks between here and {label} for each job."),
+            });
+        }
+        cx.notify();
+    }
+
     fn connect_server(&mut self, cx: &mut Context<Self>) {
         if self.server_setup.is_some() {
             return;
@@ -435,12 +488,13 @@ impl Shell {
         let logins = link.logins();
         let projects = link.projects();
         let here = self.crew.store.folder().cloned();
-        // The open project, when the server doesn't have it yet and it can be cloned there.
+        // The open project, when the server doesn't have it yet: copied over
+        // from here, so it needs no git remote.
         let copy = here.and_then(|f| {
-            let url = super::ship::remote_url(&f.path)?;
+            let url = super::ship::remote_url(&f.path).unwrap_or_default();
             link.path_for(&f, &url)
                 .is_none()
-                .then_some((f.name.clone(), url))
+                .then_some((f.name.clone(), f.path.clone()))
         });
         let status = action_row(
             host.clone(),
@@ -462,21 +516,62 @@ impl Shell {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        let copy_button = copy.filter(|_| up).map(|(name, url)| {
+        let copy_button = copy.filter(|_| up).map(|(name, path)| {
             ui::ghost_i(
                 "server-copy",
                 IconName::CloudUpload,
-                format!("Put {name} there"),
+                format!("Copy {name} there"),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(link) = &this.crew.link {
-                    link.add_project(&name, &url);
-                    this.say(format!("Cloning {name} on the server…"));
+                    link.copy_project(&name, &path);
+                    this.say(format!("Copying {name} to the server…"));
                 }
                 cx.notify();
             }))
         });
         let projects_row = action_row("Projects there", names, div().children(copy_button));
+
+        // Where jobs run: the person's call, or Squad's.
+        let run = link.cfg.run.clone();
+        let choice = |id: &'static str, icon: IconName, label: String, value: &'static str| {
+            ui::pill_i(id, icon, label, run == value).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.set_run(value, cx);
+                },
+            ))
+        };
+        let run_row = div()
+            .px(px(18.))
+            .py(px(14.))
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .border_t_1()
+            .border_color(c(ui::line2()))
+            .child(div().text_size(px(13.5)).child("Where jobs run"))
+            .child(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(c(ui::faint()))
+                    .child(match run.as_str() {
+                        "server" => format!("Every job runs on {label}. When it doesn't have the project yet, Squad copies it there first."),
+                        "here" => "Every job runs on this computer. The server waits until you switch.".to_string(),
+                        _ => format!("Squad picks: long work goes to {label}, quick work stays here. Each job says where it ran."),
+                    }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .self_start()
+                    .gap(px(2.))
+                    .p(px(3.))
+                    .rounded(px(9.))
+                    .bg(c(ui::hover()))
+                    .child(choice("run-auto", IconName::Sparkles, "Squad picks".into(), ""))
+                    .child(choice("run-server", IconName::Cloud, format!("Always {label}"), "server"))
+                    .child(choice("run-here", IconName::Laptop, "Always this computer".into(), "here")),
+            );
 
         // What runs the jobs there.
         let ready: Vec<String> = logins
@@ -611,11 +706,11 @@ impl Shell {
             .flex()
             .flex_col()
             .gap(px(space::M))
-            .child(card("YOUR SERVER").child(status).child(projects_row))
+            .child(card("YOUR SERVER").child(status).child(projects_row).child(run_row))
             .child(brain)
             .child(card("HOW JOBS PICK A SIDE").child(line_row(
                 format!("Here or on {label}"),
-                "A job runs where its project is. When both sides have it, long work (big rewrites, migrations, overnight jobs) goes to the server and the rest stays here. Each job's feed says where it ran and why, and if the server can't take it, it runs here.",
+                "When Squad picks: a job runs where its project is, and when both sides have it, long work (big rewrites, migrations, overnight jobs) goes to the server and the rest stays here. Choose Always above to decide yourself. Each job's feed says where it ran and why, and if the server can't take it, it runs here.",
             )))
     }
 }

@@ -55,6 +55,8 @@ pub struct Config {
     /// The SSH key the app made for this server when you connected with a
     /// password; empty when your own SSH setup reaches it.
     pub key: String,
+    /// Where jobs run: "" lets Squad pick, "server" or "here" is the person's choice.
+    pub run: String,
 }
 
 impl Config {
@@ -89,6 +91,14 @@ fn save(c: &Config) -> Result<(), String> {
         let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
     }
     Ok(())
+}
+
+/// Keeps where jobs run ("", "server" or "here") for next time.
+pub fn set_run(run: &str) {
+    if let Some(mut c) = load() {
+        c.run = run.to_string();
+        let _ = save(&c);
+    }
 }
 
 /// Forgets the server here. The server keeps running; `squad unpair` there
@@ -815,6 +825,7 @@ fn setup(
         name: v["name"].as_str().unwrap_or(device).to_string(),
         token: v["token"].as_str().unwrap_or("").to_string(),
         key,
+        run: String::new(),
     };
     if cfg.token.is_empty() {
         return Err("Pairing failed: the server sent no token.".into());
@@ -883,7 +894,9 @@ enum Ask {
     Send(u64, Value),
     Act(u64, String, Value),
     Watch(Vec<u64>),
-    AddProject(String, String),
+    /// Copies a project from this computer (name, path here), then starts
+    /// a job on it there when one is given.
+    Copy(String, String, Option<(u64, Value)>),
 }
 
 /// A connection to the server, kept up on its own thread.
@@ -991,10 +1004,20 @@ impl Link {
     }
 
     /// Clones `url` into ~/squad/<name> there and adds it as a project.
-    pub fn add_project(&self, name: &str, url: &str) {
+    /// Copies the project at `path` here to the server.
+    pub fn copy_project(&self, name: &str, path: &str) {
         let _ = self
             .tx
-            .send(Ask::AddProject(name.to_string(), url.to_string()));
+            .send(Ask::Copy(name.to_string(), path.to_string(), None));
+    }
+
+    /// Copies the project to the server, then starts the job on it there.
+    pub fn copy_then_send(&self, local: u64, folder: &store::Folder, body: Value) {
+        let _ = self.tx.send(Ask::Copy(
+            folder.name.clone(),
+            folder.path.clone(),
+            Some((local, body)),
+        ));
     }
 
     pub fn sent(&self) -> Vec<(u64, Result<u64, String>)> {
@@ -1050,7 +1073,7 @@ fn worker(cfg: Config, seen: Arc<Mutex<Seen>>, rx: Receiver<Ask>) {
             }
         }
         let Some(port) = tunnel.as_ref().map(|t| t.port) else {
-            if let Some(Ask::Send(local, _)) = ask {
+            if let Some(Ask::Send(local, _) | Ask::Copy(_, _, Some((local, _)))) = ask {
                 lock()
                     .sent
                     .push((local, Err(format!("{label} isn't reachable right now"))));
@@ -1061,6 +1084,33 @@ fn worker(cfg: Config, seen: Arc<Mutex<Seen>>, rx: Receiver<Ask>) {
             http(port, method, path, &cfg.token, body)
         };
         match ask {
+            Some(Ask::Copy(name, path, then)) => {
+                let copied = copy_project(&cfg, port, &name, &path);
+                match (copied, then) {
+                    (Ok(there), None) => lock().notes.push(format!(
+                        "{name} is on {label} now, in {there}. Jobs on it can run there."
+                    )),
+                    (Err(why), None) => lock().notes.push(why),
+                    (Err(why), Some((local, _))) => lock().sent.push((local, Err(why))),
+                    (Ok(there), Some((local, mut body))) => {
+                        body["folder"] = json!(there);
+                        let result = match call("POST", "/v1/jobs", Some(&body)) {
+                            Ok((200, v)) => v["job"]
+                                .as_u64()
+                                .ok_or_else(|| "it didn't start a job".to_string()),
+                            Ok((_, v)) => Err(error_of(&v)),
+                            Err(e) => Err(e),
+                        };
+                        if let Ok(id) = result {
+                            if !watching.contains(&id) {
+                                watching.push(id);
+                            }
+                        }
+                        lock().sent.push((local, result));
+                    }
+                }
+                read_at = Instant::now() - REFRESH;
+            }
             Some(Ask::Send(local, body)) => {
                 let result = match call("POST", "/v1/jobs", Some(&body)) {
                     Ok((200, v)) => v["job"]
@@ -1084,11 +1134,6 @@ fn worker(cfg: Config, seen: Arc<Mutex<Seen>>, rx: Receiver<Ask>) {
                     Ok((_, v)) => lock().notes.push(format!("{label}: {}", error_of(&v))),
                     Err(e) => lock().notes.push(format!("Couldn't reach {label}: {e}")),
                 }
-                read_at = Instant::now() - REFRESH;
-            }
-            Some(Ask::AddProject(name, url)) => {
-                let note = add_project(&cfg, port, &name, &url);
-                lock().notes.push(note);
                 read_at = Instant::now() - REFRESH;
             }
             Some(Ask::Watch(_)) | None => {}
@@ -1171,28 +1216,72 @@ fn worker(cfg: Config, seen: Arc<Mutex<Seen>>, rx: Receiver<Ask>) {
 }
 
 /// Clones a project onto the server and adds it there.
-fn add_project(cfg: &Config, port: u16, name: &str, url: &str) -> String {
+/// Folders a copy to the server leaves out: things the project rebuilds.
+const COPY_SKIPS: &[&str] = &[
+    "node_modules",
+    "target",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".next",
+    ".turbo",
+];
+
+/// Copies the project at `local` (this computer) into `~/squad` on the server,
+/// over SSH, and adds it there. Needs no git remote and no login to one: it's
+/// the files as they are here, with their git history. Gives back its path there.
+fn copy_project(cfg: &Config, port: u16, name: &str, local: &str) -> Result<String, String> {
     let label = cfg.label();
-    let safe: String = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || "-_.".contains(c) {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let dir = format!("squad/{safe}");
-    let script = format!(
-        "set -e; mkdir -p squad; if [ ! -d {d}/.git ]; then git clone --quiet {u} {d}; fi; cd {d} && pwd",
-        d = quote(&dir),
-        u = quote(url)
-    );
-    let path = match ssh(&cfg.host, &cfg.key, &script, None) {
-        Ok(out) => out.lines().last().unwrap_or("").trim().to_string(),
-        Err(why) => return format!("Couldn't copy {name} to {label}: {why}"),
+    let local = std::path::Path::new(local);
+    let (Some(parent), Some(base)) = (local.parent(), local.file_name()) else {
+        return Err(format!("{name} isn't a folder Squad can copy"));
     };
+    let base = base.to_string_lossy().to_string();
+    let mut tar = Command::new("tar");
+    tar.arg("-C").arg(parent).arg("-czf").arg("-");
+    for skip in COPY_SKIPS {
+        tar.arg(format!("--exclude={skip}"));
+    }
+    let mut pack = tar
+        .arg(&base)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("tar isn't available here: {e}"))?;
+    let packed = pack.stdout.take().ok_or("tar gave no output")?;
+    let script = format!(
+        "set -e; mkdir -p squad; tar -xzf - -C squad; cd squad/{} && pwd",
+        quote(&base)
+    );
+    let unpack = ssh_base(&cfg.host, &cfg.key)
+        .arg(script)
+        .stdin(Stdio::from(packed))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| e.to_string())?;
+    let packed_ok = pack.wait().map(|s| s.success()).unwrap_or(false);
+    if !unpack.status.success() {
+        let err = String::from_utf8_lossy(&unpack.stderr);
+        return Err(format!(
+            "Couldn't copy {name} to {label}: {}",
+            err.lines()
+                .rev()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("ssh stopped")
+                .trim()
+        ));
+    }
+    if !packed_ok {
+        return Err(format!("Couldn't pack {name} up to copy it"));
+    }
+    let path = String::from_utf8_lossy(&unpack.stdout)
+        .lines()
+        .last()
+        .unwrap_or("")
+        .trim()
+        .to_string();
     match http(
         port,
         "POST",
@@ -1200,9 +1289,9 @@ fn add_project(cfg: &Config, port: u16, name: &str, url: &str) -> String {
         &cfg.token,
         Some(&json!({ "path": path })),
     ) {
-        Ok((200, _)) => format!("{name} is on {label} now, in {path}. Jobs on it can run there."),
-        Ok((_, v)) => format!("{label} wouldn't add {name}: {}", error_of(&v)),
-        Err(e) => format!("Couldn't reach {label}: {e}"),
+        Ok((200, _)) => Ok(path),
+        Ok((_, v)) => Err(format!("{label} wouldn't add {name}: {}", error_of(&v))),
+        Err(e) => Err(format!("Couldn't reach {label}: {e}")),
     }
 }
 

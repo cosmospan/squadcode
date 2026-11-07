@@ -73,9 +73,31 @@ pub fn classify(s: &str) -> Option<Act> {
     if COMMANDS.contains(&first) && s.contains(' ') {
         return Some(Act::Run(s.to_string()));
     }
+    // A path on this computer. A bare "/hello/Anish" is more often a web
+    // route than a file, so an absolute path needs a real root or a file
+    // extension to count.
+    let real_root = [
+        "/Users/",
+        "/home/",
+        "/tmp/",
+        "/var/",
+        "/etc/",
+        "/opt/",
+        "/private/",
+        "/Volumes/",
+    ]
+    .iter()
+    .any(|r| s.starts_with(r));
+    let has_ext = s
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.rsplit_once('.'))
+        .is_some_and(|(stem, ext)| !stem.is_empty() && (1..=5).contains(&ext.len()));
     if !s.contains(' ')
-        && (s.starts_with('/') || s.starts_with("~/") || s.starts_with("./"))
         && s.len() > 2
+        && (s.starts_with("~/")
+            || s.starts_with("./")
+            || (s.starts_with('/') && (real_root || has_ext)))
     {
         return Some(Act::File(s.to_string()));
     }
@@ -326,6 +348,18 @@ fn shell_quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{classify, parse, Act};
+
+    #[test]
+    fn a_web_route_is_not_a_file() {
+        assert!(classify("/hello/Anish").is_none());
+        assert!(classify("/api/users").is_none());
+        assert!(matches!(
+            classify("/Users/anish/dev/test/server.js"),
+            Some(Act::File(_))
+        ));
+        assert!(matches!(classify("./server.js"), Some(Act::File(_))));
+        assert!(matches!(classify("/src/app.ts"), Some(Act::File(_))));
+    }
 
     #[test]
     fn a_message_turns_into_things_to_do() {

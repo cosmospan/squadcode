@@ -1,15 +1,43 @@
 //! `squad do` and `squad brain …`: the intelligence layer from a terminal.
 
-use super::super::data::{Member, Mode};
+use super::super::data::Member;
 use super::super::store::{self, Store};
-use super::{helper, ideas, model, route, tasks, teach, voice};
+use super::{helper, ideas, route, tasks, voice};
 
-/// Where `squad do <words>` sends a job: the bot, the kind of job, and a line
-/// saying why, for the terminal.
-pub fn route_do(text: &str) -> route::Route {
+/// Where `squad do <words>` sends a job, as the person's engine reads it.
+/// Err when the engine can't decide, or reads it as something other than work.
+pub fn route_do(text: &str) -> Result<route::Route, String> {
     let _ = Store::load(); // knows the person's crew and made bots
     let st = crate::settings::AppSettings::load();
-    route::route(&st, text)
+    match decide_here(&st, text)? {
+        (super::front::Front::Hand(r), _) | (super::front::Front::Confirm { route: r, .. }, _) => {
+            Ok(r)
+        }
+        (_, say) => Err(format!(
+            "That doesn't read as a job. {say} To start one anyway: squad new --bot <name> <words...>"
+        )
+        .trim()
+        .to_string()),
+    }
+}
+
+/// What the person's engine decides about `text`, for this folder.
+fn decide_here(
+    st: &crate::settings::AppSettings,
+    text: &str,
+) -> Result<(super::front::Front, String), String> {
+    let f = here();
+    let crew = Member::all();
+    let seen = super::think::Seen {
+        project: &f.name,
+        recent: &[],
+        crew: &crew,
+        running: &[],
+        worked: &[],
+        in_thread: &[],
+        server: "",
+    };
+    super::think::decide(st, &f.path, text, &seen)
 }
 
 fn here() -> store::Folder {
@@ -26,7 +54,7 @@ fn here() -> store::Folder {
     }
 }
 
-/// `squad brain why|may|learned|forget|ideas|export|eval|install|update|remove`.
+/// `squad brain why|may|ideas|install|update|remove`.
 pub fn main(args: &[String]) -> Result<String, String> {
     let sub = args.first().map(String::as_str).unwrap_or("");
     let rest = args.get(1..).unwrap_or(&[]).join(" ");
@@ -59,37 +87,15 @@ pub fn main(args: &[String]) -> Result<String, String> {
                 .trim_end()
                 .to_string())
         }
-        // Forgets what Peek learned from the engine.
-        "forget" => {
-            let n = super::learn::load().len();
-            super::learn::forget().map_err(|e| e.to_string())?;
-            Ok(format!(
-                "Peek forgot {n} things it learned. It starts fresh."
-            ))
-        }
-        // What Peek has learned, and how much room it takes.
-        "learned" => {
-            let all = super::learn::load();
-            let bytes: usize = all
-                .iter()
-                .filter_map(|e| serde_json::to_string(e).ok())
-                .map(|l| l.len() + 1)
-                .sum();
-            Ok(format!(
-                "Peek has learned {} things from your engine ({} KB, at most {}).",
-                all.len(),
-                bytes / 1024,
-                super::learn::MAX
-            ))
-        }
         "why" => {
             if rest.trim().is_empty() {
                 return Err("usage: squad brain why <words...>".into());
             }
             // What Peek does with it, before any bot is picked.
-            match super::front::read(&st, &rest, &[]) {
+            let (front, say) = decide_here(&st, &rest)?;
+            let r = match front {
                 super::front::Front::Chat { reply } => {
-                    return Ok(format!("Peek replies itself, no job:\n{reply}"))
+                    return Ok(format!("Peek replies, no job:\n{reply}"))
                 }
                 super::front::Front::AskBack { question, choices } => {
                     let mut out = format!("Peek asks first, no job yet:\n{question}");
@@ -112,17 +118,16 @@ pub fn main(args: &[String]) -> Result<String, String> {
                         route.mode.label().to_lowercase()
                     ))
                 }
+                super::front::Front::Hand(r) => r,
                 super::front::Front::Stop => {
                     return Ok("Stops what's running here, with no new job.".into())
                 }
-                super::front::Front::Hand(_) => {}
-            }
-            // From a terminal, wait for Squad's own server to load when the
-            // rules aren't sure, rather than answering with the rules.
-            if route::built_in(&rest, &crew).sure < route::Route::SURE {
-                helper::ensure(&st, std::time::Duration::from_secs(30));
-            }
-            let r = route::route(&st, &rest);
+                super::front::Front::RunApp => {
+                    return Ok(
+                        "Starts the app in the terminal and keeps it up, with no job.".into(),
+                    )
+                }
+            };
             let p = super::place(
                 &st,
                 &super::JobAsk {
@@ -140,13 +145,15 @@ pub fn main(args: &[String]) -> Result<String, String> {
                 super::Site::Server(name) => name.clone(),
             };
             let out = format!(
-                "Peek: {}\n{} \u{b7} {} job \u{b7} {:.0}% sure (by {})\n{}\nRuns on {site}, on {}. {}",
-                r.handoff(),
+                "Peek: {}\n{} \u{b7} {} job (decided by {})\nRuns on {site}, on {}. {}",
+                if say.is_empty() {
+                    r.handoff(super::route::Joins::New)
+                } else {
+                    format!("{say} {}", super::route::Joins::New.line(r.bot))
+                },
                 r.bot.name(),
                 r.mode.label(),
-                r.sure * 100.0,
-                r.by,
-                r.why,
+                super::think::engine_name(&st),
                 super::super::engine::label_of(p.engine.0, &p.engine.1),
                 p.why
             );
@@ -189,79 +196,6 @@ pub fn main(args: &[String]) -> Result<String, String> {
                     .into()
             }
         }),
-        "export" => {
-            let path = args
-                .get(1)
-                .ok_or("usage: squad brain export <file.jsonl>")?;
-            let lines = teach::examples(&store, &crew);
-            std::fs::write(path, lines.join("\n") + "\n").map_err(|e| e.to_string())?;
-            Ok(format!(
-                "Wrote {} examples to {path}. They stay on this computer unless you share the file.",
-                lines.len()
-            ))
-        }
-        "eval" if args.get(1).is_some_and(|a| a == "front") => {
-            let path = args
-                .get(2)
-                .cloned()
-                .unwrap_or_else(|| "training/eval/front.jsonl".into());
-            let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
-            Ok(super::front::score(&st, &text).report())
-        }
-        "eval" => {
-            let cases = match args.get(1) {
-                Some(h) if h == "hard" => teach::HARD.to_string(),
-                Some(p) => std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))?,
-                None => teach::CASES.to_string(),
-            };
-            let rules = teach::score(&cases, |t| route::by_rules(t, &crew).mode);
-            let mut out = format!(
-                "Rules: {}/{} ({:.0}%)",
-                rules.right,
-                rules.total,
-                rules.percent()
-            );
-            for (name, s) in [
-                (
-                    "Tiny",
-                    teach::score(&cases, |t| route::by_tiny(t, &crew).mode),
-                ),
-                (
-                    "Built in (tiny, then rules)",
-                    teach::score(&cases, |t| route::built_in(t, &crew).mode),
-                ),
-            ] {
-                out.push_str(&format!(
-                    "\n{name}: {}/{} ({:.0}%)",
-                    s.right,
-                    s.total,
-                    s.percent()
-                ));
-            }
-            let Some(m) = model::Local::from_settings(&st) else {
-                out.push_str("\nSmart Peek is off, so only the rules were scored.");
-                return Ok(out);
-            };
-            helper::ensure(&st, std::time::Duration::from_secs(30));
-            if !m.alive() {
-                out.push_str(&format!("\n{} isn't answering at {}.", m.model, m.url));
-                return Ok(out);
-            }
-            let s = teach::score(&cases, |t| {
-                m.route(t, &crew).map(|r| r.mode).unwrap_or(Mode::Build)
-            });
-            out.push_str(&format!(
-                "\n{}: {}/{} ({:.0}%)",
-                m.model,
-                s.right,
-                s.total,
-                s.percent()
-            ));
-            for (text, want, got) in s.missed.iter().take(10) {
-                out.push_str(&format!("\n  missed: {text} (want {want}, got {got})"));
-            }
-            Ok(out)
-        }
         "install" | "update" => {
             // squad brain install [file.gguf | https://…]: Squad's own model,
             // then Smart Peek on. With nothing named, the latest release.
@@ -306,9 +240,6 @@ pub fn main(args: &[String]) -> Result<String, String> {
             st.save();
             Ok("Smart Peek is off and its model is deleted.".into())
         }
-        _ => Err(
-            "usage: squad brain why|may|learned|forget|ideas|export|eval|install|update|remove"
-                .into(),
-        ),
+        _ => Err("usage: squad brain why|may|ideas|install|update|remove".into()),
     }
 }

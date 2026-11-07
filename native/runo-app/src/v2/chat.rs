@@ -241,6 +241,7 @@ impl Shell {
                                 sure: 1.0,
                                 why: String::new(),
                                 by: "dm".into(),
+                                site: String::new(),
                             };
                             this.hand_to(route, q.clone(), cx);
                             // The job's card lands in this DM.

@@ -1,15 +1,11 @@
 //! Peek reads each message with the person's own engine.
 //!
-//! The keyword rules in [`super::front`] guess; a language model reads. So
-//! when an engine is signed in (Claude Code, Codex, Grok…, on the person's
-//! own plan), every message Peek gets is one short call on its smallest
-//! model, which answers with a decision as JSON: reply itself, ask back,
-//! stop what's running, answer a question about the project, or hand the
-//! work to a named bot with a one-line reason. Peek's words are the model's.
-//!
-//! The rules stay for what needs no thought ("stop app"), and as the answer
-//! when no engine can run or its reply doesn't parse. The guard rails still
-//! apply to whatever the model hands on: a risky ask waits for a yes.
+//! Every message Peek gets is one short call on the person's own engine
+//! (Claude Code, Codex, Grok…, on their own plan), on its smallest model,
+//! which answers with a decision as JSON: reply itself, ask back, stop
+//! what's running, run the app, answer a question about the project, or
+//! hand the work to a named bot with a one-line reason. Peek's words are the
+//! model's.
 
 use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
@@ -17,7 +13,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::front::Front;
-use super::route::{self, Route};
+use super::route::{self, Joins, Route};
 use crate::agent::{self, Event};
 use crate::settings::AppSettings;
 use crate::v2::data::{Member, Mode};
@@ -35,6 +31,12 @@ pub struct Seen<'a> {
     pub crew: &'a [Member],
     /// Jobs running here, as "#4 Builder: add a login page".
     pub running: &'a [String],
+    /// The bots that have worked on this project, and those in this thread.
+    pub worked: &'a [Member],
+    pub in_thread: &'a [Member],
+    /// Where jobs can run besides this computer, in a sentence or two;
+    /// empty when no server is connected.
+    pub server: &'a str,
 }
 
 fn clip(s: &str, n: usize) -> String {
@@ -54,10 +56,11 @@ pub fn prompt(text: &str, seen: &Seen) -> String {
         .filter(|m| **m != Member::Fin)
         .map(|m| {
             format!(
-                "- {} ({} work): {}",
+                "- {} ({} work): {} [{}]",
                 m.name(),
                 m.mode().label().to_lowercase(),
-                m.role()
+                m.role(),
+                Joins::of(*m, seen.worked, seen.in_thread).note()
             )
         })
         .collect();
@@ -80,6 +83,7 @@ You read every message the person sends before anyone works on it, and decide wh
 Project: {project}\n\
 The crew:\n{crew}\n\
 Running right now: {running}\n\
+Where jobs run: {server}\n\
 The conversation so far:\n{recent}\n\n\
 The person just wrote: \"{text}\"\n\n\
 Decide, reading it the way a sharp colleague would: typos, slang and half sentences are normal (\"whoa re you\" is \"who are you\"). \
@@ -87,12 +91,20 @@ Never start work on a guess.\n\
 - \"reply\": chat, greetings, thanks, questions about you or the crew, and general questions you can answer well yourself. Write the reply.\n\
 - \"ask\": you can't tell what they want, or real work is too vague to start. Write one short question, with up to 3 choices if they help.\n\
 - \"stop\": they want what's running stopped or cancelled.\n\
+- \"run\": they want the app started or run so they can see it (\"runthe app\", \"start it up\", \"let me see it\"). Squad Code starts it; no bot is needed.\n\
 - \"answer\": a question about this project's code or files, which needs reading them. A bot answers without changing anything.\n\
-- \"hand\": real work on the project. Pick the bot whose role fits best, the kind of work, and say why in one short, friendly line in your own voice, like \"Sounds like a bug, so I'm bringing in Fixer to hunt it down.\"\n\n\
+- \"hand\": real work on the project. Pick the bot whose role fits best (prefer one already in this thread when it fits), the kind of work, and say why in one short, friendly sentence in your own voice, like \"Sounds like a bug in the Safari checkout.\" Don't name the bot or say you're bringing it in: Squad Code adds whether it's onboarding a new bot or inviting one back. \
+If they want it done on their server (a VPS, the cloud, \"remote\", the server's name), set \"where\" to \"server\": Squad Code copies the project there if it isn't yet and runs the job there, so never say the crew can only work on this computer. If they want it on this computer, \"here\". Otherwise leave it empty. \
+If they want the server but none is connected, \"ask\" them to connect one under Settings, My server.\n\n\
 Reply with JSON only, on one line:\n\
-{{\"do\": \"reply|ask|stop|answer|hand\", \"say\": \"what Peek says\", \"choices\": [], \"bot\": \"a name from the crew, or empty\", \"kind\": \"build|fix|test|review|tidy|ask, or empty\"}}\n\
+{{\"do\": \"reply|ask|stop|run|answer|hand\", \"say\": \"what Peek says\", \"choices\": [], \"bot\": \"a name from the crew, or empty\", \"kind\": \"build|fix|test|review|tidy|ask, or empty\", \"where\": \"server|here, or empty\"}}\n\
 Keep \"say\" warm, plain and short: two sentences at most, no markdown.",
         project = seen.project,
+        server = if seen.server.is_empty() {
+            "only this computer: no server is connected."
+        } else {
+            seen.server
+        },
         crew = crew.join("\n"),
         recent = if recent.is_empty() {
             "(none)".to_string()
@@ -128,6 +140,7 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
                 .unwrap_or_default(),
         },
         "stop" => Front::Stop,
+        "run" => Front::RunApp,
         "answer" => Front::Answer {
             question: text.to_string(),
             code: true,
@@ -153,6 +166,10 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
                 sure: 0.9,
                 why: say.clone(),
                 by: "engine".into(),
+                site: match v["where"].as_str().unwrap_or("").trim() {
+                    s @ ("server" | "here") => s.to_string(),
+                    _ => String::new(),
+                },
             };
             // The guard rails hold, whoever decides.
             match super::guard::risk(text) {
@@ -180,19 +197,68 @@ pub fn ask(
         return Err(format!("{} isn't installed", p.name));
     }
     let model = crate::assistant::assistant_model(st, p.id);
-    let command = agent::ask_command_on(p.id, &configured, &prompt(text, seen), &model);
+    let words = prompt(text, seen);
+    // The warm engine answers in a second or two; a cold start takes six.
+    if super::warm::can(p.id) {
+        let bin = if configured.trim().is_empty() {
+            p.bin.to_string()
+        } else {
+            configured.trim().to_string()
+        };
+        if let Some(rx) = super::warm::ask(&bin, &model, dir, &words, LIMIT, "v2-peek-reads".into())
+        {
+            return Ok(rx);
+        }
+    }
+    let command = agent::ask_command_on(p.id, &configured, &words, &model);
     let (tx, rx) = channel();
     agent::oneshot_within("v2-peek-reads".into(), command, dir, LIMIT, tx);
     Ok(rx)
 }
 
-/// Whether Peek should read with the engine: on unless the person turned it
-/// off (`peek_reads_with_engine: false` in settings).
-pub fn on(st: &AppSettings) -> bool {
-    st.extra
-        .get("peek_reads_with_engine")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true)
+/// Reads `text` with the engine and waits for the decision, for a terminal.
+/// Err says why the engine couldn't decide.
+pub fn decide(
+    st: &AppSettings,
+    dir: &str,
+    text: &str,
+    seen: &Seen,
+) -> Result<(Front, String), String> {
+    let rx = ask(st, dir, text, seen)?;
+    let reply = match rx.recv_timeout(LIMIT + Duration::from_secs(5)) {
+        Ok(Event::Output(_, r)) => r?,
+        _ => return Err(format!("{} didn't answer in time", engine_name(st))),
+    };
+    parse(&agent::strip_ansi(&reply), text, seen.crew)
+        .ok_or_else(|| format!("{}'s answer didn't make sense", engine_name(st)))
+}
+
+/// Starts Peek's engine warm for `dir`, so the next message reads fast.
+/// Nothing for an engine that can't be kept warm, or one not installed.
+pub fn prepare(st: &AppSettings, dir: &str) {
+    if dir.is_empty() {
+        return;
+    }
+    let p = &agent::PROVIDERS[crate::assistant::assistant_provider(st)];
+    if !super::warm::can(p.id) {
+        return;
+    }
+    let configured = st.agent(p.id).binary;
+    if !agent::available(p.bin, &configured) {
+        return;
+    }
+    let bin = if configured.trim().is_empty() {
+        p.bin.to_string()
+    } else {
+        configured.trim().to_string()
+    };
+    let model = crate::assistant::assistant_model(st, p.id);
+    super::warm::prepare(&bin, &model, dir);
+}
+
+/// The name of the engine Peek reads with, as the person knows it.
+pub fn engine_name(st: &AppSettings) -> &'static str {
+    agent::PROVIDERS[crate::assistant::assistant_provider(st)].name
 }
 
 #[cfg(test)]
@@ -215,9 +281,21 @@ mod tests {
                 recent: &recent,
                 crew: &c,
                 running: &running,
+                worked: &[Member::Builder],
+                in_thread: &[],
+                server: "vps: connected, Claude Code signed in.",
             },
         );
-        for want in ["Builder", "Fixer", "#4 Builder", "whoa re you", "\"do\""] {
+        for want in [
+            "Builder",
+            "Fixer",
+            "#4 Builder",
+            "whoa re you",
+            "\"do\"",
+            "has worked on this project",
+            "never worked on this project",
+            "vps: connected",
+        ] {
             assert!(p.contains(want), "{want}");
         }
     }
@@ -266,6 +344,18 @@ mod tests {
             .0,
             Front::Confirm { .. }
         ));
+        // "do it on the VPS" runs there.
+        match parse(
+            r#"{"do":"hand","say":"A game, coming up.","bot":"Builder","kind":"build","where":"server"}"#,
+            "make a snake game on the vps",
+            &c,
+        )
+        .unwrap()
+        .0
+        {
+            Front::Hand(r) => assert_eq!(r.site, "server"),
+            other => panic!("{other:?}"),
+        }
         // Nonsense falls back to the rules.
         assert!(parse("I think you mean hello", "hi", &c).is_none());
         assert!(parse(r#"{"do":"reply","say":""}"#, "hi", &c).is_none());

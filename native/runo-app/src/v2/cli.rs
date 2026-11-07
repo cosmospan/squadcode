@@ -95,8 +95,6 @@ On a server:
 Peek's routing:
   squad brain why <words...>  where Peek would send a job, and why
   squad brain ideas           a bot Peek thinks you could use
-  squad brain export <file>   your finished jobs as training examples
-  squad brain eval [hard|file] score Peek's routing on the fixed cases
   squad brain install [file]  turn Smart Peek on with Squad's own model
   squad brain update          get the newest Peek model, if there is one
   squad brain remove          turn Smart Peek off and delete its model
@@ -225,29 +223,30 @@ pub fn main(args: &[String]) -> i32 {
             if text.is_empty() {
                 Err("Say what the job is: squad do <words...>".into())
             } else {
-                let r = super::brain::cli::route_do(&text);
-                let dir = std::env::current_dir()
-                    .map(|d| d.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                push(&Ask::New {
-                    text,
-                    mode: r.mode,
-                    bot: r.bot.name().to_string(),
-                    dir,
-                })
-                .map(|_| {
-                    let check = if r.sure < super::brain::route::Route::SURE {
-                        " Not sure? Stop it and use squad new --bot <name> instead."
-                    } else {
-                        ""
-                    };
-                    format!(
-                        "Handed to {} as a {} job. {}{check}",
-                        r.bot.name(),
-                        r.mode.label(),
-                        r.why
-                    )
-                })
+                match super::brain::cli::route_do(&text) {
+                    Err(e) => Err(e),
+                    Ok(r) => {
+                        let dir = std::env::current_dir()
+                            .map(|d| d.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        push(&Ask::New {
+                            text,
+                            mode: r.mode,
+                            bot: r.bot.name().to_string(),
+                            dir,
+                        })
+                        .map(|_| {
+                            format!(
+                                "Handed to {} as a {} job. {}",
+                                r.bot.name(),
+                                r.mode.label(),
+                                r.why
+                            )
+                            .trim_end()
+                            .to_string()
+                        })
+                    }
+                }
             }
         }
         "brain" => super::brain::cli::main(&args[1..]),

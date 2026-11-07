@@ -178,6 +178,58 @@ impl Shell {
         cx.notify();
     }
 
+    /// Runs the app the crew made, and keeps it running: in job `id`'s own
+    /// terminal when given (its branch), else the project's. Says how to
+    /// open and stop it, on the job's card, and returns those words. None
+    /// when Squad Code can't tell how to start it.
+    pub(super) fn run_app(
+        &mut self,
+        job: Option<u64>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
+        let (term, dir) = match job.and_then(|id| self.crew.store.job(id)) {
+            Some(j) => (j.id, j.dir().to_string()),
+            None => {
+                let f = self.crew.store.folder()?;
+                (project_id(self.crew.store.current), f.path.clone())
+            }
+        };
+        let (cmd, url) = super::work::start_command(&dir)?;
+        self.term_run(term, &cmd, window, cx);
+        if !self.serving.contains(&term) {
+            self.serving.push(term);
+        }
+        let open = match &url {
+            Some(u) => format!(" Open {u} once it says it's ready."),
+            None => " It prints its address when it's ready.".to_string(),
+        };
+        let line = format!(
+            "Started `{cmd}` in the terminal below, and it keeps running.{open} Say \u{201c}stop app\u{201d} to stop it."
+        );
+        if let Some(j) = job.and_then(|id| self.crew.store.job_mut(id)) {
+            j.feed.push(super::store::Item::Note(line.clone()));
+        }
+        self.crew.store.save();
+        cx.notify();
+        Some(line)
+    }
+
+    /// Stops the apps `run_app` started, as Ctrl-C in their terminals.
+    /// Returns how many it stopped.
+    pub(super) fn stop_apps(&mut self) -> usize {
+        let mut n = 0;
+        for id in std::mem::take(&mut self.serving) {
+            if let Some(t) = self.terms.get(&id) {
+                if !t.exited() {
+                    t.write(b"\x03");
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
     /// Types a command into the drawer's shell and runs it.
     pub(super) fn term_run(
         &mut self,

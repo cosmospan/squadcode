@@ -350,3 +350,122 @@ mod tests {
         assert_eq!(verdict(&[], false).1, Verdict::None);
     }
 }
+
+/// How to start the app in `dir`, and the address it serves on when the
+/// code names a port: `npm run dev`, `npm start`, `cargo run`… None when
+/// Squad Code can't tell.
+pub fn start_command(dir: &str) -> Option<(String, Option<String>)> {
+    let d = Path::new(dir);
+    let read = |name: &str| std::fs::read_to_string(d.join(name)).unwrap_or_default();
+    let port_in = |text: &str| -> Option<String> {
+        for pat in [
+            "listen(", "PORT || ", "PORT ?? ", "port=", "port: ", "--port ",
+        ] {
+            if let Some(at) = text.find(pat) {
+                let digits: String = text[at + pat.len()..]
+                    .chars()
+                    .skip_while(|c| *c == ' ' || *c == '\'' || *c == '"')
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
+                if (2..=5).contains(&digits.len()) {
+                    return Some(format!("http://localhost:{digits}"));
+                }
+            }
+        }
+        None
+    };
+    if d.join("package.json").exists() {
+        let pkg: serde_json::Value =
+            serde_json::from_str(&read("package.json")).unwrap_or_default();
+        let scripts = &pkg["scripts"];
+        let pm = if d.join("pnpm-lock.yaml").exists() {
+            "pnpm"
+        } else if d.join("yarn.lock").exists() {
+            "yarn"
+        } else if d.join("bun.lockb").exists() || d.join("bun.lock").exists() {
+            "bun"
+        } else {
+            "npm"
+        };
+        let main = pkg["main"].as_str().unwrap_or("");
+        let code: String = [
+            main,
+            "server.js",
+            "index.js",
+            "app.js",
+            "src/index.js",
+            "src/server.js",
+        ]
+        .iter()
+        .filter(|f| !f.is_empty())
+        .map(|f| read(f))
+        .collect::<Vec<_>>()
+        .join("\n");
+        if let Some(dev) = scripts["dev"].as_str() {
+            let url = port_in(dev).or_else(|| port_in(&code)).or_else(|| {
+                dev.contains("vite")
+                    .then(|| "http://localhost:5173".to_string())
+            });
+            return Some((format!("{pm} run dev"), url));
+        }
+        if let Some(start) = scripts["start"].as_str() {
+            let cmd = if pm == "npm" {
+                "npm start".to_string()
+            } else {
+                format!("{pm} start")
+            };
+            return Some((cmd, port_in(start).or_else(|| port_in(&code))));
+        }
+        if !main.is_empty() || d.join("server.js").exists() {
+            let file = if main.is_empty() { "server.js" } else { main };
+            return Some((format!("node {file}"), port_in(&code)));
+        }
+    }
+    if d.join("Cargo.toml").exists() {
+        return Some(("cargo run".into(), port_in(&read("src/main.rs"))));
+    }
+    if d.join("manage.py").exists() {
+        return Some((
+            "python manage.py runserver".into(),
+            Some("http://localhost:8000".into()),
+        ));
+    }
+    for f in ["app.py", "main.py", "server.py"] {
+        if d.join(f).exists() {
+            return Some((format!("python {f}"), port_in(&read(f))));
+        }
+    }
+    if d.join("index.html").exists() {
+        return Some((
+            "python3 -m http.server 8000".into(),
+            Some("http://localhost:8000".into()),
+        ));
+    }
+    None
+}
+
+#[cfg(test)]
+mod start_tests {
+    use super::start_command;
+
+    #[test]
+    fn a_node_app_starts_with_its_script_and_port() {
+        let dir = std::env::temp_dir().join(format!("squad-start-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"scripts":{"start":"node server.js"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("server.js"),
+            "const PORT = process.env.PORT || 3000;\napp.listen(PORT)",
+        )
+        .unwrap();
+        let (cmd, url) = start_command(dir.to_str().unwrap()).unwrap();
+        assert_eq!(cmd, "npm start");
+        assert_eq!(url.as_deref(), Some("http://localhost:3000"));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(start_command("/definitely/not/here").is_none());
+    }
+}

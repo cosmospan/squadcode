@@ -750,7 +750,10 @@ impl Store {
         let mut said: Vec<(u64, String, String)> = Vec::new();
         for t in &self.talks {
             if t.folder == folder && self.thread_for(folder, t.thread) == thread {
-                said.push((t.at, "you".into(), t.question.clone()));
+                // A bot speaking up on its own has no question of yours.
+                if !t.question.is_empty() {
+                    said.push((t.at, "you".into(), t.question.clone()));
+                }
                 if let Some(a) = t.answer.as_ref().filter(|a| !a.note) {
                     said.push((t.at, t.bot.name().to_lowercase(), a.text.clone()));
                 }
