@@ -154,6 +154,13 @@ impl Shell {
         if self.place != Place::Server || self.crew.link.is_none() {
             self.server_watch = None;
         }
+        // The picture streams only while you're looking at it.
+        if self.place != Place::Screen && self.screen_view.is_some() {
+            self.screen_view = None;
+            if let Some(old) = self.screen_img.take() {
+                self.screen_retired.push(old);
+            }
+        }
         let mut changed = false;
         if let Some(w) = &self.server_watch {
             let got: Vec<_> = w.rx.try_iter().collect();
@@ -174,10 +181,10 @@ impl Shell {
         if let Some(rx) = &self.server_screen_rx {
             match rx.try_recv() {
                 Ok(Ok(screen)) => {
-                    cx.open_url(&screen.url());
                     self.server_screen = Some(screen);
                     self.server_screen_rx = None;
-                    self.say("Its screen is open in Screen Sharing. Jobs on the server open their windows there.".to_string());
+                    self.screen_view = None;
+                    self.watch_screen(cx);
                     changed = true;
                 }
                 Ok(Err(why)) => {
@@ -234,7 +241,7 @@ impl Shell {
         }
         if let Some(s) = &mut self.server_screen {
             if s.tunnel.alive() {
-                cx.open_url(&s.url());
+                self.watch_screen(cx);
                 return;
             }
         }
