@@ -297,7 +297,8 @@ fn step_button(id: impl Into<ElementId>, icon: IconName) -> Stateful<Div> {
         .justify_center()
         .text_color(c(ui::body()))
         .cursor_pointer()
-        .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+        .map(|d| super::motion::hover_fill(d, None, ui::hover()))
+        .hover(|s| s.text_color(c(ui::ink())))
         .active(|s| s.bg(c(ui::press())))
         .child(Icon::new(icon).size(px(13.)))
 }

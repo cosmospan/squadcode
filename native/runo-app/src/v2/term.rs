@@ -495,7 +495,8 @@ impl Shell {
                     cx.notify();
                 })),
         );
-        Some(
+        // Rises from the bottom edge when opened.
+        Some(super::motion::panel(
             div()
                 .flex_none()
                 .mx(px(8.))
@@ -530,7 +531,10 @@ impl Shell {
                             ))
                         }),
                 ),
-        )
+            super::motion::key(("drawer", id)),
+            0.,
+            24.,
+        ))
     }
 
     fn term_key(&mut self, id: u64, ev: &KeyDownEvent, cx: &mut Context<Self>) {
