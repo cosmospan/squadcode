@@ -1537,7 +1537,7 @@ impl Shell {
                 .map(|j| format!("#{} {}: {}", j.id, j.bot.name(), j.label()))
                 .collect();
             let (worked, in_thread) = self.bots_here();
-            let server = self.server_note(&folder);
+            let server = self.runs_where_note(&folder);
             let seen = brain::think::Seen {
                 project: &project,
                 recent: &recent,
@@ -1577,7 +1577,7 @@ impl Shell {
         ];
         let crew = Member::all();
         let (worked, in_thread) = self.bots_here();
-        let server = self.server_note(&folder);
+        let server = self.runs_where_note(&folder);
         let seen = brain::think::Seen {
             project: &project,
             recent: &recent,
@@ -1888,7 +1888,7 @@ impl Shell {
     /// Where jobs on the project at `folder` can run besides here, for Peek's
     /// engine: the server, whether it answers and is signed in, whether it
     /// has the project, and the person's usual choice. Empty with no server.
-    fn server_note(&self, folder: &str) -> String {
+    fn runs_where_note(&self, folder: &str) -> String {
         let Some(link) = self.crew.link.as_ref() else {
             return String::new();
         };
