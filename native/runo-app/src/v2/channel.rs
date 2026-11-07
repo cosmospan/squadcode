@@ -61,7 +61,7 @@ enum Reply {
 
 /// What a message in a thread is, for what its hover bar offers.
 #[derive(Clone)]
-enum Msg {
+pub(super) enum Msg {
     /// Your own words: ask again, edit and resend.
     Mine(String),
     /// A bot's reply about a job, in the state the job is in.
@@ -222,11 +222,20 @@ impl Shell {
             QuickAct::Approve(id) => self.approve(*id, cx),
             QuickAct::Retry(id) => self.retry_job(*id, cx),
             QuickAct::Start(id) => self.start_goal(*id, cx),
-            QuickAct::Say(text) => {
-                self.composer
-                    .update(cx, |i, cx| ui::put_text(i, text.clone(), window, cx));
-                self.send_from_composer(window, cx);
-            }
+            QuickAct::Say(text) => match self.dm() {
+                // In a DM, words for this bot stay in the DM; asking another
+                // bot to look makes a job, as in a thread.
+                Some(who) if text.starts_with(&format!("@{} ", who.name())) => {
+                    let rest = text[who.name().len() + 2..].to_string();
+                    self.ask(who, rest, cx);
+                }
+                Some(_) => self.hand_over(text.clone(), cx),
+                None => {
+                    self.composer
+                        .update(cx, |i, cx| ui::put_text(i, text.clone(), window, cx));
+                    self.send_from_composer(window, cx);
+                }
+            },
             QuickAct::Seen(id) => {
                 if let Some(j) = self.crew.store.job_mut(*id) {
                     j.seen = true;
@@ -251,7 +260,31 @@ impl Shell {
     /// One message in a thread, yours or a bot's: the message, the marks
     /// quick reactions left on it, and while the pointer is over this message
     /// alone, a bar at its top right with what it offers, Reply and Copy.
-    fn message(
+    /// The bot whose DM is open, if one is.
+    pub(super) fn dm(&self) -> Option<Member> {
+        match self.place {
+            Place::Chat(who) => Some(who),
+            _ => None,
+        }
+    }
+
+    /// Puts words in the box you type in here: the DM's, or the thread's.
+    fn put_in_box(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dm().is_some() {
+            self.chat_input.update(cx, |i, cx| {
+                i.set_value(text, window, cx);
+                i.focus(window, cx);
+            });
+        } else {
+            self.composer.update(cx, |i, cx| {
+                ui::put_text(i, text, window, cx);
+                i.focus(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    pub(super) fn message(
         &mut self,
         key: String,
         copy: String,
@@ -328,12 +361,12 @@ impl Shell {
                                 this.reply_open = Some(id);
                                 cx.notify();
                             }
+                            // In its own DM a bot needs no @.
+                            Reply::Bot(who) if this.dm() == Some(who) => {
+                                this.put_in_box(String::new(), window, cx)
+                            }
                             Reply::Bot(who) => {
-                                this.composer.update(cx, |i, cx| {
-                                    ui::put_text(i, format!("@{} ", who.name()), window, cx);
-                                    i.focus(window, cx);
-                                });
-                                cx.notify();
+                                this.put_in_box(format!("@{} ", who.name()), window, cx)
                             }
                         })),
                 )
@@ -344,11 +377,7 @@ impl Shell {
                         .child(Icon::new(IconName::Pencil).size(px(14.)))
                         .tooltip(tip_of("Edit and send again".into()))
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.composer.update(cx, |i, cx| {
-                                ui::put_text(i, text.clone(), window, cx);
-                                i.focus(window, cx);
-                            });
-                            cx.notify();
+                            this.put_in_box(text.clone(), window, cx)
                         })),
                 )
             })
@@ -404,7 +433,7 @@ impl Shell {
 }
 
 /// "Today", "Yesterday", or the day's name or date, for the line between days.
-fn day_label(at: u64) -> String {
+pub(super) fn day_label(at: u64) -> String {
     use chrono::{Local, TimeZone};
     let Some(then) = Local.timestamp_opt(at as i64, 0).single() else {
         return String::new();
@@ -420,7 +449,7 @@ fn day_label(at: u64) -> String {
 
 /// A line across the feed with a word in the middle: a day, or "New" in red
 /// where what you haven't seen starts.
-fn divider(text: &str, tint: Option<u32>) -> Div {
+pub(super) fn divider(text: &str, tint: Option<u32>) -> Div {
     let line = tint.unwrap_or(ui::line());
     div()
         .w_full()
@@ -452,7 +481,7 @@ fn when(at: u64) -> String {
 }
 
 /// A message's header: who, and when.
-fn byline(name: &str, at: u64) -> Div {
+pub(super) fn byline(name: &str, at: u64) -> Div {
     div()
         .flex()
         .items_baseline()
@@ -494,7 +523,7 @@ fn card() -> Div {
 }
 
 /// The person's own message.
-fn mine(text: String, at: u64) -> Div {
+pub(super) fn mine(text: String, at: u64) -> Div {
     div()
         .flex()
         .gap(px(12.))
