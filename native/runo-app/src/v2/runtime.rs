@@ -61,6 +61,8 @@ pub struct Runtime {
     pub sites: brain::Sites,
     /// Your own server, when this app is connected to one.
     pub link: Option<super::remote::Link>,
+    /// Server jobs whose work is coming home to be approved here.
+    bringing: Vec<(u64, Receiver<Result<String, String>>)>,
     /// Titles and recaps Peek is writing, by job.
     peeking: Vec<(u64, Receiver<brain::tasks::Said>)>,
     /// New bots the crew's engine is setting up for the project, by made id,
@@ -100,6 +102,7 @@ impl Runtime {
             planning: Vec::new(),
             sites: brain::Sites::default(),
             link: None,
+            bringing: Vec::new(),
             peeking: Vec::new(),
             designing: Vec::new(),
             drafting: None,
@@ -292,6 +295,36 @@ impl Runtime {
         // goals stay here for now: their tries and steps are tracked here.
         let whole = pick.is_none() && job.goal == 0;
         let none = brain::Sites::default();
+        // The person's own choice of where jobs run, when they made one.
+        let chose = self
+            .link
+            .as_ref()
+            .map(|l| l.cfg.run.clone())
+            .unwrap_or_default();
+        if chose == "here" {
+            job.feed.push(store::Item::Note(
+                "Running here on this computer, as you chose.".into(),
+            ));
+            let placed = brain::place(
+                st,
+                &brain::JobAsk {
+                    bot,
+                    mode,
+                    text: text.to_string(),
+                    folder: job.folder.clone(),
+                    race: usize::from(pick.is_some()) * 2,
+                    goal: job.goal != 0,
+                },
+                &none,
+            );
+            self.launch(st, &mut job, text);
+            return (job, placed);
+        }
+        if chose == "server" {
+            if let Some(placed) = self.send_to_server(&mut job, text, whole) {
+                return (job, placed);
+            }
+        }
         let placed = brain::place(
             st,
             &brain::JobAsk {
@@ -321,12 +354,77 @@ impl Runtime {
                         "bot": bot.name(),
                         "folder": path,
                     }),
+                    &job.folder.path,
                 );
                 return (job, placed);
             }
         }
         self.launch(st, &mut job, text);
         (job, placed)
+    }
+
+    /// Sends a job to the server because the person chose to run jobs there,
+    /// copying its project over first when the server doesn't have it. `None`
+    /// when it can't go there, with a note on the job saying why it runs here.
+    fn send_to_server(
+        &mut self,
+        job: &mut store::Job,
+        text: &str,
+        whole: bool,
+    ) -> Option<brain::place::Placement> {
+        let link = self.link.as_ref()?;
+        let name = link.cfg.label();
+        let server = link.server();
+        let why = if !whole {
+            Some(
+                "Races and goal steps run here for now, even with jobs set to run on your server."
+                    .to_string(),
+            )
+        } else if !server.reachable {
+            Some(format!("{name} isn't answering, so this runs here."))
+        } else if server.engines.is_empty() {
+            Some(format!(
+                "Nothing is signed in on {name} yet, so this runs here. Sign it in under Settings > My server."
+            ))
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            job.feed.push(store::Item::Note(why));
+            return None;
+        }
+        let body = serde_json::json!({
+            "text": text,
+            "mode": format!("{:?}", job.mode),
+            "bot": job.bot.name(),
+        });
+        let remote = ship::remote_url(&job.folder.path).unwrap_or_default();
+        match link.path_for(&job.folder, &remote) {
+            Some(path) => {
+                let mut body = body;
+                body["folder"] = serde_json::json!(path);
+                job.feed.push(store::Item::Note(format!(
+                    "Running on your server, {name}, as you chose."
+                )));
+                link.send(job.id, body, &job.folder.path);
+            }
+            None => {
+                job.feed.push(store::Item::Note(format!(
+                    "Copying {} to your server, {name}, first. Then it runs there.",
+                    job.folder.name
+                )));
+                link.copy_then_send(job.id, &job.folder, body);
+            }
+        }
+        job.remote_on = name.clone();
+        job.status = Status::Running;
+        job.engine = format!("on {name}");
+        Some(brain::place::Placement {
+            site: brain::place::Site::Server(name),
+            engine: (0, String::new()),
+            why: String::new(),
+            fallback: Some(brain::place::Site::Here),
+        })
     }
 
     /// Starts a job here: its own branch when it may change files, then its
@@ -397,6 +495,11 @@ impl Runtime {
         };
         self.sites.server = Some(link.server());
         let label = link.cfg.label();
+        for (id, note) in link.take_job_notes() {
+            if let Some(j) = self.store.job_mut(id) {
+                j.feed.push(store::Item::Note(note));
+            }
+        }
         let sent = link.sent();
         let fresh = link.take_jobs();
         let notes = link.take_notes();
@@ -1083,6 +1186,9 @@ impl Runtime {
     /// otherwise merged into the branch it started from. Approving one try of a
     /// race keeps it and throws the others away.
     pub fn approve(&mut self, id: u64) {
+        if self.bring_home(id) {
+            return;
+        }
         if self.on_server(id, "approve", serde_json::Value::Null) {
             return;
         }
@@ -1092,6 +1198,87 @@ impl Runtime {
         } else {
             self.approve_one(id);
         }
+    }
+
+    /// Approving a job that ran on your server brings its work home first:
+    /// its branch comes back here, and then it merges (or becomes a pull
+    /// request) exactly like a job that ran here. False when it isn't one.
+    fn bring_home(&mut self, id: u64) -> bool {
+        let Some(job) = self.store.job(id).cloned() else {
+            return false;
+        };
+        let Some(link) = &self.link else {
+            return false;
+        };
+        if job.remote_on.is_empty()
+            || job.remote == 0
+            || link.cfg.label() != job.remote_on
+            || job.status != Status::Review
+            || job.branch.is_empty()
+            || !std::path::Path::new(&job.folder.path).is_dir()
+            || self.bringing.iter().any(|(j, _)| *j == id)
+        {
+            return false;
+        }
+        let url = ship::remote_url(&job.folder.path).unwrap_or_default();
+        let Some(there) = link.path_for(&job.folder, &url) else {
+            return false;
+        };
+        let rx = super::remote::bring_home_later(link.cfg.clone(), job.clone(), there);
+        self.bringing.push((id, rx));
+        if let Some(j) = self.store.job_mut(id) {
+            j.seen = true;
+            j.feed.push(store::Item::Note(format!(
+                "Approved. Bringing its work home from {} first.",
+                job.remote_on
+            )));
+        }
+        self.store.save();
+        true
+    }
+
+    /// Server jobs whose work came home: approve them here, and let the
+    /// server drop its copy.
+    fn poll_bringing(&mut self) {
+        let mut done = Vec::new();
+        self.bringing.retain(|(id, rx)| match rx.try_recv() {
+            Ok(r) => {
+                done.push((*id, r));
+                false
+            }
+            Err(TryRecvError::Empty) => true,
+            Err(TryRecvError::Disconnected) => false,
+        });
+        for (id, result) in done {
+            let Some(j) = self.store.job_mut(id) else {
+                continue;
+            };
+            let name = j.remote_on.clone();
+            match result {
+                Ok(worktree) => {
+                    let remote = j.remote;
+                    j.worktree = worktree;
+                    j.remote_on.clear();
+                    j.remote = 0;
+                    j.remote_dir.clear();
+                    j.feed.push(store::Item::Note(format!(
+                        "Its work is home on {}, so it lands here like any job.",
+                        j.branch
+                    )));
+                    if let Some(link) = &self.link {
+                        link.act(remote, "discard", serde_json::Value::Null);
+                    }
+                    self.approve_one(id);
+                }
+                Err(why) => {
+                    j.feed.push(store::Item::Error(format!(
+                        "Couldn't bring it home from {name}: {why}. It's still waiting there."
+                    )));
+                    self.say("Couldn't bring that job home. The reason is on the job.");
+                }
+            }
+        }
+        self.store.save();
     }
 
     fn approve_one(&mut self, id: u64) {
@@ -1714,6 +1901,7 @@ impl Runtime {
         self.poll_draft();
         self.poll_goals(st);
         self.poll_queue(st);
+        self.poll_bringing();
         finished.extend(self.poll_remote(st));
         finished
     }
@@ -2093,7 +2281,7 @@ fn mirror(job: &mut store::Job, there: store::Job) {
     job.race = 0;
     job.pick.clear();
     // Its worktree is on the server, not here.
-    job.worktree.clear();
+    job.remote_dir = std::mem::take(&mut job.worktree);
     if !job.engine.contains(&keep.5) {
         job.engine = if job.engine.is_empty() {
             format!("on {}", keep.5)

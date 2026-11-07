@@ -255,6 +255,8 @@ impl Shell {
                                 })),
                         )
                     })
+                    // Where it runs, once there's a server: click to switch.
+                    .children(self.run_on_pill(cx))
                     .child(
                         div()
                             .id("goes-to")

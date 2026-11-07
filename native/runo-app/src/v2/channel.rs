@@ -1598,6 +1598,10 @@ impl Shell {
                             .text_color(c(ui::faint()))
                             .child(placeholder_hint),
                     )
+                    // Where a job from here runs, once there's a server.
+                    .when(self.mode != Mode::Ask && !value.starts_with('/'), |d| {
+                        d.children(self.run_on_pill(cx))
+                    })
                     .child(
                         div()
                             .id("thread-goes-to")
