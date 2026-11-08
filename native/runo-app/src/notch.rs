@@ -52,7 +52,9 @@ fn ca(hex: u32, a: f32) -> Hsla {
 }
 
 thread_local! {
-    static OPEN: RefCell<Option<WindowHandle<Notch>>> = const { RefCell::new(None) };
+    /// The notch's window and its view, once open. gpui_kit wraps the view in
+    /// its own root, so the window can't be read as a `Notch` directly.
+    static OPEN: RefCell<Option<(AnyWindowHandle, Entity<Notch>)>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -96,29 +98,36 @@ pub(crate) fn install(cx: &mut App) {
 }
 
 fn tick(cx: &mut App) {
-    let open = OPEN.with_borrow(|o| *o);
+    let open = OPEN.with_borrow(|o| o.clone());
     match (enabled(cx), open) {
         (true, None) => {
             if let Some(handle) = open_notch(cx) {
                 OPEN.set(Some(handle));
             }
         }
-        (false, Some(handle)) => {
+        (false, Some((handle, _))) => {
             OPEN.set(None);
             let _ = handle.update(cx, |_, window, _| window.remove_window());
         }
-        (true, Some(handle)) => {
+        (true, Some((handle, view))) => {
             // What it shows, and where: a display may have come or gone.
-            let _ = handle.update(cx, |this, window, cx| {
-                this.fit(window);
-                cx.notify();
-            });
+            let gone = handle
+                .update(cx, |_, window, cx| {
+                    view.update(cx, |this, cx| {
+                        this.fit(window);
+                        cx.notify();
+                    })
+                })
+                .is_err();
+            if gone {
+                OPEN.set(None);
+            }
         }
         (false, None) => {}
     }
 }
 
-fn open_notch(cx: &mut App) -> Option<WindowHandle<Notch>> {
+fn open_notch(cx: &mut App) -> Option<(AnyWindowHandle, Entity<Notch>)> {
     let geom = platform::geometry()?;
     let (w, h) = (geom.notch_w.max(PILL_W), geom.top_h);
     let options = WindowOptions {
@@ -136,18 +145,17 @@ fn open_notch(cx: &mut App) -> Option<WindowHandle<Notch>> {
         window_background: WindowBackgroundAppearance::Transparent,
         ..Default::default()
     };
-    let (handle, _) =
+    let (handle, view) =
         gpui_kit::open_window(options, cx, |_, cx| cx.new(|_| Notch::new(geom))).ok()?;
-    let handle = handle.downcast::<Notch>()?;
-    let _ = handle.update(cx, |this, window, cx| {
+    let _ = handle.update(cx, |_, window, cx| {
         gpui_kit::base::Root::update(window, cx, |root, _, cx| {
             root.style().background = Some(gpui_kit::transparent_black().into());
             cx.notify();
         });
         platform::setup(window);
-        this.fit(window);
+        view.update(cx, |this, _| this.fit(window));
     });
-    Some(handle)
+    Some((handle, view))
 }
 
 struct Notch {
@@ -437,7 +445,7 @@ impl Render for Notch {
             .child(strip)
             .child(body);
 
-        div().size(px(w)).max_w_full().child(island)
+        div().size_full().child(island)
     }
 }
 
