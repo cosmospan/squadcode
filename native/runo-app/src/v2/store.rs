@@ -243,6 +243,11 @@ pub struct Job {
     pub agent: String,
     pub started: u64,
     pub ended: Option<u64>,
+    /// Seconds its earlier turns ran, so a follow-up hours later doesn't
+    /// count the wait in between as work.
+    pub worked: u64,
+    /// When the current turn started; 0 means `started`.
+    pub turn: u64,
     pub status: Status,
     pub feed: Vec<Item>,
     /// The agent's own todo list: (step, 0 todo / 1 doing / 2 done).
@@ -346,6 +351,8 @@ impl Default for Job {
             agent: String::new(),
             started: 0,
             ended: None,
+            worked: 0,
+            turn: 0,
             status: Status::Done,
             feed: Vec::new(),
             plan: Vec::new(),
@@ -383,9 +390,19 @@ impl Default for Job {
 }
 
 impl Job {
-    /// Seconds it has run, or ran.
+    /// Seconds it has run, or ran: every turn, without the waits between them.
     pub fn seconds(&self) -> u64 {
-        self.ended.unwrap_or_else(now).saturating_sub(self.started)
+        let from = if self.turn > 0 { self.turn } else { self.started };
+        self.worked + self.ended.unwrap_or_else(now).saturating_sub(from)
+    }
+
+    /// A follow-up is starting: bank the turns so far and start a new one.
+    pub fn next_turn(&mut self) {
+        if self.ended.is_some() {
+            self.worked = self.seconds();
+            self.turn = now();
+        }
+        self.ended = None;
     }
 
     /// Steps done out of steps planned, when the agent keeps a plan.
@@ -1142,6 +1159,25 @@ pub fn span(s: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_follow_up_hours_later_counts_only_the_turns() {
+        let t = now();
+        let mut j = Job {
+            started: t - 8 * 3600,
+            ended: Some(t - 8 * 3600 + 6),
+            ..Job::default()
+        };
+        assert_eq!(j.seconds(), 6);
+        j.next_turn();
+        assert_eq!(j.worked, 6);
+        j.ended = Some(j.turn + 10);
+        assert_eq!(j.seconds(), 16);
+        // A second follow-up keeps adding up.
+        j.next_turn();
+        j.ended = Some(j.turn + 4);
+        assert_eq!(j.seconds(), 20);
+    }
 
     fn with_project() -> Store {
         let mut s = Store::default();

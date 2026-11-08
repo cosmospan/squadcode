@@ -535,8 +535,10 @@ impl Tunnel {
     fn to(host: &str, key: &str, there: u16) -> Result<Tunnel, String> {
         let port = free_port().ok_or("no free port on this computer")?;
         let mut cmd = ssh_base(host, key);
+        // Not `-N`: the server waits on our end of a pipe instead, so when
+        // Squad Code quits, however it quits, the pipe closes and ssh ends
+        // with it rather than holding the tunnel open on its own.
         cmd.args([
-            "-N",
             "-o",
             "ExitOnForwardFailure=yes",
             "-o",
@@ -545,8 +547,9 @@ impl Tunnel {
             "ServerAliveCountMax=3",
             "-L",
             &format!("127.0.0.1:{port}:127.0.0.1:{there}"),
+            "cat >/dev/null",
         ])
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;

@@ -217,7 +217,7 @@ pub fn start(
     job.agent = p.id.to_string();
     job.engine = engine::label_of(i, &model);
     job.status = Status::Running;
-    job.ended = None;
+    job.next_turn();
     job.seen = false;
     Ok(Runner {
         id: job.id,

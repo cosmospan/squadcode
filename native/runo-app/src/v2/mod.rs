@@ -991,7 +991,13 @@ impl Shell {
                     continue;
                 }
                 slept = 0;
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                if this
+                    .update(cx, |this, cx| {
+                        this.poll(cx);
+                        cx.notify()
+                    })
+                    .is_err()
+                {
                     break;
                 }
                 continue;
@@ -1009,7 +1015,16 @@ impl Shell {
             cx.background_executor()
                 .timer(Duration::from_millis(wait as u64))
                 .await;
-            if this.update(cx, |_, cx| cx.notify()).is_err() {
+            // Move the crew along here too, not only when a frame is drawn:
+            // macOS draws nothing for a window that's hidden or covered, and
+            // jobs, the server page and notices should keep up all the same.
+            if this
+                .update(cx, |this, cx| {
+                    this.poll(cx);
+                    cx.notify()
+                })
+                .is_err()
+            {
                 break;
             }
         });
