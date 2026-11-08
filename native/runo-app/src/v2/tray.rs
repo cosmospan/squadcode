@@ -60,6 +60,7 @@ pub(crate) fn glyph(cx: &App) -> Option<(String, bool, String)> {
 /// you"), how many need you and how many run, and up to `n` jobs (needs you
 /// first) as bot, title, what it is doing, and whether it needs you. None when
 /// the window is closed.
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) struct Glance {
     pub summary: String,
     pub needs: usize,

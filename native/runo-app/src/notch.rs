@@ -225,9 +225,9 @@ impl Anim {
         if t >= 1. {
             1.
         } else if self.growing {
-            // A damped spring (damping 0.75): quick at first, about 3% past
+            // A damped spring (damping 0.75): quick at first, about 1.5% past
             // the end, settled well before the time is up.
-            let (zeta, omega) = (0.75_f32, 14_f32);
+            let (zeta, omega) = (0.82_f32, 11_f32);
             let wd = omega * (1. - zeta * zeta).sqrt();
             1. - (-zeta * omega * t).exp() * ((wd * t).cos() + zeta * omega / wd * (wd * t).sin())
         } else {
@@ -251,6 +251,11 @@ struct Notch {
     /// The shape as drawn last frame, and the move under way to the next.
     drawn: Frame,
     anim: Option<Anim>,
+    /// What the crew is doing, read once a second rather than while
+    /// drawing: reading it in render tied this window's redraws to every
+    /// change in the main window.
+    glance: Option<crate::v2::tray::Glance>,
+    glance_at: Option<Instant>,
 }
 
 impl Notch {
@@ -265,6 +270,8 @@ impl Notch {
             frames: 0,
             drawn: Frame::default(),
             anim: None,
+            glance: None,
+            glance_at: None,
         }
     }
 
@@ -327,6 +334,18 @@ impl Notch {
     }
 
     fn look(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        if self
+            .glance_at
+            .is_none_or(|at| now - at >= Duration::from_secs(1))
+        {
+            self.glance_at = Some(now);
+            let fresh = crate::v2::tray::glance(cx, ROWS);
+            if fresh != self.glance {
+                self.glance = fresh;
+                cx.notify();
+            }
+        }
         let (w, h) = self.size();
         let over = platform::pointer_over(w, h);
         let now = Instant::now();
@@ -372,8 +391,8 @@ fn badge(n: usize) -> Div {
 }
 
 impl Render for Notch {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let glance = crate::v2::tray::glance(cx, ROWS);
+    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let glance = self.glance.clone();
         let (needs, running) = glance.as_ref().map_or((0, 0), |g| (g.needs, g.running));
         let busy = needs + running > 0;
         self.busy = busy;
@@ -575,10 +594,17 @@ impl Render for Notch {
             .flex_none()
             .flex()
             .flex_col()
-            .opacity(fade)
             .child(strip)
-            .children(line)
-            .child(body);
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .opacity(fade)
+                    .children(line)
+                    .child(body),
+            );
         let r = shown.r;
         let island = div()
             .id("notch")
