@@ -14,7 +14,7 @@
 //! off unless Settings has `notch` on or SQUAD_NOTCH is set.
 
 use std::cell::RefCell;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -32,6 +32,9 @@ const OPEN_H: f32 = 300.;
 const ROWS: usize = 4;
 /// The pill on a screen without a notch.
 const PILL_W: f32 = 150.;
+/// The window: one size, big enough for the open panel.
+const WIN_W: f32 = OPEN_W;
+const WIN_H: f32 = OPEN_H;
 
 const BLACK: u32 = 0x000000;
 const INK: u32 = 0xF3F4F7;
@@ -110,7 +113,7 @@ fn tick(cx: &mut App) {
             let _ = handle.update(cx, |_, window, _| window.remove_window());
         }
         (true, Some((handle, view))) => {
-            // What it shows, and where: a display may have come or gone.
+            // A display may have come or gone, or the notch moved screens.
             let gone = handle
                 .update(cx, |_, window, cx| {
                     view.update(cx, |this, cx| {
@@ -129,11 +132,10 @@ fn tick(cx: &mut App) {
 
 fn open_notch(cx: &mut App) -> Option<(AnyWindowHandle, Entity<Notch>)> {
     let geom = platform::geometry()?;
-    let (w, h) = (geom.notch_w.max(PILL_W), geom.top_h);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
-            size(px(w), px(h)),
+            size(px(WIN_W), px(WIN_H)),
         ))),
         titlebar: None,
         kind: WindowKind::PopUp,
@@ -155,9 +157,18 @@ fn open_notch(cx: &mut App) -> Option<(AnyWindowHandle, Entity<Notch>)> {
             cx.notify();
         });
         platform::setup(window);
-        view.update(cx, |this, cx| this.fit(window, cx));
+        view.update(cx, |this, cx| {
+            this.fit(window, cx);
+            this.watch(window, cx);
+        });
     });
     Some((handle, view))
+}
+
+fn debug(what: impl FnOnce() -> String) {
+    if std::env::var_os("SQUAD_NOTCH_DEBUG").is_some() {
+        eprintln!("notch: {}", what());
+    }
 }
 
 struct Notch {
@@ -165,10 +176,13 @@ struct Notch {
     geom: Geom,
     /// Bots are working or something needs you, so the ears show at rest.
     busy: bool,
-    /// The size it was last given, so it is only resized on a change.
-    placed: Option<(f32, f32)>,
-    /// Counts up on each hover change; a timer from an older one does nothing.
-    hover_gen: u64,
+    /// The geometry the window was last placed for.
+    placed: Option<Geom>,
+    /// When the pointer came onto the shape, and when it left it.
+    over_since: Option<Instant>,
+    left_at: Option<Instant>,
+    /// Frames drawn, for the debug log.
+    frames: u64,
 }
 
 impl Notch {
@@ -178,11 +192,13 @@ impl Notch {
             geom,
             busy: false,
             placed: None,
-            hover_gen: 0,
+            over_since: None,
+            left_at: None,
+            frames: 0,
         }
     }
 
-    /// The size for its shape and what it shows.
+    /// The black shape's size for its state and what it shows.
     fn size(&self) -> (f32, f32) {
         let g = self.geom;
         let base = if g.notched() { g.notch_w } else { PILL_W };
@@ -194,71 +210,74 @@ impl Notch {
         }
     }
 
-    /// Size and place the window for what it shows now, if that changed.
+    /// Place the window over the notch, if the screen changed since.
     ///
-    /// The frame is set once gpui is done with the window, so the resize and
-    /// the move to a sharper screen reach gpui; set from inside its update,
-    /// they were lost and it kept drawing at the first size and scale.
+    /// The window keeps one size, big enough for the open panel, and the
+    /// shape grows inside it: gpui missed resizes made from AppKit. It lets
+    /// clicks through to the menu bar except while open.
     fn fit(&mut self, window: &mut Window, cx: &mut App) {
         if let Some(g) = platform::geometry() {
-            if g != self.geom {
-                self.geom = g;
-                self.placed = None;
-            }
+            self.geom = g;
         }
-        let want = self.size();
-        if self.placed != Some(want) {
-            self.placed = Some(want);
-            let native = platform::native(window);
-            cx.defer(move |_| platform::place(native, want.0, want.1));
-        }
+        let open = self.shape == Shape::Open;
+        let geom = self.geom;
+        let native = platform::native(window);
+        let replace = self.placed != Some(geom);
+        self.placed = Some(geom);
+        cx.defer(move |_| platform::place(native, WIN_W, WIN_H, replace, !open));
     }
 
     fn set_shape(&mut self, shape: Shape, window: &mut Window, cx: &mut Context<Self>) {
         if self.shape != shape {
+            debug(|| format!("{:?} -> {shape:?}", self.shape));
             self.shape = shape;
             self.fit(window, cx);
             cx.notify();
         }
     }
 
-    /// The pointer came onto it or left it. Coming on, a short rest gives the
-    /// glance and a longer one opens it; leaving folds it back after a moment,
-    /// so brushing past on the way to the menu bar does nothing.
-    fn hover(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.hover_gen += 1;
-        let gen = self.hover_gen;
-        let steps: Vec<(u64, Shape)> = if on {
-            match self.shape {
-                Shape::Open => Vec::new(),
-                _ => vec![(150, Shape::Glance), (450, Shape::Open)],
-            }
-        } else {
-            vec![(400, Shape::Rest)]
-        };
-        if steps.is_empty() {
-            return;
-        }
-        cx.spawn_in(window, async move |this, cx| {
-            for (ms, shape) in steps {
-                cx.background_executor()
-                    .timer(Duration::from_millis(ms))
-                    .await;
-                let still = this
-                    .update_in(cx, |this, window, cx| {
-                        if this.hover_gen != gen {
-                            return false;
-                        }
-                        this.set_shape(shape, window, cx);
-                        true
-                    })
-                    .unwrap_or(false);
-                if !still {
-                    return;
-                }
+    /// Watch the pointer, about twenty times a second. A short rest on the
+    /// shape gives the glance and a longer one opens it; leaving folds it
+    /// back after a moment, so brushing past on the way to the menu bar does
+    /// nothing. Read from AppKit rather than gpui's hover, so it works while
+    /// another app has focus and the window lets clicks through.
+    fn watch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(50))
+                .await;
+            let alive = this
+                .update_in(cx, |this, window, cx| this.look(window, cx))
+                .is_ok();
+            if !alive {
+                return;
             }
         })
         .detach();
+    }
+
+    fn look(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (w, h) = self.size();
+        let over = platform::pointer_over(w, h);
+        let now = Instant::now();
+        if over {
+            self.left_at = None;
+            let since = *self.over_since.get_or_insert(now);
+            let rested = now - since;
+            if rested >= Duration::from_millis(600) {
+                self.set_shape(Shape::Open, window, cx);
+            } else if rested >= Duration::from_millis(150) && self.shape == Shape::Rest {
+                self.set_shape(Shape::Glance, window, cx);
+            }
+        } else {
+            self.over_since = None;
+            if self.shape != Shape::Rest {
+                let left = *self.left_at.get_or_insert(now);
+                if now - left >= Duration::from_millis(400) {
+                    self.set_shape(Shape::Rest, window, cx);
+                }
+            }
+        }
     }
 }
 
@@ -288,10 +307,20 @@ impl Render for Notch {
         let (needs, running) = glance.as_ref().map_or((0, 0), |g| (g.needs, g.running));
         let busy = needs + running > 0;
         self.busy = busy;
-        // Resized after this frame: AppKit shouldn't move the window mid-draw.
         let (w, h) = self.size();
-        if self.placed != Some((w, h)) {
-            cx.defer_in(window, |this, window, cx| this.fit(window, cx));
+        self.frames += 1;
+        if self.frames <= 3 || self.frames % 200 == 0 {
+            let vp = window.viewport_size();
+            debug(|| {
+                format!(
+                    "frame {} {:?} shape {w}x{h} viewport {}x{} scale {}",
+                    self.frames,
+                    self.shape,
+                    vp.width,
+                    vp.height,
+                    window.scale_factor()
+                )
+            });
         }
         let g = self.geom;
         let radius = if g.notched() { 12. } else { g.top_h / 2. };
@@ -444,15 +473,15 @@ impl Render for Notch {
             .rounded_bl(px(r))
             .rounded_br(px(r))
             .when(!g.notched(), |d| d.rounded_tl(px(r)).rounded_tr(px(r)))
-            .on_hover(cx.listener(|this, on: &bool, window, cx| this.hover(*on, window, cx)))
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.hover_gen += 1;
-                this.set_shape(Shape::Open, window, cx);
-            }))
             .child(strip)
             .child(body);
 
-        div().size_full().child(island)
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .child(div().w(px(w)).h(px(h)).flex_none().child(island))
     }
 }
 
@@ -479,7 +508,11 @@ mod platform {
 
     pub(super) fn native(_: &gpui_kit::Window) -> Native {}
 
-    pub(super) fn place(_: Native, _: f32, _: f32) {}
+    pub(super) fn place(_: Native, _: f32, _: f32, _: bool, _: bool) {}
+
+    pub(super) fn pointer_over(_: f32, _: f32) -> bool {
+        false
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -490,7 +523,7 @@ mod mac {
     use objc2::rc::Retained;
     use objc2::MainThreadMarker;
     use objc2_app_kit::{
-        NSScreen, NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
+        NSEvent, NSScreen, NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
     };
     use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -576,6 +609,20 @@ mod mac {
         w.setHasShadow(false);
     }
 
+    /// The pointer is over a `width` by `height` shape at the notch.
+    pub(super) fn pointer_over(width: f32, height: f32) -> bool {
+        let Some(screen) = screen() else {
+            return false;
+        };
+        let r = hung(&screen, width as f64, height as f64);
+        let p = NSEvent::mouseLocation();
+        // The top row of points counts, where the pointer stops at the edge.
+        p.x >= r.origin.x
+            && p.x <= r.origin.x + r.size.width
+            && p.y >= r.origin.y
+            && p.y <= r.origin.y + r.size.height + 1.
+    }
+
     /// The AppKit window, to place once gpui is done with it.
     pub(super) type Native = Option<Retained<NSWindow>>;
 
@@ -583,23 +630,27 @@ mod mac {
         ns_window(window)
     }
 
-    /// Size it to `width` by `height`, hung from the top edge of its screen,
-    /// centred under the notch, and show it without taking focus.
-    pub(super) fn place(window: Native, width: f32, height: f32) {
+    /// The rect on screen, in AppKit's points from the bottom left, of a
+    /// `width` by `height` shape hung from the top edge, centred on the notch.
+    fn hung(screen: &NSScreen, width: f64, height: f64) -> NSRect {
+        let frame = screen.frame();
+        let notched = screen.safeAreaInsets().top > 0.;
+        // The pill hangs a little below the top edge; the notch shape is flush.
+        let top = frame.origin.y + frame.size.height - if notched { 0. } else { 2. };
+        let x = frame.origin.x + (frame.size.width - width) / 2.;
+        NSRect::new(NSPoint::new(x, top - height), NSSize::new(width, height))
+    }
+
+    /// Size it to `width` by `height` over the notch when `replace`, let clicks
+    /// through or not, and show it without taking focus.
+    pub(super) fn place(window: Native, width: f32, height: f32, replace: bool, through: bool) {
         let (Some(w), Some(screen)) = (window, screen()) else {
             return;
         };
-        let frame = screen.frame();
-        let (ww, hh) = (width as f64, height as f64);
-        let x = frame.origin.x + (frame.size.width - ww) / 2.;
-        let top = frame.origin.y + frame.size.height;
-        let notched = screen.safeAreaInsets().top > 0.;
-        // The pill hangs a little below the top edge; the notch shape is flush.
-        let top = if notched { top } else { top - 2. };
-        w.setFrame_display(
-            NSRect::new(NSPoint::new(x, top - hh), NSSize::new(ww, hh)),
-            true,
-        );
+        if replace {
+            w.setFrame_display(hung(&screen, width as f64, height as f64), true);
+        }
+        w.setIgnoresMouseEvents(through);
         w.orderFrontRegardless();
     }
 }
