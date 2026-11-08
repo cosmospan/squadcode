@@ -317,6 +317,8 @@ pub struct AppSettings {
     pub assistant_nudges: bool,
     /// Show Runo in the macOS menu bar with what agents are doing.
     pub menu_bar: bool,
+    /// Show Squad in the MacBook notch, apart from the menu bar. Off until turned on.
+    pub notch: bool,
     /// Count what needs the person on the Dock icon.
     pub dock_badge: bool,
     /// With the menu bar on, ⌘Q and closing the window hide Runo to it instead of quitting.
@@ -472,6 +474,7 @@ impl Default for AppSettings {
             assistant_model: String::new(),
             assistant_nudges: true,
             menu_bar: true,
+            notch: false,
             dock_badge: true,
             run_in_background: true,
             background_told: false,

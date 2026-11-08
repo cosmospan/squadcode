@@ -56,6 +56,43 @@ pub(crate) fn glyph(cx: &App) -> Option<(String, bool, String)> {
     Some((count, board.needs_n > 0, board.summary()))
 }
 
+/// A short read of the crew for the notch: the summary ("2 working · 1 needs
+/// you"), how many need you and how many run, and up to `n` jobs (needs you
+/// first) as bot, title, what it is doing, and whether it needs you. None when
+/// the window is closed.
+pub(crate) struct Glance {
+    pub summary: String,
+    pub needs: usize,
+    pub running: usize,
+    pub rows: Vec<(&'static str, String, String, bool)>,
+}
+
+pub(crate) fn glance(cx: &App, n: usize) -> Option<Glance> {
+    let shell = shell(cx)?;
+    let s = shell.read(cx);
+    let board = Board::of(&s.crew.store, true, |j| s.crew.asks_for(j));
+    let rows = board
+        .needs
+        .iter()
+        .map(|l| (l, true))
+        .chain(board.working.iter().map(|l| (l, false)))
+        .take(n)
+        .map(|(l, need)| {
+            let note = match &l.ask {
+                Some((_, wants, _)) => wants.clone(),
+                None => l.note.clone(),
+            };
+            (l.bot.name(), l.title.clone(), note, need)
+        })
+        .collect();
+    Some(Glance {
+        summary: board.summary(),
+        needs: board.needs_n,
+        running: board.running,
+        rows,
+    })
+}
+
 /// One job, as the panel shows it.
 #[derive(Clone, Debug, PartialEq)]
 struct Line {
@@ -212,6 +249,11 @@ fn show(place: Place, cx: &mut App) {
     if let Some(shell) = shell(cx) {
         shell.update(cx, |s, cx| s.go(place, cx));
     }
+}
+
+/// Brings the window forward on Today, for the notch.
+pub(crate) fn open_today(cx: &mut App) {
+    show(Place::Today, cx);
 }
 
 /// Opens the window on Today with the job box ready to type in.

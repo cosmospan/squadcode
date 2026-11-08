@@ -78,6 +78,7 @@ mod mcp;
 mod memory_mcp;
 mod menubar;
 mod modelcheck;
+mod notch;
 mod models;
 mod motion;
 mod notes;
@@ -9895,6 +9896,7 @@ fn main() {
         startup::mark("keys");
         desktop_notify::install(cx);
         menubar::install(cx);
+        notch::install(cx);
         startup::mark("notifications, menu bar");
         cx.set_menus(app_menus());
         startup::mark("menus");
