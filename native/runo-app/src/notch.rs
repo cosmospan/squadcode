@@ -32,6 +32,8 @@ const OPEN_H: f32 = 300.;
 const ROWS: usize = 4;
 /// The pill on a screen without a notch.
 const PILL_W: f32 = 150.;
+/// The line of words under the notch, in the glance and atop the open panel.
+const LINE_H: f32 = 26.;
 /// The window: one size, big enough for the open panel.
 const WIN_W: f32 = OPEN_W;
 const WIN_H: f32 = OPEN_H;
@@ -205,7 +207,7 @@ impl Notch {
         match self.shape {
             Shape::Rest if self.busy => (base + 2. * EAR, g.top_h),
             Shape::Rest => (base, g.top_h),
-            Shape::Glance => (GLANCE_W.max(base + 2. * EAR), g.top_h + 6.),
+            Shape::Glance => (GLANCE_W.max(base + 2. * EAR), g.top_h + LINE_H),
             Shape::Open => (OPEN_W, OPEN_H),
         }
     }
@@ -330,61 +332,57 @@ impl Render for Notch {
 
         // The strip along the top: ears at rest, a line of words in the glance,
         // a heading when open.
+        // The strip along the top is the notch's own height, with the dot on
+        // the left and the badge on the right, and nothing between: on a
+        // notched screen the middle is behind the hardware. Words go below it.
         let strip = div()
-            .h(px(if shape == Shape::Glance {
-                top_h + 6.
-            } else {
-                top_h
-            }))
+            .h(px(top_h))
             .w_full()
             .flex_none()
             .px(px(12.))
             .flex()
             .items_center()
             .justify_between()
-            .text_size(px(12.5))
-            .text_color(c(DIM))
             .child(div().flex().items_center().gap(px(6.)).when(busy, |d| {
                 d.child(ear_dot(if needs > 0 { AMBER } else { BLUE }))
             }))
-            .when(shape == Shape::Glance, |d| {
-                let words = glance
-                    .as_ref()
-                    .and_then(|g| g.rows.first())
-                    .map(|(bot, title, note, _)| format!("{bot} · {title} · {note}"))
-                    .or_else(|| glance.as_ref().map(|g| g.summary.clone()))
-                    .unwrap_or_else(|| "Squad Code isn't open".into());
-                d.child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .px(px(10.))
-                        .text_center()
-                        .truncate()
-                        .child(words),
-                )
-            })
-            .when(shape == Shape::Open, |d| {
-                let summary = glance
-                    .as_ref()
-                    .map(|g| g.summary.clone())
-                    .unwrap_or_else(|| "Squad Code isn't open".into());
-                d.child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .px(px(10.))
-                        .text_color(c(INK))
-                        .truncate()
-                        .child(format!("Squad · {summary}")),
-                )
-            })
             .child(
                 div()
                     .flex()
                     .items_center()
                     .when(needs > 0, |d| d.child(badge(needs))),
             );
+        let words = match shape {
+            Shape::Rest => None,
+            Shape::Glance => Some(
+                glance
+                    .as_ref()
+                    .and_then(|g| g.rows.first())
+                    .map(|(bot, title, note, _)| format!("{bot} · {title} · {note}"))
+                    .or_else(|| glance.as_ref().map(|g| g.summary.clone()))
+                    .unwrap_or_else(|| "Squad Code isn't open".into()),
+            ),
+            Shape::Open => Some(format!(
+                "Squad · {}",
+                glance
+                    .as_ref()
+                    .map(|g| g.summary.clone())
+                    .unwrap_or_else(|| "Squad Code isn't open".into())
+            )),
+        };
+        let line = words.map(|words| {
+            div()
+                .h(px(LINE_H))
+                .w_full()
+                .flex_none()
+                .px(px(16.))
+                .flex()
+                .items_center()
+                .when(shape == Shape::Glance, |d| d.justify_center())
+                .text_size(px(12.5))
+                .text_color(c(if shape == Shape::Open { INK } else { DIM }))
+                .child(div().min_w_0().truncate().child(words))
+        });
 
         let mut body = div()
             .flex_1()
@@ -432,7 +430,7 @@ impl Render for Notch {
                         )
                         .child(
                             div()
-                                .max_w(px(200.))
+                                .max_w(px(170.))
                                 .truncate()
                                 .text_color(c(DIM))
                                 .child(note),
@@ -474,6 +472,7 @@ impl Render for Notch {
             .rounded_br(px(r))
             .when(!g.notched(), |d| d.rounded_tl(px(r)).rounded_tr(px(r)))
             .child(strip)
+            .children(line)
             .child(body);
 
         div()
