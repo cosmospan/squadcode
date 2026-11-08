@@ -12,7 +12,15 @@
 # can start it. It's safe to run again: what's running is left alone. Lines
 # it prints: `say: <progress>`, then `port=<vnc port>` and `pass=<password>`
 # last.
+#
+# SQUAD_DESKTOP picks what it does:
+# - `check`: only looks. Prints `need=<packages missing>` (empty when the
+#   desktop is all there) and `root=1` when it could install them, then stops.
+# - `install`: installs what's missing, then starts the desktop.
+# - anything else (the default): starts the desktop, and stops with
+#   `error: no desktop yet` rather than installing anything you didn't agree to.
 set -eu
+MODE="${SQUAD_DESKTOP:-start}"
 
 say() { printf 'say: %s\n' "$*"; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -21,8 +29,6 @@ DISPLAY_NUM="${SQUAD_DISPLAY:-77}"
 PORT=$((5900 + DISPLAY_NUM))
 GEOM="${SQUAD_GEOMETRY:-1600x1000}"
 dir="$HOME/.squadcode/desktop"
-mkdir -p "$dir"
-chmod 700 "$dir"
 
 [ "$(uname -s)" = Linux ] || fail "this server runs $(uname -s); the desktop needs Linux."
 
@@ -30,6 +36,20 @@ need=""
 command -v Xvfb >/dev/null 2>&1 || need="$need xvfb"
 command -v x11vnc >/dev/null 2>&1 || need="$need x11vnc"
 command -v startxfce4 >/dev/null 2>&1 || need="$need xfce4 xfce4-terminal dbus-x11"
+command -v dbus-launch >/dev/null 2>&1 || case "$need" in *dbus-x11*) ;; *) need="$need dbus-x11" ;; esac
+
+if [ "$MODE" = check ]; then
+  echo "need=${need# }"
+  if [ "$(id -u)" = 0 ] || sudo -n true 2>/dev/null; then echo "root=1"; fi
+  exit 0
+fi
+
+mkdir -p "$dir"
+chmod 700 "$dir"
+
+if [ -n "$need" ] && [ "$MODE" != install ]; then
+  fail "no desktop yet: this server is missing${need}"
+fi
 
 if [ -n "$need" ]; then
   if [ "$(id -u)" = 0 ]; then R=""; elif sudo -n true 2>/dev/null; then R="sudo -n"; else

@@ -334,12 +334,57 @@ pub fn parse_desktop(out: &str) -> Option<(u16, String)> {
     Some((port?, pass.filter(|p| !p.is_empty())?))
 }
 
-/// Starts the server's desktop (installing it the first time) and opens a
-/// tunnel to it, on a thread of its own.
-pub fn screen(cfg: Config) -> Receiver<Result<Screen, String>> {
+/// Whether the server has a desktop to show, and if not, what it lacks.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Desktop {
+    /// The packages it still needs; empty when the desktop is all there.
+    pub need: Vec<String>,
+    /// Whether Squad could install them (root, or sudo without a password).
+    pub can_install: bool,
+}
+
+impl Desktop {
+    pub fn ready(&self) -> bool {
+        self.need.is_empty()
+    }
+}
+
+/// Reads what the desktop script printed in `check` mode.
+pub fn parse_check(out: &str) -> Desktop {
+    let mut d = Desktop::default();
+    for line in out.lines() {
+        if let Some(n) = line.strip_prefix("need=") {
+            d.need = n.split_whitespace().map(str::to_string).collect();
+        } else if line.trim() == "root=1" {
+            d.can_install = true;
+        }
+    }
+    d
+}
+
+/// The desktop script, told what to do.
+fn desktop_script(mode: &str) -> String {
+    format!("SQUAD_DESKTOP={mode}\nexport SQUAD_DESKTOP\n{DESKTOP}")
+}
+
+/// Looks, without changing anything, whether the server has a desktop.
+pub fn check_desktop(cfg: Config) -> Receiver<Result<Desktop, String>> {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
-        let got = remote::run_script(&cfg, DESKTOP).and_then(|out| {
+        let got = remote::run_script(&cfg, &desktop_script("check")).map(|out| parse_check(&out));
+        let _ = tx.send(got);
+    });
+    rx
+}
+
+/// Starts the server's desktop and opens a tunnel to it, on a thread of its
+/// own. `install` puts in what's missing first; only pass it once the person
+/// said yes.
+pub fn screen(cfg: Config, install: bool) -> Receiver<Result<Screen, String>> {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let script = desktop_script(if install { "install" } else { "start" });
+        let got = remote::run_script(&cfg, &script).and_then(|out| {
             let (port, pass) = parse_desktop(&out)
                 .ok_or_else(|| "the server didn't say where its screen is".to_string())?;
             let tunnel = remote::forward(&cfg, port)
@@ -368,6 +413,16 @@ pub fn use_server_screen() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_a_desktop_check() {
+        let d = parse_check("need=xvfb x11vnc\nroot=1\n");
+        assert_eq!(d.need, vec!["xvfb", "x11vnc"]);
+        assert!(d.can_install && !d.ready());
+        let d = parse_check("need=\n");
+        assert!(d.ready() && !d.can_install);
+        assert!(desktop_script("check").starts_with("SQUAD_DESKTOP=check\n"));
+    }
 
     #[test]
     fn reads_a_look() {

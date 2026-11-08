@@ -178,9 +178,45 @@ impl Shell {
                 }
             }
         }
+        // A server just connected (or the app just opened with one): look
+        // once whether it has a desktop, and offer to install one if not.
+        if let Some(link) = &self.crew.link {
+            let label = link.cfg.label();
+            if self.server_desktop_for != label && self.server_desktop_rx.is_none() {
+                self.server_desktop_for = label;
+                self.server_desktop = None;
+                self.server_desktop_later = false;
+                self.server_desktop_rx = Some(machine::check_desktop(link.cfg.clone()));
+            }
+        }
+        if let Some(rx) = &self.server_desktop_rx {
+            match rx.try_recv() {
+                Ok(got) => {
+                    self.server_desktop_rx = None;
+                    // Couldn't look (it's unreachable, say): no question to ask.
+                    if let Ok(d) = got {
+                        if !d.ready() {
+                            self.say(format!(
+                                "{} has no desktop yet, so you can't watch what bots open there. Squad can install a light one if you agree: see Your server.",
+                                self.server_desktop_for
+                            ));
+                        }
+                        self.server_desktop = Some(d);
+                    }
+                    changed = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(_) => self.server_desktop_rx = None,
+            }
+        }
         if let Some(rx) = &self.server_screen_rx {
             match rx.try_recv() {
                 Ok(Ok(screen)) => {
+                    // It's up, so whatever it needed is there now.
+                    self.server_desktop = Some(machine::Desktop {
+                        need: Vec::new(),
+                        can_install: self.server_desktop.as_ref().is_some_and(|d| d.can_install),
+                    });
                     self.server_screen = Some(screen);
                     self.server_screen_rx = None;
                     self.screen_view = None;
@@ -189,7 +225,17 @@ impl Shell {
                 }
                 Ok(Err(why)) => {
                     self.server_screen_rx = None;
-                    self.say(format!("Couldn't show the server's screen: {why}"));
+                    if why.starts_with("no desktop yet") {
+                        // Found missing on the way: ask, rather than install.
+                        self.server_desktop_later = false;
+                        self.server_desktop_for.clear();
+                        self.say("Its desktop isn't installed. Squad asks before installing one: see Your server.");
+                        if self.place != Place::Server {
+                            self.place = Place::Server;
+                        }
+                    } else {
+                        self.say(format!("Couldn't show the server's screen: {why}"));
+                    }
                     changed = true;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
@@ -249,12 +295,99 @@ impl Shell {
         let Some(link) = &self.crew.link else {
             return;
         };
-        self.server_screen_rx = Some(machine::screen(link.cfg.clone()));
+        if self.server_desktop.as_ref().is_some_and(|d| !d.ready()) {
+            // No desktop there yet: show the question on Your server instead
+            // of installing anything unasked.
+            self.server_desktop_later = false;
+            self.go(Place::Server, cx);
+            return;
+        }
+        self.server_screen_rx = Some(machine::screen(link.cfg.clone(), false));
+        self.say(format!("Getting {}'s screen ready…", link.cfg.label()));
+        cx.notify();
+    }
+
+    /// The person said yes: install the desktop on the server, then open it.
+    pub(super) fn install_server_desktop(&mut self, cx: &mut Context<Self>) {
+        if self.server_screen_rx.is_some() {
+            return;
+        }
+        let Some(link) = &self.crew.link else {
+            return;
+        };
+        self.server_screen = None;
+        self.server_screen_rx = Some(machine::screen(link.cfg.clone(), true));
         self.say(format!(
-            "Getting {}'s screen ready. The first time, Squad installs a light desktop there, which takes a few minutes.",
+            "Installing a light desktop on {}. It takes a few minutes; its screen opens when it's ready.",
             link.cfg.label()
         ));
         cx.notify();
+    }
+
+    /// The question about installing a desktop, when the server has none and
+    /// the person hasn't said "Not now".
+    fn desktop_card(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let d = self.server_desktop.as_ref().filter(|d| !d.ready())?;
+        if self.server_desktop_later {
+            return None;
+        }
+        let busy = self.server_screen_rx.is_some();
+        let need = d.need.join(" ");
+        let text = if d.can_install {
+            format!(
+                "To show you the server's screen and what bots open there (a browser, the app they're testing), it needs a light desktop: {need}. Squad installs it with the server's package manager and shares it only through SSH, with a password. Nothing is installed until you say so."
+            )
+        } else {
+            format!(
+                "To show you the server's screen, it needs a light desktop. Squad can't install it from here: that needs root, or sudo without a password. Run this on the server once, then press See its screen: sudo apt-get install -y --no-install-recommends {need}"
+            )
+        };
+        let mut buttons = div().flex().flex_wrap().gap(px(8.));
+        if d.can_install {
+            buttons = buttons.child(
+                ui::solid_i(
+                    "server-desktop-install",
+                    IconName::Download,
+                    if busy { "Installing…" } else { "Install the desktop" },
+                )
+                .when(busy, |b| b.opacity(0.6))
+                .on_click(cx.listener(|this, _, _, cx| this.install_server_desktop(cx))),
+            );
+        }
+        buttons = buttons.child(
+            ui::ghost_i("server-desktop-later", IconName::X, "Not now").on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.server_desktop_later = true;
+                    cx.notify();
+                },
+            )),
+        );
+        Some(
+            card("ITS SCREEN").child(
+                div()
+                    .px(px(18.))
+                    .py(px(14.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .border_t_1()
+                    .border_color(c(ui::line2()))
+                    .child(
+                        div()
+                            .text_size(px(13.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c(ui::ink()))
+                            .child("No desktop on the server yet"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(c(ui::muted()))
+                            .child(text),
+                    )
+                    .child(buttons),
+            ),
+        )
     }
 
     /// The button that shows the server's screen, as it stands.
@@ -737,6 +870,7 @@ impl Shell {
             .flex_col()
             .gap(px(space::M))
             .child(machine_card.children(gauges))
+            .children(self.desktop_card(cx))
             .child(jobs_card)
             .child(procs_card)
             .child(run_card)
