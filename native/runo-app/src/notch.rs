@@ -149,6 +149,10 @@ fn open_notch(cx: &mut App) -> Option<(AnyWindowHandle, Entity<Notch>)> {
         window_background: WindowBackgroundAppearance::Transparent,
         // Opened on the notch's screen, so it starts at that screen's scale.
         display_id: platform::display().map(|id| DisplayId::new(id as u64)),
+        // gpui caps a window without focus to about 30 frames a second; the
+        // notch never has focus, and that cap made its animation stutter. It
+        // only draws while it moves or changes, so there is nothing to save.
+        inactive_frame_interval: None,
         ..Default::default()
     };
     let (handle, view) =
