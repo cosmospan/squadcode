@@ -114,7 +114,7 @@ fn tick(cx: &mut App) {
             let gone = handle
                 .update(cx, |_, window, cx| {
                     view.update(cx, |this, cx| {
-                        this.fit(window);
+                        this.fit(window, cx);
                         cx.notify();
                     })
                 })
@@ -143,6 +143,8 @@ fn open_notch(cx: &mut App) -> Option<(AnyWindowHandle, Entity<Notch>)> {
         focus: false,
         show: true,
         window_background: WindowBackgroundAppearance::Transparent,
+        // Opened on the notch's screen, so it starts at that screen's scale.
+        display_id: platform::display().map(|id| DisplayId::new(id as u64)),
         ..Default::default()
     };
     let (handle, view) =
@@ -153,7 +155,7 @@ fn open_notch(cx: &mut App) -> Option<(AnyWindowHandle, Entity<Notch>)> {
             cx.notify();
         });
         platform::setup(window);
-        view.update(cx, |this, _| this.fit(window));
+        view.update(cx, |this, cx| this.fit(window, cx));
     });
     Some((handle, view))
 }
@@ -193,7 +195,11 @@ impl Notch {
     }
 
     /// Size and place the window for what it shows now, if that changed.
-    fn fit(&mut self, window: &mut Window) {
+    ///
+    /// The frame is set once gpui is done with the window, so the resize and
+    /// the move to a sharper screen reach gpui; set from inside its update,
+    /// they were lost and it kept drawing at the first size and scale.
+    fn fit(&mut self, window: &mut Window, cx: &mut App) {
         if let Some(g) = platform::geometry() {
             if g != self.geom {
                 self.geom = g;
@@ -203,14 +209,15 @@ impl Notch {
         let want = self.size();
         if self.placed != Some(want) {
             self.placed = Some(want);
-            platform::place(window, want.0, want.1);
+            let native = platform::native(window);
+            cx.defer(move |_| platform::place(native, want.0, want.1));
         }
     }
 
     fn set_shape(&mut self, shape: Shape, window: &mut Window, cx: &mut Context<Self>) {
         if self.shape != shape {
             self.shape = shape;
-            self.fit(window);
+            self.fit(window, cx);
             cx.notify();
         }
     }
@@ -284,7 +291,7 @@ impl Render for Notch {
         // Resized after this frame: AppKit shouldn't move the window mid-draw.
         let (w, h) = self.size();
         if self.placed != Some((w, h)) {
-            cx.defer_in(window, |this, window, _| this.fit(window));
+            cx.defer_in(window, |this, window, cx| this.fit(window, cx));
         }
         let g = self.geom;
         let radius = if g.notched() { 12. } else { g.top_h / 2. };
@@ -464,7 +471,15 @@ mod platform {
 
     pub(super) fn setup(_: &gpui_kit::Window) {}
 
-    pub(super) fn place(_: &gpui_kit::Window, _: f32, _: f32) {}
+    pub(super) fn display() -> Option<u32> {
+        None
+    }
+
+    pub(super) type Native = ();
+
+    pub(super) fn native(_: &gpui_kit::Window) -> Native {}
+
+    pub(super) fn place(_: Native, _: f32, _: f32) {}
 }
 
 #[cfg(target_os = "macos")]
@@ -477,7 +492,7 @@ mod mac {
     use objc2_app_kit::{
         NSScreen, NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
     };
-    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     pub(super) const SUPPORTED: bool = true;
@@ -494,6 +509,15 @@ mod mac {
             .iter()
             .find(|s| s.safeAreaInsets().top > 0.)
             .or_else(|| NSScreen::mainScreen(mtm))
+    }
+
+    /// The screen's number, as gpui names displays.
+    pub(super) fn display() -> Option<u32> {
+        screen()?
+            .deviceDescription()
+            .objectForKey(&NSString::from_str("NSScreenNumber"))
+            .and_then(|n| n.downcast::<objc2_foundation::NSNumber>().ok())
+            .map(|n| n.unsignedIntValue())
     }
 
     pub(super) fn geometry() -> Option<Geom> {
@@ -552,10 +576,17 @@ mod mac {
         w.setHasShadow(false);
     }
 
+    /// The AppKit window, to place once gpui is done with it.
+    pub(super) type Native = Option<Retained<NSWindow>>;
+
+    pub(super) fn native(window: &gpui_kit::Window) -> Native {
+        ns_window(window)
+    }
+
     /// Size it to `width` by `height`, hung from the top edge of its screen,
     /// centred under the notch, and show it without taking focus.
-    pub(super) fn place(window: &gpui_kit::Window, width: f32, height: f32) {
-        let (Some(w), Some(screen)) = (ns_window(window), screen()) else {
+    pub(super) fn place(window: Native, width: f32, height: f32) {
+        let (Some(w), Some(screen)) = (window, screen()) else {
             return;
         };
         let frame = screen.frame();
