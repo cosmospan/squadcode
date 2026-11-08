@@ -173,6 +173,69 @@ fn debug(what: impl FnOnce() -> String) {
     }
 }
 
+/// The black shape's width, height and corner radius.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+struct Frame {
+    w: f32,
+    h: f32,
+    r: f32,
+}
+
+impl Frame {
+    fn lerp(a: Frame, b: Frame, t: f32) -> Frame {
+        let m = |x: f32, y: f32| x + (y - x) * t;
+        Frame {
+            w: m(a.w, b.w),
+            h: m(a.h, b.h),
+            r: m(a.r, b.r).max(0.),
+        }
+    }
+
+    fn area(self) -> f32 {
+        self.w * self.h
+    }
+}
+
+/// A move of the shape from one frame to another.
+#[derive(Clone, Copy, Debug)]
+struct Anim {
+    from: Frame,
+    to: Frame,
+    start: Instant,
+    /// Growing: it springs a touch past and settles, and the content fades
+    /// in once there is room. Shrinking: a quicker, plain ease.
+    growing: bool,
+    /// Frames drawn during it, for the debug log.
+    frames: u32,
+}
+
+impl Anim {
+    fn length(&self) -> Duration {
+        Duration::from_millis(if self.growing { 420 } else { 300 })
+    }
+
+    /// How far along, 0 to 1, by time.
+    fn t(&self, now: Instant) -> f32 {
+        (now - self.start).as_secs_f32() / self.length().as_secs_f32()
+    }
+
+    /// The eased progress: a soft spring when growing, ease-out when not.
+    fn eased(&self, t: f32) -> f32 {
+        let t = t.clamp(0., 1.);
+        if t >= 1. {
+            1.
+        } else if self.growing {
+            // A damped spring (damping 0.75): quick at first, about 3% past
+            // the end, settled well before the time is up.
+            let (zeta, omega) = (0.75_f32, 14_f32);
+            let wd = omega * (1. - zeta * zeta).sqrt();
+            1. - (-zeta * omega * t).exp() * ((wd * t).cos() + zeta * omega / wd * (wd * t).sin())
+        } else {
+            1. - (1. - t).powi(3)
+        }
+    }
+}
+
 struct Notch {
     shape: Shape,
     geom: Geom,
@@ -185,6 +248,9 @@ struct Notch {
     left_at: Option<Instant>,
     /// Frames drawn, for the debug log.
     frames: u64,
+    /// The shape as drawn last frame, and the move under way to the next.
+    drawn: Frame,
+    anim: Option<Anim>,
 }
 
 impl Notch {
@@ -197,6 +263,8 @@ impl Notch {
             over_since: None,
             left_at: None,
             frames: 0,
+            drawn: Frame::default(),
+            anim: None,
         }
     }
 
@@ -246,7 +314,7 @@ impl Notch {
     fn watch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         cx.spawn_in(window, async move |this, cx| loop {
             cx.background_executor()
-                .timer(Duration::from_millis(50))
+                .timer(Duration::from_millis(30))
                 .await;
             let alive = this
                 .update_in(cx, |this, window, cx| this.look(window, cx))
@@ -310,6 +378,53 @@ impl Render for Notch {
         let busy = needs + running > 0;
         self.busy = busy;
         let (w, h) = self.size();
+        let g = self.geom;
+        let to = Frame {
+            w,
+            h,
+            r: match self.shape {
+                Shape::Open => 22.,
+                _ if g.notched() => 12.,
+                _ => g.top_h / 2.,
+            },
+        };
+        // Start a move whenever the shape's target changes; the first frame
+        // just takes it.
+        let now = Instant::now();
+        if self.drawn == Frame::default() {
+            self.drawn = to;
+        } else if self.anim.map_or(self.drawn, |a| a.to) != to {
+            self.anim = Some(Anim {
+                from: self.drawn,
+                to,
+                start: now,
+                growing: to.area() > self.drawn.area(),
+                frames: 0,
+            });
+        }
+        // Where it is now, and how visible the content is: it fades in once
+        // the shape has mostly opened, so text never squeezes as it grows.
+        let mut fade = 1.;
+        if let Some(mut anim) = self.anim {
+            let t = anim.t(now);
+            anim.frames += 1;
+            self.drawn = Frame::lerp(anim.from, anim.to, anim.eased(t));
+            fade = if anim.growing {
+                ((t - 0.3) / 0.5).clamp(0., 1.)
+            } else {
+                ((t - 0.5) / 0.5).clamp(0., 1.)
+            };
+            if t >= 1. {
+                self.drawn = anim.to;
+                self.anim = None;
+                let ms = anim.length().as_millis();
+                debug(|| format!("moved in {} frames over {ms} ms", anim.frames));
+            } else {
+                self.anim = Some(anim);
+                window.request_animation_frame();
+            }
+        }
+        let shown = self.drawn;
         self.frames += 1;
         if self.frames <= 3 || self.frames % 200 == 0 {
             let vp = window.viewport_size();
@@ -324,9 +439,6 @@ impl Render for Notch {
                 )
             });
         }
-        let g = self.geom;
-        let radius = if g.notched() { 12. } else { g.top_h / 2. };
-        let open_radius = 22.;
         let top_h = g.top_h;
         let shape = self.shape;
 
@@ -455,32 +567,41 @@ impl Render for Notch {
             );
         }
 
-        let r = if shape == Shape::Open {
-            open_radius
-        } else {
-            radius
-        };
+        // The content is laid out at the shape's final size and the black
+        // shape reveals it as it grows, so nothing reflows mid-move.
+        let content = div()
+            .w(px(w))
+            .h(px(h))
+            .flex_none()
+            .flex()
+            .flex_col()
+            .opacity(fade)
+            .child(strip)
+            .children(line)
+            .child(body);
+        let r = shown.r;
         let island = div()
             .id("notch")
-            .size_full()
+            .w(px(shown.w.min(WIN_W)))
+            .h(px(shown.h.min(WIN_H)))
+            .flex_none()
             .bg(c(BLACK))
             .text_color(c(INK))
             .flex()
             .flex_col()
+            .items_center()
             .overflow_hidden()
             .rounded_bl(px(r))
             .rounded_br(px(r))
             .when(!g.notched(), |d| d.rounded_tl(px(r)).rounded_tr(px(r)))
-            .child(strip)
-            .children(line)
-            .child(body);
+            .child(content);
 
         div()
             .size_full()
             .flex()
             .flex_col()
             .items_center()
-            .child(div().w(px(w)).h(px(h)).flex_none().child(island))
+            .child(island)
     }
 }
 
