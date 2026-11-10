@@ -20,6 +20,8 @@ pub enum Act {
     Job(Mode),
     Folder(usize),
     AddFolder,
+    /// Open a # thread in this project.
+    Thread(u64),
     /// Approve the job waiting for review.
     Approve(u64),
     /// Try the job on other engines too.
@@ -35,13 +37,69 @@ pub enum Act {
     Guide,
 }
 
+/// The palette's sections, in the order they show.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Group {
+    Jobs,
+    Threads,
+    GoTo,
+    Do,
+}
+
+impl Group {
+    fn title(self) -> &'static str {
+        match self {
+            Group::Jobs => "Jobs",
+            Group::Threads => "Threads",
+            Group::GoTo => "Go to",
+            Group::Do => "Do",
+        }
+    }
+}
+
 pub struct Entry {
     pub label: String,
-    /// What kind of thing it is, shown on the right ("Place", "Job", "⌘1").
+    /// Quiet mono words beside the title: a job's #id, a thread's project.
     pub hint: String,
+    /// A keyboard shortcut, shown as keys on the right, like "⌘1".
+    pub keys: &'static str,
+    /// A job's state on the right: its colour and word.
+    pub status: Option<(u32, String)>,
     pub icon: Option<IconName>,
     pub bot: Option<Member>,
+    pub group: Group,
     pub act: Act,
+}
+
+impl Entry {
+    fn new(group: Group, label: impl Into<String>, act: Act) -> Self {
+        Entry {
+            label: label.into(),
+            hint: String::new(),
+            keys: "",
+            status: None,
+            icon: None,
+            bot: None,
+            group,
+            act,
+        }
+    }
+    fn icon(mut self, icon: IconName) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+    fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = hint.into();
+        self
+    }
+    fn keys(mut self, keys: &'static str) -> Self {
+        self.keys = keys;
+        self
+    }
+    fn bot(mut self, who: Member) -> Self {
+        self.bot = Some(who);
+        self
+    }
 }
 
 /// Every word typed appears somewhere in the label or hint.
@@ -52,40 +110,72 @@ pub fn matches(query: &str, label: &str, hint: &str) -> bool {
         .all(|w| hay.contains(&w.to_lowercase()))
 }
 
+/// Where the typed words fall in a label, as byte ranges, for shading.
+pub fn hits(query: &str, label: &str) -> Vec<std::ops::Range<usize>> {
+    let low = label.to_lowercase();
+    // Lower-casing can change byte lengths; shade nothing rather than misplace.
+    if low.len() != label.len() {
+        return vec![];
+    }
+    let mut out: Vec<std::ops::Range<usize>> = vec![];
+    for w in query.split_whitespace() {
+        let w = w.to_lowercase();
+        if let Some(at) = low.find(&w) {
+            out.push(at..at + w.len());
+        }
+    }
+    out.sort_by_key(|r| r.start);
+    out.dedup_by(|b, a| {
+        if b.start <= a.end {
+            a.end = a.end.max(b.end);
+            true
+        } else {
+            false
+        }
+    });
+    out
+}
+
 impl Shell {
     pub(super) fn palette_entries(&self, query: &str) -> Vec<Entry> {
         let mut all = vec![];
-        // What you can do to the job in front of you.
-        if let Place::Live(id) | Place::Race(id) = self.place {
-            if let Some(j) = self.crew.store.job(id) {
-                if j.status == Status::Review {
-                    all.push(Entry {
-                        label: format!("Approve \u{201c}{}\u{201d}", j.label()),
-                        hint: "This job".into(),
-                        icon: Some(IconName::Check),
-                        bot: None,
-                        act: Act::Approve(id),
-                    });
-                }
-                if j.mode.writes()
-                    && j.race == 0
-                    && matches!(j.status, Status::Running | Status::Review)
-                {
-                    all.push(Entry {
-                        label: "Race it on other engines".into(),
-                        hint: "This job".into(),
-                        icon: Some(IconName::Zap),
-                        bot: None,
-                        act: Act::Race(id),
-                    });
-                }
-                all.push(Entry {
-                    label: "Open the terminal in its branch".into(),
-                    hint: "This job · ⌃`".into(),
-                    icon: Some(IconName::SquareTerminal),
-                    bot: None,
-                    act: Act::Terminal(id),
-                });
+        let store = &self.crew.store;
+        // Jobs: the latest first, with how each stands.
+        let take = if query.trim().is_empty() { 6 } else { 40 };
+        for j in store.jobs.iter().rev().take(take) {
+            let (word, tone) = super::home::status_of(j);
+            let col = if j.status == Status::Running {
+                ui::t_blue()
+            } else {
+                tone.0
+            };
+            let word = match (j.status, j.progress()) {
+                (Status::Running, Some((d, n))) => format!("Step {} of {n}", (d + 1).min(n)),
+                _ => word,
+            };
+            let mut e = Entry::new(Group::Jobs, j.label(), Act::Go(Place::Live(j.id)))
+                .hint(format!("#{}", j.id))
+                .bot(j.bot);
+            e.status = Some((col, word));
+            all.push(e);
+        }
+        // Threads in this project.
+        if let Some(f) = store.folder() {
+            for t in store.threads_in(&f.path) {
+                let waiting = store
+                    .jobs
+                    .iter()
+                    .filter(|j| j.folder.path == f.path && j.thread == t.id && j.needs_you())
+                    .count();
+                let hint = if waiting > 0 {
+                    format!("{} \u{b7} {waiting} need you", f.name)
+                } else {
+                    f.name.clone()
+                };
+                all.push(
+                    Entry::new(Group::Threads, format!("#{}", t.name), Act::Thread(t.id))
+                        .hint(hint),
+                );
             }
         }
         let places = [
@@ -144,53 +234,67 @@ impl Shell {
             ),
         ];
         for (p, icon, label, key) in places {
-            all.push(Entry {
-                label: format!("Go to {label}"),
-                hint: key.into(),
-                icon: Some(icon),
-                bot: None,
-                act: Act::Go(p),
-            });
+            all.push(
+                Entry::new(Group::GoTo, label, Act::Go(p))
+                    .icon(icon)
+                    .keys(key),
+            );
         }
         for who in Member::all() {
-            all.push(Entry {
-                label: format!("Chat with {}", who.name()),
-                hint: who.role().into(),
-                icon: None,
-                bot: Some(who),
-                act: Act::Go(Place::Chat(who)),
-            });
+            all.push(
+                Entry::new(
+                    Group::GoTo,
+                    format!("Chat with {}", who.name()),
+                    Act::Go(Place::Chat(who)),
+                )
+                .hint(who.role())
+                .bot(who),
+            );
         }
-        if self.crew.store.folder().is_some() {
-            all.push(Entry {
-                label: "Open the terminal in this folder".into(),
-                hint: super::term::KEY.into(),
-                icon: Some(IconName::SquareTerminal),
-                bot: None,
-                act: Act::ProjectTerminal,
-            });
+        for (i, f) in store.folders.iter().enumerate() {
+            let on = i == store.current;
+            all.push(
+                Entry::new(Group::GoTo, format!("Work in {}", f.name), Act::Folder(i))
+                    .icon(IconName::Folder)
+                    .hint(if on { "current project" } else { "project" }),
+            );
         }
-        all.push(Entry {
-            label: "Get started: show the checklist".into(),
-            hint: "Help".into(),
-            icon: Some(IconName::ListChecks),
-            bot: None,
-            act: Act::Guide,
-        });
-        all.push(Entry {
-            label: "New job, raced on several engines".into(),
-            hint: "New job".into(),
-            icon: Some(IconName::Zap),
-            bot: None,
-            act: Act::NewRace,
-        });
-        all.push(Entry {
-            label: "New goal, split into jobs".into(),
-            hint: "New job".into(),
-            icon: Some(IconName::ListTodo),
-            bot: None,
-            act: Act::NewGoal,
-        });
+        // What you can do to the job in front of you.
+        if let Place::Live(id) | Place::Race(id) = self.place {
+            if let Some(j) = store.job(id) {
+                if j.status == Status::Review {
+                    all.push(
+                        Entry::new(
+                            Group::Do,
+                            format!("Approve \u{201c}{}\u{201d}", j.label()),
+                            Act::Approve(id),
+                        )
+                        .icon(IconName::Check)
+                        .hint(format!("#{id}")),
+                    );
+                }
+                if j.mode.writes()
+                    && j.race == 0
+                    && matches!(j.status, Status::Running | Status::Review)
+                {
+                    all.push(
+                        Entry::new(Group::Do, "Race it on other engines", Act::Race(id))
+                            .icon(IconName::Zap)
+                            .hint(format!("#{id}")),
+                    );
+                }
+                all.push(
+                    Entry::new(
+                        Group::Do,
+                        "Open the terminal in its branch",
+                        Act::Terminal(id),
+                    )
+                    .icon(IconName::SquareTerminal)
+                    .keys("⌃`"),
+                );
+            }
+        }
+        let here = format!("#{}", store.thread_label(store.thread_here()));
         for mode in Mode::ALL.into_iter().filter(|m| *m != Mode::Ask) {
             let (who, label) = match Member::doer_for(mode) {
                 Some(who) => (who, format!("{}: give {} a job", mode.label(), who.name())),
@@ -206,50 +310,42 @@ impl Shell {
                     )
                 }
             };
-            all.push(Entry {
-                label,
-                hint: "New job".into(),
-                icon: None,
-                bot: Some(who),
-                act: Act::Job(mode),
-            });
+            all.push(
+                Entry::new(Group::Do, label, Act::Job(mode))
+                    .hint(format!("in {here}"))
+                    .bot(who),
+            );
         }
-        for j in self.crew.store.jobs.iter().rev().take(12) {
-            let state = match j.status {
-                Status::Running => "Working",
-                _ if j.needs_you() => "New",
-                _ => j.status.label(),
-            };
-            all.push(Entry {
-                label: j.label().to_string(),
-                hint: format!("{} · {state}", j.bot.name()),
-                icon: None,
-                bot: Some(j.bot),
-                act: Act::Go(Place::Live(j.id)),
-            });
+        all.push(
+            Entry::new(Group::Do, "New job, raced on several engines", Act::NewRace)
+                .icon(IconName::Zap),
+        );
+        all.push(
+            Entry::new(Group::Do, "New goal, split into jobs", Act::NewGoal)
+                .icon(IconName::ListTodo),
+        );
+        if store.folder().is_some() {
+            all.push(
+                Entry::new(
+                    Group::Do,
+                    "Open the terminal in this project",
+                    Act::ProjectTerminal,
+                )
+                .icon(IconName::SquareTerminal)
+                .keys(super::term::KEY),
+            );
         }
-        for (i, f) in self.crew.store.folders.iter().enumerate() {
-            let on = i == self.crew.store.current;
-            all.push(Entry {
-                label: format!("Work in {}", f.name),
-                hint: if on {
-                    "Current folder".into()
-                } else {
-                    "Folder".into()
-                },
-                icon: Some(IconName::Folder),
-                bot: None,
-                act: Act::Folder(i),
-            });
-        }
-        all.push(Entry {
-            label: "Add a folder…".into(),
-            hint: "Folder".into(),
-            icon: Some(IconName::FolderOpen),
-            bot: None,
-            act: Act::AddFolder,
-        });
+        all.push(
+            Entry::new(Group::Do, "Add a project folder…", Act::AddFolder)
+                .icon(IconName::FolderOpen),
+        );
+        all.push(
+            Entry::new(Group::Do, "Get started: show the checklist", Act::Guide)
+                .icon(IconName::ListChecks),
+        );
         all.retain(|e| matches(query, &e.label, &e.hint));
+        // Stable, so each section keeps its own order.
+        all.sort_by_key(|e| e.group);
         all
     }
 
@@ -291,6 +387,11 @@ impl Shell {
                 }
             }
             Act::AddFolder => self.pick_folder(cx),
+            Act::Thread(t) => {
+                self.crew.store.thread_now = t;
+                self.crew.store.save();
+                self.go(Place::Today, cx);
+            }
             Act::Approve(id) => self.approve(id, cx),
             Act::Race(id) => self.race_it(id, cx),
             Act::Terminal(id) => {
@@ -361,41 +462,84 @@ impl Shell {
         let k = squad_holo::anim::spring(self.palette_at.elapsed().as_secs_f64(), 0.22) as f32;
         let mut list = div()
             .id("palette-list")
-            .max_h(px(420.))
+            .max_h(px(440.))
             .overflow_y_scroll()
-            .p(px(6.))
+            .pb(px(6.))
             .flex()
             .flex_col();
         if entries.is_empty() {
             list = list.child(
                 div()
-                    .px(px(14.))
+                    .px(px(18.))
                     .py(px(18.))
                     .text_size(px(13.))
                     .text_color(c(ui::faint()))
-                    .child("Nothing matches. Try a bot, a job or a place."),
+                    .child("Nothing matches. Try a job, a thread or a place."),
             );
         }
+        let mut last: Option<Group> = None;
         for (i, e) in entries.into_iter().enumerate() {
+            if last != Some(e.group) {
+                last = Some(e.group);
+                list = list.child(
+                    div()
+                        .flex_none()
+                        .px(px(18.))
+                        .pt(px(12.))
+                        .pb(px(4.))
+                        .font_family(ui::MONO)
+                        .text_size(px(10.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(c(ui::faint()))
+                        .child(e.group.title().to_uppercase()),
+                );
+            }
             let on = i == sel;
-            // Rows ripple in, a few milliseconds apart.
-            let rk = squad_holo::anim::spring(
-                (self.palette_at.elapsed().as_secs_f64() - 0.02 * i.min(10) as f64).max(0.0),
-                0.24,
-            ) as f32;
             let lead = match (e.bot, e.icon) {
-                (Some(who), _) => self.avatar(who, 26.).into_any_element(),
-                (None, Some(icon)) => div()
-                    .size(px(26.))
-                    .rounded(px(8.))
-                    .bg(c(if on { ui::hover() } else { ui::raised() }))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(Icon::new(icon).size(px(14.)).text_color(c(ui::muted())))
+                (Some(who), _) => self.avatar(who, 18.).into_any_element(),
+                (None, Some(icon)) => Icon::new(icon)
+                    .size(px(15.))
+                    .text_color(c(ui::body()))
                     .into_any_element(),
-                _ => div().size(px(26.)).into_any_element(),
+                _ if e.group == Group::Threads => div()
+                    .font_family(ui::MONO)
+                    .text_size(px(13.))
+                    .text_color(c(ui::accent_text()))
+                    .child("#")
+                    .into_any_element(),
+                _ => div().into_any_element(),
             };
+            // A thread's # sits in the lead, so the title drops it.
+            let label = if e.group == Group::Threads {
+                e.label.trim_start_matches('#').to_string()
+            } else {
+                e.label.clone()
+            };
+            let shade = hits(&query, &label)
+                .into_iter()
+                .map(|r| {
+                    (
+                        r,
+                        HighlightStyle {
+                            background_color: Some(ca(ui::pick_fill(), 0.55)),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            let keys = (!e.keys.is_empty()).then(|| {
+                let mut row = div().flex().gap(px(4.));
+                let mut chars = e.keys.chars();
+                if let Some(first) = chars.next() {
+                    let rest: String = chars.collect();
+                    if matches!(first, '⌘' | '⌃' | '⌥' | '⇧') && !rest.is_empty() {
+                        row = row.child(ui::kbd(first.to_string())).child(ui::kbd(rest));
+                    } else {
+                        row = row.child(ui::kbd(e.keys));
+                    }
+                }
+                row
+            });
             let act = e.act;
             list = list.child(
                 div()
@@ -403,15 +547,22 @@ impl Shell {
                     .flex_none()
                     .flex()
                     .items_center()
-                    .gap(px(12.))
-                    .px(px(10.))
-                    .h(px(42.))
-                    .rounded(px(12.))
-                    .opacity(rk)
+                    .gap(px(10.))
+                    .px(px(18.))
+                    .h(px(38.))
                     .relative()
-                    .left(px(6. * (1. - rk)))
                     .cursor_pointer()
-                    .when(on, |d| d.bg(c(ui::raised())))
+                    .when(on, |d| {
+                        d.bg(c(ui::hover())).child(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .top_0()
+                                .bottom_0()
+                                .w(px(2.))
+                                .bg(c(ui::accent_bar())),
+                        )
+                    })
                     .on_mouse_move(cx.listener(move |this, _: &MouseMoveEvent, _, cx| {
                         if this.palette_sel != i {
                             this.palette_sel = i;
@@ -421,44 +572,57 @@ impl Shell {
                     .on_click(
                         cx.listener(move |this, _, window, cx| this.run_palette(act, window, cx)),
                     )
-                    .child(lead)
                     .child(
                         div()
-                            .flex_1()
+                            .w(px(22.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(lead),
+                    )
+                    .child(
+                        div()
                             .min_w_0()
+                            .flex_shrink(1.)
                             .truncate()
                             .text_size(px(13.5))
-                            .font_weight(if on {
-                                FontWeight::SEMIBOLD
-                            } else {
-                                FontWeight::NORMAL
-                            })
-                            .child(e.label),
+                            .text_color(c(ui::ink()))
+                            .child(StyledText::new(label).with_highlights(shade)),
                     )
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(px(11.5))
-                            .text_color(c(ui::faint()))
-                            .child(e.hint),
-                    )
-                    .when(on, |d| {
+                    .when(!e.hint.is_empty(), |d| {
                         d.child(
-                            Icon::new(IconName::CornerDownLeft)
-                                .size(px(13.))
-                                .text_color(c(ui::muted())),
+                            div()
+                                .flex_none()
+                                .font_family(ui::MONO)
+                                .text_size(px(11.))
+                                .text_color(c(ui::faint()))
+                                .child(e.hint),
                         )
-                    }),
+                    })
+                    .child(div().flex_1())
+                    .when_some(e.status, |d, (col, word)| {
+                        d.child(ui::mono_status(col, &word).flex_none())
+                    })
+                    .when_some(keys, |d, k| d.child(k))
+                    .when(on, |d| d.child(ui::kbd("↵"))),
             );
         }
         let scrim = div()
             .id("palette-scrim")
             .absolute()
             .inset_0()
-            // No dimming: GPUI orders some bot frames above a full-window wash, so
-            // the card stands out by its shadow instead.
+            .bg(ca(0x1A1A17, 0.28 * ui::float_shadow().min(1.)))
             .occlude()
             .on_click(cx.listener(|this, _, window, cx| this.close_palette(window, cx)));
+        let foot_key = |key: &'static str, word: &'static str| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .child(ui::kbd(key))
+                .child(word)
+        };
         let card = div()
             .absolute()
             .top_0()
@@ -470,20 +634,20 @@ impl Shell {
             .child(
                 div()
                     .id("palette-card")
-                    .mt(px(110. + 14. * (1. - k)))
-                    .w(px(620.))
+                    .mt(px(96. + 14. * (1. - k)))
+                    .w(px(640.))
                     .h_auto()
-                    .max_h(px(520.))
+                    .max_h(px(560.))
                     .opacity(k)
-                    .rounded(px(20.))
-                    .bg(c(ui::float()))
+                    .rounded(px(10.))
+                    .bg(c(ui::raised()))
                     .border_1()
-                    .border_color(c(ui::line()))
+                    .border_color(c(ui::line_hi()))
                     .shadow(vec![BoxShadow {
-                        color: ca(0x000000, 0.55 * ui::float_shadow()),
-                        offset: point(px(0.), px(30.)),
-                        blur_radius: px(80.),
-                        spread_radius: px(-6.),
+                        color: ca(0x000000, 0.22),
+                        offset: point(px(0.), px(24.)),
+                        blur_radius: px(60.),
+                        spread_radius: px(0.),
                         inset: false,
                     }])
                     .overflow_hidden()
@@ -495,49 +659,41 @@ impl Shell {
                             .flex()
                             .items_center()
                             .gap(px(10.))
-                            .px(px(16.))
-                            .h(px(56.))
+                            .px(px(18.))
+                            .h(px(52.))
                             .border_b_1()
                             .border_color(c(ui::line()))
                             .child(
                                 Icon::new(IconName::Search)
-                                    .size(px(17.))
+                                    .size(px(16.))
                                     .text_color(c(ui::faint())),
                             )
                             .child(
-                                div().flex_1().text_size(px(15.)).child(
+                                div().flex_1().text_size(px(16.)).child(
                                     Input::new(&self.palette_input)
                                         .appearance(false)
                                         .bordered(false),
                                 ),
                             )
-                            .child(
-                                div()
-                                    .px(px(7.))
-                                    .py(px(2.))
-                                    .rounded(px(6.))
-                                    .bg(c(ui::raised()))
-                                    .font_family(ui::MONO)
-                                    .text_size(px(10.))
-                                    .text_color(c(ui::muted()))
-                                    .child("esc"),
-                            ),
+                            .child(ui::kbd("esc")),
                     )
                     .child(list)
                     .child(
                         div()
                             .flex()
                             .gap(px(16.))
-                            .px(px(16.))
-                            .h(px(36.))
+                            .px(px(18.))
+                            .py(px(10.))
                             .items_center()
                             .border_t_1()
                             .border_color(c(ui::line()))
+                            .bg(c(ui::bg()))
+                            .font_family(ui::MONO)
                             .text_size(px(11.))
                             .text_color(c(ui::faint()))
-                            .child("↑↓ to move")
-                            .child("↵ to open")
-                            .child("⌘[ to go back"),
+                            .child(foot_key("↑↓", "move"))
+                            .child(foot_key("↵", "open"))
+                            .child(foot_key("⌘[", "go back")),
                     ),
             );
         div()
@@ -559,5 +715,14 @@ mod tests {
         assert!(matches("chat fix", "Chat with Fixer", "Hunts the bug"));
         assert!(!matches("chat guard", "Chat with Fixer", "Hunts the bug"));
         assert!(matches("BUILD", "Build: give Builder a job", "New job"));
+    }
+
+    #[test]
+    fn hits_mark_each_typed_word() {
+        use super::hits;
+        assert_eq!(hits("che", "Run the checks"), vec![8..11]);
+        assert_eq!(hits("run che", "Run the checks"), vec![0..3, 8..11]);
+        assert_eq!(hits("chec che", "checks"), vec![0..4]);
+        assert!(hits("", "anything").is_empty());
     }
 }
