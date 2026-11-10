@@ -16,24 +16,24 @@ use super::Shell;
 
 fn line_row(title: impl Into<SharedString>, line: impl Into<SharedString>) -> Div {
     div()
-        .px(px(18.))
-        .py(px(14.))
+        .mx(px(14.))
+        .py(px(10.))
         .flex()
         .flex_col()
-        .gap(px(3.))
+        .gap(px(1.))
         .border_t_1()
-        .border_color(c(ui::line2()))
+        .border_color(c(ui::line()))
         .child(
             div()
-                .text_size(px(13.5))
-                .font_weight(FontWeight::MEDIUM)
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(c(ui::ink()))
                 .child(title.into()),
         )
         .child(
             div()
-                .text_size(px(12.5))
-                .text_color(c(ui::muted()))
+                .text_size(px(12.))
+                .text_color(c(ui::body()))
                 .child(line.into()),
         )
 }
@@ -45,63 +45,74 @@ fn action_row(
     control: impl IntoElement,
 ) -> Div {
     div()
-        .px(px(18.))
-        .py(px(14.))
+        .mx(px(14.))
+        .py(px(10.))
         .flex()
         .items_center()
         .gap(px(space::M))
         .border_t_1()
-        .border_color(c(ui::line2()))
+        .border_color(c(ui::line()))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .gap(px(3.))
+                .gap(px(1.))
                 .child(
                     div()
-                        .text_size(px(13.5))
-                        .font_weight(FontWeight::MEDIUM)
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(c(ui::ink()))
                         .child(title.into()),
                 )
                 .child(
                     div()
-                        .text_size(px(12.5))
-                        .text_color(c(ui::muted()))
+                        .text_size(px(12.))
+                        .text_color(c(ui::body()))
                         .child(line.into()),
                 ),
         )
         .child(control)
 }
 
+/// A card of rows, its mono heading at the top.
 fn card(title: &'static str) -> Div {
-    ui::card().overflow_hidden().flex().flex_col().child(
-        div()
-            .px(px(18.))
-            .pt(px(14.))
-            .pb(px(10.))
-            .text_size(px(11.5))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(c(ui::muted()))
-            .child(title),
-    )
+    div()
+        .rounded(px(6.))
+        .bg(c(ui::raised()))
+        .border_1()
+        .border_color(c(ui::line()))
+        .overflow_hidden()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .px(px(14.))
+                .pt(px(11.))
+                .pb(px(8.))
+                .font_family(ui::MONO)
+                .text_size(px(10.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c(ui::faint()))
+                .child(title),
+        )
 }
 
 fn field(input: &Entity<InputState>) -> Div {
     div()
         .flex_1()
         .min_w_0()
-        .h(px(36.))
+        .h(px(32.))
         .px(px(10.))
         .flex()
         .items_center()
-        .rounded(px(8.))
-        .bg(c(ui::bg()))
+        .rounded(px(5.))
+        .bg(c(ui::raised()))
         .border_1()
-        .border_color(c(ui::line()))
-        .text_size(px(13.))
+        .border_color(c(ui::line_hi()))
+        .font_family(ui::MONO)
+        .text_size(px(12.5))
         .child(Input::new(input).appearance(false).bordered(false))
 }
 
@@ -379,7 +390,7 @@ impl Shell {
         Self::page(
             "settings-server",
             "Servers",
-            "Run jobs on your own Linux server, so they carry on with this computer closed. Squad sets it up, keeps it locked down, and reaches it over SSH; nothing on it is opened to the internet.",
+            "Jobs that run with the lid closed, on your own Linux server. Squad keeps it locked down and reaches it over SSH.",
             body,
         )
     }
@@ -387,13 +398,12 @@ impl Shell {
     fn server_connect_card(&mut self, cx: &mut Context<Self>) -> Div {
         let busy = self.server_setup.is_some();
         let fields = div()
-            .px(px(18.))
-            .py(px(14.))
+            .mx(px(14.))
+            .pt(px(2.))
+            .pb(px(12.))
             .flex()
             .flex_col()
             .gap(px(10.))
-            .border_t_1()
-            .border_color(c(ui::line2()))
             .child(
                 div()
                     .flex()
@@ -415,10 +425,11 @@ impl Shell {
                             .child("The password is only for the first connection, if you don't use SSH keys. Squad swaps it for a key of its own and never saves it."),
                     )
                     .child(
-                        ui::solid_i(
+                        ui::dbtn_i(
                             "server-connect",
                             IconName::Server,
                             if busy { "Setting up…" } else { "Connect" },
+                            ui::Btn::Primary,
                         )
                         .when(busy, |d| d.opacity(0.6))
                         .on_click(cx.listener(|this, _, _, cx| this.connect_server(cx))),
