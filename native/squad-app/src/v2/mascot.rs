@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use squad_holo::fin::{Fin, Line, Outfit, Tool, ROLES};
+use squad_holo::fin::{Fin, Line, Outfit, Tool};
 use squad_holo::{Figure, Mood, Tint};
 
 use crate::settings::AppSettings;
@@ -141,11 +141,6 @@ pub fn set_look(st: &mut AppSettings, who: Member, tint: Tint, outfit: Outfit) {
 /// Only Peek, the crew's lead, wears ears.
 pub fn has_ears(who: Member) -> bool {
     who == Member::Fin
-}
-
-/// The role kit a look matches, by outfit alone (any colour).
-pub fn role_of(outfit: Outfit) -> Option<&'static squad_holo::fin::Role> {
-    ROLES.iter().find(|r| r.outfit == outfit)
 }
 
 /// How `who` is drawn in `mood`, as the last [`sync`] left things.

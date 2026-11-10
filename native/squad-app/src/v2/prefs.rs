@@ -15,12 +15,11 @@ use gpui_kit::component::Icon;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use squad_holo::fin::{Eyes, FinPose, Ink, Line, Outfit, State, Tool, Weight, ROLES};
-use squad_holo::{Figure, Framing, Mood, Tint};
+use squad_holo::{Figure, Framing, Tint};
 
 use crate::settings::AppSettings;
 
 use super::data::Member;
-use super::engines::{choice, section};
 use super::mascot;
 use super::theme::{self, Theme};
 use super::ui::{self, c, ca, space};
@@ -318,25 +317,6 @@ fn segment(id: impl Into<ElementId>, label: impl Into<SharedString>, on: bool) -
         .child(label.into())
 }
 
-/// The label in front of a row of choices in the Mascot customizer.
-fn slot(label: &'static str, items: Div) -> Div {
-    div()
-        .flex()
-        .items_start()
-        .gap(px(space::SM))
-        .child(
-            div()
-                .w(px(74.))
-                .flex_none()
-                .pt(px(6.))
-                .font_family(ui::MONO)
-                .text_size(px(10.5))
-                .text_color(c(ui::faint()))
-                .child(label),
-        )
-        .child(items.flex_1().flex().flex_wrap().gap(px(6.)))
-}
-
 /// One side of a look's preview: its sidebar, a card ringed in its accent,
 /// and the button to press.
 fn look_half(t: &'static Theme) -> Div {
@@ -401,6 +381,33 @@ fn look_half(t: &'static Theme) -> Div {
                         .child(div().h(px(9.)).w(px(26.)).rounded(px(2.)).bg(c(t.fill))),
                 ),
         )
+}
+
+/// A soft glow in a bot's colour, behind its preview.
+fn radial_glow(accent: u32) -> Background {
+    linear_gradient(
+        180.,
+        linear_color_stop(ca(accent, 0.12), 0.),
+        linear_color_stop(ca(accent, 0.03), 1.),
+    )
+}
+
+/// The icon for a prop.
+fn tool_icon(t: Tool) -> IconName {
+    match t {
+        Tool::None => IconName::Ban,
+        Tool::Shield => IconName::Shield,
+        Tool::Wrench => IconName::Wrench,
+        Tool::Bandage => IconName::Bandage,
+        Tool::Key => IconName::Key,
+        Tool::Pencil => IconName::Pencil,
+        Tool::Compass => IconName::Compass,
+        Tool::Magnifier => IconName::Search,
+        Tool::TestTube => IconName::TestTube,
+        Tool::Branch => IconName::GitBranch,
+        Tool::Baton => IconName::Wand,
+        Tool::Broom => IconName::Brush,
+    }
 }
 
 impl Shell {
@@ -2166,106 +2173,62 @@ impl Shell {
         });
         // Glide from one state's face to the next, as the bots do in the app.
         let figure = self.eased(figure, (who, u32::MAX, false));
-        let preview = self.pose_img(figure, 240., Framing::Full);
+        let preview = self.pose_img(figure, 150., Framing::Full);
         let accent = who.accent();
-        let mut states = div().flex().flex_wrap().gap(px(6.));
-        for (i, s) in State::ALL.into_iter().enumerate() {
-            let on = self.fin_state == Some(s) || (self.fin_state.is_none() && s == state);
-            states = states.child(
-                ui::pill(("fin-state", i), s.name(), on).on_click(cx.listener(
-                    move |this, _, _, cx| {
-                        this.fin_state = if this.fin_state == Some(s) {
-                            None
-                        } else {
-                            Some(s)
-                        };
-                        cx.notify();
-                    },
-                )),
-            );
-        }
-        let role_name = match mascot::role_of(outfit) {
-            Some(r) => r.name.to_string(),
-            None if outfit == Outfit::PLAIN => "Plain".to_string(),
-            None => "Custom outfit".to_string(),
-        };
-        let stage = ui::card()
-            .w(px(380.))
-            .flex_none()
-            .p(px(space::M))
-            .flex()
-            .flex_col()
-            .gap(px(space::SM))
-            .child(
-                div()
-                    .h(px(330.))
-                    .rounded(px(10.))
-                    .border_1()
-                    .border_color(c(ui::line2()))
-                    .bg(linear_gradient(
-                        180.,
-                        linear_color_stop(ca(accent, 0.14), 0.),
-                        linear_color_stop(c(ui::bg()), 1.),
-                    ))
-                    .relative()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(preview)
-                    .child(
-                        div()
-                            .absolute()
-                            .left(px(16.))
-                            .bottom(px(12.))
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .child(
-                                div()
-                                    .text_size(px(18.))
-                                    .font_weight(FontWeight::BOLD)
-                                    .child(who.name()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(c(ui::muted()))
-                                    .child(format!("{role_name} · {}", state.name())),
-                            ),
-                    ),
-            )
-            .child(states);
 
-        // Whose Fin is being dressed.
-        let mut pick = div().flex().flex_wrap().gap(px(8.));
+        // The crew in a strip: click one to dress it.
+        let mut strip = div()
+            .flex()
+            .flex_wrap()
+            .justify_between()
+            .gap(px(6.))
+            .px(px(14.))
+            .py(px(10.));
         for m in crew.iter().copied() {
             let on = m == who;
-            let face = self.avatar(m, 34.);
-            pick = pick.child(
+            let face = self.avatar(m, 30.);
+            strip = strip.child(
                 div()
                     .id(("fin-who", m.key() as usize))
-                    .px(px(8.))
-                    .py(px(6.))
                     .flex()
+                    .flex_col()
                     .items_center()
-                    .gap(px(8.))
-                    .rounded(px(10.))
+                    .gap(px(5.))
                     .cursor_pointer()
-                    .border_1()
-                    .map(|d| {
-                        if on {
-                            d.bg(c(ui::hover())).border_color(c(ui::line_hi()))
-                        } else {
-                            d.border_color(c(ui::line()))
-                                .hover(|s| s.bg(c(ui::hover())))
-                        }
-                    })
-                    .child(face)
+                    .on_hover(cx.listener(move |this, on: &bool, _, cx| this.hover_bot(m, *on, cx)))
                     .child(
                         div()
-                            .pr(px(4.))
-                            .text_size(px(12.5))
-                            .font_weight(FontWeight::MEDIUM)
+                            .w(px(60.))
+                            .h(px(46.))
+                            .relative()
+                            .overflow_hidden()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(5.))
+                            .border_1()
+                            .map(|d| {
+                                if on {
+                                    d.bg(c(ui::raised())).border_color(c(ui::line_hi())).child(
+                                        div()
+                                            .absolute()
+                                            .left_0()
+                                            .top_0()
+                                            .bottom_0()
+                                            .w(px(4.))
+                                            .bg(c(ui::pick_fill())),
+                                    )
+                                } else {
+                                    d.border_color(transparent_black())
+                                        .hover(|s| s.bg(c(ui::hover())))
+                                }
+                            })
+                            .child(face),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .when(on, |d| d.font_weight(FontWeight::SEMIBOLD))
                             .text_color(c(if on { ui::ink() } else { ui::body() }))
                             .child(m.name()),
                     )
@@ -2282,31 +2245,65 @@ impl Shell {
                 cx.notify();
             }
         };
-        let mut roles = div();
+        // A role or prop chip: lime-tinted with the accent edge when picked.
+        let chip = |id: ElementId, on: bool| {
+            div()
+                .id(id)
+                .h(px(28.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.))
+                .border_1()
+                .text_size(px(12.5))
+                .cursor_pointer()
+                .map(|d| {
+                    if on {
+                        d.bg(ca(ui::pick_fill(), 0.35))
+                            .border_color(c(ui::accent_bar()))
+                            .text_color(c(ui::ink()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                    } else {
+                        d.bg(c(ui::raised()))
+                            .border_color(c(ui::line_hi()))
+                            .text_color(c(ui::body()))
+                            .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                    }
+                })
+        };
+        let mut roles = div().flex().flex_wrap().gap(px(6.));
         roles = roles.child(
-            choice("fin-role-plain", "Plain", outfit == Outfit::PLAIN, true)
+            chip("fin-role-plain".into(), outfit == Outfit::PLAIN)
+                .child("Plain")
                 .on_click(cx.listener(dress(tint, Outfit::PLAIN))),
         );
         for (i, r) in ROLES.iter().enumerate() {
             roles = roles.child(
-                choice(("fin-role", i), r.name, outfit == r.outfit, true)
+                chip(("fin-role", i).into(), outfit == r.outfit)
+                    .child(r.name)
                     .on_click(cx.listener(dress(r.tint, r.outfit))),
             );
         }
-        let mut rights = div();
+        let mut rights = div().flex().flex_wrap().gap(px(6.));
         for (i, t) in Tool::ALL.iter().copied().enumerate() {
+            let name = t.name();
             rights = rights.child(
-                choice(("fin-right", i), t.name(), outfit.right == t, true)
+                chip(("fin-right", i).into(), outfit.right == t)
+                    .w(px(30.))
+                    .px(px(0.))
+                    .child(Icon::new(tool_icon(t)).size(px(14.)))
+                    .tooltip(move |w, cx| Tooltip::new(name).build(w, cx))
                     .on_click(cx.listener(dress(tint, Outfit { right: t, ..outfit }))),
             );
         }
-        let mut colours = div().pt(px(2.));
+        let mut colours = div().flex().gap(px(8.)).pt(px(2.));
         for (i, (_, name, t)) in mascot::COLOURS.iter().copied().enumerate() {
             let on = t == tint;
             colours = colours.child(
                 div()
                     .id(("fin-colour", i))
-                    .size(px(24.))
+                    .size(px(22.))
                     .rounded_full()
                     .cursor_pointer()
                     .p(px(2.))
@@ -2371,117 +2368,102 @@ impl Shell {
                 )
             })
             .collect();
-        let looks = ui::card()
-            .overflow_hidden()
+        let looks = group(
+            "Crew look",
+            vec![
+                row("Line weight", "From fine to bold", segmented(weights)),
+                row(
+                    "Line colour",
+                    "Own colour, pastel, two-tone or rainbow",
+                    segmented(inks),
+                ),
+                row(
+                    "Eyes",
+                    "Rings like the pill, or solid dots",
+                    segmented(eyes),
+                ),
+            ],
+        );
+        let label = |left: String, right: Option<Stateful<Div>>| {
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .font_family(ui::MONO)
+                .text_size(px(10.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c(ui::faint()))
+                .child(left.to_uppercase())
+                .children(right)
+        };
+        let small = |text: &'static str| {
+            div()
+                .font_family(ui::MONO)
+                .text_size(px(10.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c(ui::faint()))
+                .child(text)
+        };
+        let reset = (!is_default).then(|| {
+            div()
+                .id("fin-reset")
+                .cursor_pointer()
+                .hover(|s| s.text_color(c(ui::ink())))
+                .child("Reset")
+                .on_click(cx.listener(dress(dt, dout)))
+        });
+        let card = || {
+            div()
+                .rounded(px(6.))
+                .bg(c(ui::raised()))
+                .border_1()
+                .border_color(c(ui::line()))
+        };
+        let wardrobe = card()
             .flex()
-            .flex_col()
-            .child(div().px(px(18.)).pt(px(16.)).pb(px(6.)).child(section(
-                "Crew look",
-                "How Peek looks, for every bot, everywhere in the app.",
-            )))
-            .child(row(
-                "Line weight",
-                "How heavy every line is, from fine to bold.",
-                segmented(weights),
-            ))
-            .child(row(
-                "Line colour",
-                "Each bot's own colour, a softer pastel, two-tone with lighter eyes, or a slowly turning rainbow.",
-                segmented(inks),
-            ))
-            .child(row(
-                "Eyes",
-                "Open eyes as rings, like the pill, or as solid dots.",
-                segmented(eyes),
-            ));
-
-        let wardrobe = ui::card()
-            .p(px(18.))
-            .flex()
-            .flex_col()
-            .gap(px(space::SM))
+            .gap(px(18.))
+            .p(px(16.))
             .child(
                 div()
+                    .w(px(160.))
+                    .h(px(160.))
+                    .flex_none()
+                    .rounded_full()
                     .flex()
-                    .items_start()
-                    .child(div().flex_1().child(section(
-                        "Dress a bot",
-                        "Start from a role kit, then swap any prop. Each bot keeps its own.",
-                    )))
-                    .when(!is_default, |d| {
-                        d.child(
-                            ui::ghost("fin-reset", "Reset").on_click(cx.listener(dress(dt, dout))),
-                        )
-                    }),
+                    .items_center()
+                    .justify_center()
+                    .bg(radial_glow(accent))
+                    .child(preview),
             )
-            .child(pick)
-            .child(div().h(px(1.)).my(px(4.)).bg(c(ui::line2())))
-            .child(slot("ROLE", roles))
-            .child(slot("PROP", rights))
-            .child(slot("COLOUR", colours.flex().gap(px(8.))));
-
-        let mut lineup = div().flex().flex_wrap().gap(px(space::M));
-        for m in crew.iter().copied() {
-            let img = self.bot(m, Mood::Idle, 76., Framing::Full);
-            lineup = lineup.child(
+            .child(
                 div()
-                    .id(("fin-lineup", m.key() as usize))
+                    .flex_1()
+                    .min_w_0()
                     .flex()
                     .flex_col()
-                    .items_center()
-                    .gap(px(4.))
-                    .cursor_pointer()
-                    .child(img)
-                    .child(
-                        div()
-                            .text_size(px(11.5))
-                            .text_color(c(if m == who { ui::ink() } else { ui::muted() }))
-                            .child(m.name()),
-                    )
-                    .on_hover(cx.listener(move |this, on: &bool, _, cx| this.hover_bot(m, *on, cx)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.fin_sel = m;
-                        cx.notify();
-                    })),
+                    .gap(px(8.))
+                    .child(small("ROLE"))
+                    .child(roles)
+                    .child(small("PROP").mt(px(4.)))
+                    .child(rights)
+                    .child(small("COLOUR").mt(px(4.)))
+                    .child(colours),
             );
-        }
-        let team = ui::card()
-            .p(px(18.))
+        let body = div()
+            .max_w(px(760.))
             .flex()
             .flex_col()
-            .gap(px(space::M))
-            .child(section(
-                "Your crew",
-                "How the whole crew looks together. Click one to dress it.",
-            ))
-            .child(lineup);
-
-        let right = div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(space::M))
-            .child(looks)
-            .child(wardrobe);
-
+            .gap(px(7.))
+            .child(label("Your crew \u{b7} click one to dress it".into(), None))
+            .child(card().child(strip))
+            .child(label(format!("Dress a bot \u{b7} {}", who.name()), reset).mt(px(13.)))
+            .child(wardrobe)
+            .child(div().mt(px(13.)).child(looks));
         Self::page(
             "settings-mascot",
             "Mascot",
-            "Meet Peek: two eyes in a pill, drawn as a clean outline. The lids show mood, the pill moves with effort, and the badge beside it shows what it's working with.",
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(space::M))
-                .child(
-                    div()
-                        .flex()
-                        .items_start()
-                        .gap(px(space::M))
-                        .child(stage)
-                        .child(right),
-                )
-                .child(team),
+            "Peek, colours and props. How every bot looks, everywhere in the app.",
+            body,
         )
     }
 }

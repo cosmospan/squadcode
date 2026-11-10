@@ -80,25 +80,6 @@ fn update_cmd(id: &str) -> Option<String> {
     }
 }
 
-pub(super) fn section(title: &'static str, line: &'static str) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.))
-        .child(
-            div()
-                .text_size(px(17.))
-                .font_weight(FontWeight::BOLD)
-                .child(title),
-        )
-        .child(
-            div()
-                .text_size(px(13.))
-                .text_color(c(ui::muted()))
-                .child(line),
-        )
-}
-
 impl Shell {
     /// Smart Peek: off until the person turns it on, which downloads Squad's
     /// own model once. Squad then runs it only when the rules aren't sure.
