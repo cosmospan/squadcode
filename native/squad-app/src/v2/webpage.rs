@@ -24,7 +24,7 @@ use crate::browser_engine::{key_spec, modifier_bits, KeySpec};
 
 use super::remote;
 use super::runtime;
-use super::ui::{self, c, ca};
+use super::ui::{self, c};
 use super::{Place, Shell};
 
 /// The fastest the picture is rebuilt: 60 times a second.
@@ -124,6 +124,12 @@ impl Web {
         if let Some(old) = self.img.take() {
             self.retired.push(old);
         }
+    }
+
+    /// Open, opening, or ended with a reason to show: the page has
+    /// something to say.
+    pub(super) fn shown(&self) -> bool {
+        self.live() || self.opening.is_some() || !self.err.is_empty()
     }
 
     pub(super) fn live(&self) -> bool {
@@ -450,45 +456,55 @@ impl Shell {
             State::Closed(why) => (ui::t_red(), why.clone()),
         };
         let closed = matches!(state, State::Closed(_));
-        let title = job
-            .as_ref()
-            .map(|j| format!("{}'s browser", j.bot.name()))
-            .unwrap_or_else(|| "Browser".into());
+        let bot = job.as_ref().map(|j| j.bot);
         let id = self.web.job;
-        let nav = |key: &'static str, icon: IconName| {
-            ui::icon_btn(key, icon).when(closed, |d| d.opacity(0.4))
+        // A square bordered button, like the design's reload and open-outside.
+        let square = |key: &'static str, icon: IconName| {
+            div()
+                .id(key)
+                .size(px(30.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(5.))
+                .bg(c(ui::raised()))
+                .border_1()
+                .border_color(c(ui::line_hi()))
+                .text_color(c(ui::body()))
+                .cursor_pointer()
+                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                .when(closed, |d| d.opacity(0.4))
+                .child(Icon::new(icon).size(px(13.)))
         };
-        let bar = div()
+        let arrow = |key: &'static str, icon: IconName| {
+            div()
+                .id(key)
+                .size(px(20.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.))
+                .text_color(c(ui::body()))
+                .cursor_pointer()
+                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                .when(closed, |d| d.opacity(0.4))
+                .child(Icon::new(icon).size(px(14.)))
+        };
+        let address = div()
             .flex_none()
-            .h(px(48.))
-            .px(px(16.))
             .flex()
             .items_center()
-            .gap(px(8.))
-            .border_b_1()
-            .border_color(c(ui::line()))
+            .gap(px(4.))
             .child(
-                ui::ghost_i("web-job", IconName::ArrowLeft, "Job")
-                    .on_click(cx.listener(move |this, _, _, cx| this.go(Place::Live(id), cx))),
-            )
-            .child(div().size(px(8.)).flex_none().rounded_full().bg(c(dot)))
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(13.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c(ui::ink()))
-                    .child(title),
-            )
-            .child(
-                nav("web-back", IconName::ChevronLeft).on_click(cx.listener(|this, _, _, _| {
+                arrow("web-back", IconName::ChevronLeft).on_click(cx.listener(|this, _, _, _| {
                     if let Some(v) = &this.web.view {
                         v.history(true);
                     }
                 })),
             )
             .child(
-                nav("web-forward", IconName::ChevronRight).on_click(cx.listener(
+                arrow("web-forward", IconName::ChevronRight).on_click(cx.listener(
                     |this, _, _, _| {
                         if let Some(v) = &this.web.view {
                             v.history(false);
@@ -497,14 +513,8 @@ impl Shell {
                 )),
             )
             .child(
-                nav("web-reload", IconName::RotateCw).on_click(cx.listener(|this, _, _, _| {
-                    if let Some(v) = &this.web.view {
-                        v.reload();
-                    }
-                })),
-            )
-            .child(
                 div()
+                    .ml(px(4.))
                     .flex_1()
                     .min_w_0()
                     .h(px(30.))
@@ -512,37 +522,81 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .rounded(px(8.))
-                    .bg(c(ui::bg()))
+                    .rounded(px(5.))
+                    .bg(c(ui::raised()))
                     .border_1()
-                    .border_color(c(ui::line()))
-                    .text_size(px(12.5))
+                    .border_color(c(ui::line_hi()))
+                    .font_family(ui::MONO)
+                    .text_size(px(12.))
+                    .child(div().size(px(6.)).flex_none().rounded(px(1.)).bg(c(dot)))
                     .child(
-                        Icon::new(IconName::Globe)
-                            .size(px(13.))
-                            .text_color(c(ui::faint())),
-                    )
-                    .child(
-                        Input::new(&self.web.address)
-                            .appearance(false)
-                            .bordered(false),
+                        div().flex_1().min_w_0().child(
+                            Input::new(&self.web.address)
+                                .appearance(false)
+                                .bordered(false),
+                        ),
                     ),
             )
+            .child(
+                square("web-reload", IconName::RotateCw)
+                    .ml(px(4.))
+                    .on_click(cx.listener(|this, _, _, _| {
+                        if let Some(v) = &this.web.view {
+                            v.reload();
+                        }
+                    })),
+            )
+            // A page here can open in your own browser too; one on the server
+            // is only reachable through Squad.
+            .when(!remote && !url.is_empty() && url != "about:blank", |d| {
+                let u = url.clone();
+                d.child(
+                    square("web-outside", IconName::ExternalLink)
+                        .tooltip(|window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new("Open in your browser")
+                                .build(window, cx)
+                        })
+                        .on_click(move |_, _, cx| cx.open_url(&u)),
+                )
+            });
+        let face = bot.map(|b| self.avatar(b, 16.));
+        let (word, word_col) = match &state {
+            State::Live if !loading => ("Live".to_string(), ui::t_green()),
+            State::Closed(_) => ("Closed".to_string(), ui::t_red()),
+            _ => ("Starting".to_string(), ui::t_amber()),
+        };
+        let who = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .text_size(px(12.5))
+            .text_color(c(ui::body()))
+            .children(face)
+            .when_some(bot, |d, b| {
+                d.child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c(ui::ink()))
+                        .child(b.name().to_string()),
+                )
+                .child("is testing the page")
+            })
+            .child(div().ml(px(6.)).child(ui::mono_status(word_col, &word)))
+            .child(div().flex_1())
             .when(!closed, |d| {
                 let on = self.web.pointing;
                 d.child(
-                    ui::ghost_i(
+                    ui::dbtn_i(
                         "web-point",
-                        IconName::SquareMousePointer,
+                        IconName::MousePointer,
                         if on {
                             "Click the page…"
                         } else {
                             "Point at it"
                         },
+                        ui::Btn::Primary,
                     )
-                    .when(on, |b| {
-                        b.bg(ca(ui::AMBER, 0.18)).text_color(c(ui::t_amber()))
-                    })
                     .tooltip(|window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(
                             "Click something on the page, then say what should change about it",
@@ -560,23 +614,28 @@ impl Shell {
             })
             .when(closed, |d| {
                 d.child(
-                    ui::ghost_i("web-again", IconName::RotateCcw, "Open again").on_click(
-                        cx.listener(move |this, _, _, cx| {
-                            this.web.stop();
-                            this.open_job_browser(id, None, cx);
-                        }),
-                    ),
-                )
-            })
-            // A page here can open in your own browser too; one on the server
-            // is only reachable through Squad.
-            .when(!remote && !url.is_empty() && url != "about:blank", |d| {
-                let u = url.clone();
-                d.child(
-                    ui::ghost_i("web-outside", IconName::ExternalLink, "Open outside")
-                        .on_click(move |_, _, cx| cx.open_url(&u)),
+                    ui::dbtn_i(
+                        "web-again",
+                        IconName::RotateCcw,
+                        "Open again",
+                        ui::Btn::Plain,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.web.stop();
+                        this.open_job_browser(id, None, cx);
+                    })),
                 )
             });
+        let bar = div()
+            .flex_none()
+            .px(px(18.))
+            .pt(px(14.))
+            .pb(px(10.))
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(address)
+            .child(who);
         let bounds = self.web.bounds.clone();
         let down = |button: &'static str| {
             cx.listener(move |this: &mut Self, ev: &MouseDownEvent, window, cx| {
@@ -616,9 +675,13 @@ impl Shell {
             .track_focus(&self.web.focus)
             .flex_1()
             .min_h_0()
+            .mx(px(18.))
             .relative()
             .overflow_hidden()
-            .bg(c(ui::bg()))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(c(ui::line()))
+            .bg(c(ui::raised()))
             .cursor_default()
             .when(self.web.pointing, |d| d.cursor_crosshair())
             .on_mouse_down(MouseButton::Left, down("left"))
@@ -690,15 +753,18 @@ impl Shell {
                 d.child(
                     div()
                         .flex_none()
-                        .px(px(16.))
-                        .py(px(4.))
-                        .text_size(px(12.))
-                        .text_color(c(ui::muted()))
+                        .px(px(18.))
+                        .pb(px(8.))
+                        .font_family(ui::MONO)
+                        .text_size(px(11.))
+                        .text_color(c(ui::faint()))
                         .child(line.clone()),
                 )
             })
             .child(area)
+            .child(div().flex_none().h(px(10.)))
             .children(self.pick_bar(cx))
+            .child(div().flex_none().h(px(4.)))
             .into_any_element()
     }
 
@@ -713,7 +779,7 @@ impl Shell {
             .map(|j| {
                 let bot = runtime::page_bot(j);
                 match self.crew.open_job(&j.folder.path, j.thread, bot) {
-                    Some(id) => format!("goes into {}'s #{id}", bot.name()),
+                    Some(id) => format!("to {} \u{b7} #{id}", bot.name()),
                     None => format!("new job for {}", bot.name()),
                 }
             })
@@ -721,15 +787,18 @@ impl Shell {
         let bar = || {
             div()
                 .flex_none()
-                .min_h(px(48.))
-                .px(px(16.))
-                .py(px(8.))
+                .mx(px(18.))
+                .mb(px(10.))
+                .h(px(44.))
+                .pl(px(12.))
+                .pr(px(8.))
                 .flex()
                 .items_center()
                 .gap(px(10.))
-                .border_t_1()
-                .border_color(c(ui::line()))
-                .bg(c(ui::panel()))
+                .rounded(px(6.))
+                .border_1()
+                .border_color(c(ui::line_hi()))
+                .bg(c(ui::raised()))
                 .text_size(px(13.))
         };
         // While pointing, nothing is added under the page, so it doesn't move
@@ -765,45 +834,50 @@ impl Shell {
                 .child(
                     div()
                         .flex_none()
-                        .max_w(px(300.))
+                        .max_w(px(200.))
                         .truncate()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(c(ui::ink()))
-                        .child(format!("Change {}", picked.short())),
+                        .font_family(ui::MONO)
+                        .text_size(px(11.))
+                        .text_color(c(ui::t_amber()))
+                        .child(picked.short()),
                 )
                 .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .h(px(32.))
-                        .px(px(10.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(8.))
-                        .bg(c(ui::bg()))
-                        .border_1()
-                        .border_color(ca(ui::AMBER, 0.5))
-                        .child(
-                            Input::new(&self.pick_input)
-                                .appearance(false)
-                                .bordered(false),
-                        ),
+                    div().flex_1().min_w_0().child(
+                        Input::new(&self.pick_input)
+                            .appearance(false)
+                            .bordered(false),
+                    ),
                 )
                 .child(
                     div()
                         .flex_none()
-                        .text_size(px(11.5))
+                        .font_family(ui::MONO)
+                        .text_size(px(10.5))
                         .text_color(c(ui::faint()))
-                        .child(goes.clone()),
+                        .child(goes.to_uppercase()),
                 )
-                .child(ui::ghost("web-pick-cancel", "Cancel").on_click(cx.listener(
-                    |this, _, window, cx| {
-                        this.web.picked = None;
-                        this.pick_input
-                            .update(cx, |i, cx| i.set_value("", window, cx));
-                        cx.notify();
-                    },
-                ))),
+                .child(
+                    ui::dbtn("web-pick-cancel", "Cancel", ui::Btn::Ghost).on_click(cx.listener(
+                        |this, _, window, cx| {
+                            this.web.picked = None;
+                            this.pick_input
+                                .update(cx, |i, cx| i.set_value("", window, cx));
+                            cx.notify();
+                        },
+                    )),
+                )
+                .child(
+                    ui::dbtn("web-pick-send", "Send", ui::Btn::Primary).on_click(cx.listener(
+                        |this, _, window, cx| {
+                            let text = this.pick_input.read(cx).value().trim().to_string();
+                            if !text.is_empty() {
+                                this.pick_input
+                                    .update(cx, |i, cx| i.set_value("", window, cx));
+                                this.send_pick(text, cx);
+                            }
+                        },
+                    )),
+                ),
         )
     }
 

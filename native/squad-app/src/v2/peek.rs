@@ -764,7 +764,7 @@ impl Shell {
                 .child(self.checks_tab(&job, cx))
                 .into_any_element(),
             Tab::Browser => {
-                if self.web.job == id && self.web.live() {
+                if self.web.job == id && self.web.shown() {
                     self.web_page(window, cx)
                 } else {
                     empty(
