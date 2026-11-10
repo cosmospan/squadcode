@@ -22,8 +22,12 @@ pub const RUNO: u32 = 0x7B4DF5;
 
 pub struct Theme {
     pub id: &'static str,
+    /// Its name and line: the picker shows only the three looks now, but
+    /// older themes keep theirs for anyone who still has one picked.
+    #[allow(dead_code)]
     pub name: &'static str,
     /// One line under the name in the picker.
+    #[allow(dead_code)]
     pub line: &'static str,
     /// Light ground: dark text, and the kit's text boxes and menus in light mode.
     pub light: bool,
@@ -112,7 +116,7 @@ pub const THEMES: [Theme; 14] = [
     Theme {
         id: "graphite-lime",
         name: "Graphite and lime",
-        line: "Warm paper and lime, the default",
+        line: "Warm paper and graphite ink, with lime for the one thing to press.",
         light: true,
         frosted: false,
         bg: 0xF6F6F1,
@@ -178,7 +182,7 @@ pub const THEMES: [Theme; 14] = [
     Theme {
         id: "harbour",
         name: "Harbour",
-        line: "Cool slate and periwinkle",
+        line: "Cool slate and navy ink, with a soft periwinkle to press.",
         light: true,
         frosted: false,
         bg: 0xF2F4F7,
@@ -244,7 +248,7 @@ pub const THEMES: [Theme; 14] = [
     Theme {
         id: "orchid",
         name: "Orchid",
-        line: "Warm linen and orchid",
+        line: "Warm sand and brown ink, with orchid pink to press.",
         light: true,
         frosted: false,
         bg: 0xF7F3EE,
@@ -641,21 +645,21 @@ pub const FAMILIES: [Family; 3] = [
     Family {
         id: "graphite-lime",
         name: "Graphite and lime",
-        line: "Warm paper and lime, the default",
+        line: "Warm paper and graphite ink, with lime for the one thing to press.",
         light: "graphite-lime",
         dark: "graphite-lime-dark",
     },
     Family {
         id: "harbour",
         name: "Harbour",
-        line: "Cool slate and periwinkle",
+        line: "Cool slate and navy ink, with a soft periwinkle to press.",
         light: "harbour",
         dark: "harbour-dark",
     },
     Family {
         id: "orchid",
         name: "Orchid",
-        line: "Warm linen and orchid",
+        line: "Warm sand and brown ink, with orchid pink to press.",
         light: "orchid",
         dark: "orchid-dark",
     },

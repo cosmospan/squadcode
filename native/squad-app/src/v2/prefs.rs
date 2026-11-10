@@ -246,26 +246,61 @@ fn segmented(items: Vec<Stateful<Div>>) -> Div {
     let mut d = div()
         .flex()
         .flex_none()
-        .gap(px(3.))
+        .gap(px(2.))
         .p(px(3.))
-        .rounded(px(9.))
-        .bg(c(ui::bg()))
-        .border_1()
-        .border_color(c(ui::line()));
+        .rounded(px(6.))
+        .bg(c(ui::hover()));
     for i in items {
         d = d.child(i);
     }
     d
 }
 
+/// A segment led by an icon, like Light, Dark and Match the system.
+fn segment_i(
+    id: impl Into<ElementId>,
+    icon: IconName,
+    label: impl Into<SharedString>,
+    on: bool,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(28.))
+        .px(px(11.))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .rounded(px(4.))
+        .text_size(px(12.5))
+        .font_weight(if on {
+            FontWeight::SEMIBOLD
+        } else {
+            FontWeight::MEDIUM
+        })
+        .cursor_pointer()
+        .map(|d| {
+            if on {
+                d.bg(c(ui::raised()))
+                    .border_1()
+                    .border_color(c(ui::line_hi()))
+                    .text_color(c(ui::ink()))
+            } else {
+                d.text_color(c(ui::body()))
+                    .hover(|s| s.text_color(c(ui::ink())))
+            }
+        })
+        .child(Icon::new(icon).size(px(13.)))
+        .child(label.into())
+}
+
 fn segment(id: impl Into<ElementId>, label: impl Into<SharedString>, on: bool) -> Stateful<Div> {
     div()
         .id(id)
         .h(px(26.))
-        .px(px(12.))
+        .px(px(11.))
         .flex()
         .items_center()
-        .rounded(px(6.))
+        .rounded(px(4.))
         .text_size(px(12.5))
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
@@ -302,96 +337,70 @@ fn slot(label: &'static str, items: Div) -> Div {
         .child(items.flex_1().flex().flex_wrap().gap(px(6.)))
 }
 
-/// A small picture of a theme: a sidebar and a card on its page, with text lines, a
-/// button and the status colours. Frosted themes sit over a colourful backdrop, to
-/// show the desktop coming through.
-fn swatch(t: &'static Theme) -> Div {
-    let line = |w: f32, color: u32| div().h(px(4.)).w(px(w)).rounded_full().bg(c(color));
-    let dot = |color: u32| div().size(px(6.)).rounded_full().bg(c(color));
-    let page = div()
-        .size_full()
+/// One side of a look's preview: its sidebar, a card ringed in its accent,
+/// and the button to press.
+fn look_half(t: &'static Theme) -> Div {
+    let bar = |w: f32, col: u32| div().h(px(3.)).w(px(w)).rounded(px(1.)).bg(c(col));
+    div()
+        .flex_1()
+        .h_full()
         .flex()
         .bg(c(t.bg))
         .child(
             div()
-                .w(px(48.))
+                .w(px(30.))
                 .h_full()
                 .flex()
                 .flex_col()
-                .gap(px(6.))
-                .p(px(8.))
+                .gap(px(5.))
+                .px(px(5.))
+                .py(px(9.))
+                .bg(c(t.panel))
                 .border_r_1()
                 .border_color(c(t.line_c))
-                .child(line(28., t.ink))
-                .child(div().h(px(10.)).w_full().rounded(px(3.)).bg(c(t.hover)))
-                .child(line(22., t.muted))
-                .child(line(26., t.faint)),
+                .child(bar(16., t.ink))
+                .child(
+                    div()
+                        .h(px(8.))
+                        .w_full()
+                        .rounded(px(2.))
+                        .bg(c(t.raised))
+                        .border_l_2()
+                        .border_color(c(t.fill)),
+                )
+                .child(bar(14., t.faint))
+                .child(bar(12., t.faint)),
         )
         .child(
-            div().flex_1().p(px(8.)).child(
-                div()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .p(px(8.))
-                    .rounded(px(6.))
-                    .bg(c(t.panel))
-                    .border_1()
-                    .border_color(c(t.line_c))
-                    .child(line(64., t.ink))
-                    .child(line(84., t.body))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(4.))
-                            .child(dot(t.t_blue))
-                            .child(dot(t.t_amber))
-                            .child(dot(t.t_green))
-                            .child(dot(t.t_red)),
-                    )
-                    .child(
-                        div()
-                            .mt_auto()
-                            .flex()
-                            .justify_end()
-                            .child(div().h(px(12.)).w(px(34.)).rounded(px(3.)).bg(c(t.fill))),
-                    ),
-            ),
-        );
-    div()
-        .h(px(112.))
-        .w_full()
-        .rounded(px(8.))
-        .overflow_hidden()
-        .relative()
-        .bg(c(if t.light { 0xDCE3F2 } else { 0x0B0B10 }))
-        .when(t.frosted, |d| {
-            d.bg(linear_gradient(
-                135.,
-                linear_color_stop(c(0xF76B8A), 0.),
-                linear_color_stop(c(0x5B7CFA), 1.),
-            ))
-            .child(
-                div()
-                    .absolute()
-                    .top(px(-18.))
-                    .left(px(70.))
-                    .size(px(80.))
-                    .rounded_full()
-                    .bg(c(0xFFC24B)),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .bottom(px(-24.))
-                    .left(px(-10.))
-                    .size(px(90.))
-                    .rounded_full()
-                    .bg(c(0x2EC5A1)),
-            )
-        })
-        .child(div().absolute().inset_0().child(page))
+            div()
+                .flex_1()
+                .p(px(7.))
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(bar(46., t.ink))
+                .child(
+                    div()
+                        .h(px(24.))
+                        .rounded(px(3.))
+                        .bg(c(t.raised))
+                        .border_1()
+                        .border_color(c(t.fill))
+                        .p(px(5.))
+                        .flex()
+                        .flex_col()
+                        .gap(px(4.))
+                        .child(bar(52., t.ink))
+                        .child(bar(34., t.faint)),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .child(div().h(px(9.)).w(px(26.)).rounded(px(2.)).bg(c(t.fill))),
+                ),
+        )
 }
 
 impl Shell {
@@ -1377,111 +1386,7 @@ impl Shell {
     }
 
     fn settings_appearance(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let current = ui::theme().id;
-        let card_for = |t: &'static Theme, cx: &mut Context<Self>| {
-            let on = t.id == current;
-            div()
-                .id(SharedString::from(format!("theme-{}", t.id)))
-                .w(px(206.))
-                .flex()
-                .flex_col()
-                .gap(px(10.))
-                .p(px(10.))
-                .rounded(px(12.))
-                .border_1()
-                .cursor_pointer()
-                .map(|d| {
-                    if on {
-                        d.border_color(c(ui::pick())).bg(c(ui::panel()))
-                    } else {
-                        d.border_color(c(ui::line()))
-                            .bg(c(ui::panel()))
-                            .hover(|s| s.border_color(c(ui::line_hi())))
-                    }
-                })
-                .child(swatch(t))
-                .child(
-                    div()
-                        .px(px(4.))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.))
-                                .child(
-                                    div()
-                                        .text_size(px(13.))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(c(ui::ink()))
-                                        .child(t.name),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(11.5))
-                                        .text_color(c(ui::muted()))
-                                        .truncate()
-                                        .child(t.line),
-                                ),
-                        )
-                        .when(on, |d| {
-                            d.child(
-                                div()
-                                    .size(px(20.))
-                                    .flex_none()
-                                    .rounded_full()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .bg(c(ui::pick_fill()))
-                                    .text_color(c(ui::pick_on()))
-                                    .child(Icon::new(IconName::Check).size(px(12.))),
-                            )
-                        }),
-                )
-                .on_click(cx.listener(move |_, _, _, cx| {
-                    ui::set_theme(t.id);
-                    save(cx, |st| st.v2_theme = t.id.to_string());
-                    cx.notify();
-                }))
-        };
-        let grid = |frosted: bool, cx: &mut Context<Self>| {
-            let mut d = div().flex().flex_wrap().gap(px(space::SM));
-            // The redesign's looks have their own picker above.
-            for t in ui::THEMES
-                .iter()
-                .filter(|t| t.frosted == frosted && theme::family_of(t.id).is_none())
-            {
-                d = d.child(card_for(t, cx));
-            }
-            d
-        };
-        let heading = |title: &'static str, line: &'static str| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(3.))
-                .child(
-                    div()
-                        .text_size(px(13.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c(ui::ink()))
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.5))
-                        .text_color(c(ui::muted()))
-                        .child(line),
-                )
-        };
         let looks = self.looks_card(cx);
-        let solid = grid(false, cx);
-        let frosted = grid(true, cx);
         let window = self.transparency_card(cx);
         let picture = self.image_card(cx);
         let backdrop = self.pattern_card(cx);
@@ -1492,38 +1397,12 @@ impl Shell {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(space::L))
+                .gap(px(20.))
                 // Themes first: the choice most people come here for.
                 .child(looks)
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(space::SM))
-                        .child(heading(
-                            "More themes",
-                            if theme::see_through() {
-                                "Opaque by design, see-through while the window switch is on."
-                            } else {
-                                "An opaque window, quickest to draw."
-                            },
-                        ))
-                        .child(solid),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(space::SM))
-                        .child(heading(
-                            "Frosted",
-                            "A see-through window over your desktop, blurred like frosted glass.",
-                        ))
-                        .child(frosted),
-                )
                 .child(window)
-                .child(picture)
-                .child(backdrop),
+                .child(backdrop)
+                .child(picture),
         )
     }
 
@@ -1534,38 +1413,84 @@ impl Shell {
         let follow = theme::following();
         let dark = !current.light;
         let by_id = |id: &str| ui::THEMES.iter().find(|t| t.id == id);
-        let mut cards = div().flex().flex_wrap().gap(px(space::SM));
+        let mut cards = div().flex().gap(px(14.));
         for f in theme::FAMILIES.iter() {
             let on = family.is_some_and(|x| x.id == f.id);
-            let side = if dark { f.dark } else { f.light };
-            let Some(shown) = by_id(side) else { continue };
+            let (Some(light), Some(dark_t)) = (by_id(f.light), by_id(f.dark)) else {
+                continue;
+            };
+            let mut dots = div().flex().gap(px(6.));
+            for col in [
+                light.bg,
+                light.ink,
+                dark_t.bg,
+                light.hover,
+                light.fill,
+                dark_t.fill,
+            ] {
+                dots = dots.child(
+                    div()
+                        .size(px(11.))
+                        .rounded(px(2.))
+                        .bg(c(col))
+                        .border_1()
+                        .border_color(c(ui::line())),
+                );
+            }
             cards = cards.child(
                 div()
                     .id(SharedString::from(format!("look-{}", f.id)))
-                    .w(px(206.))
+                    .flex_1()
+                    .min_w_0()
                     .flex()
                     .flex_col()
-                    .gap(px(10.))
-                    .p(px(10.))
-                    .rounded(px(12.))
-                    .border_1()
+                    .rounded(px(6.))
+                    .overflow_hidden()
                     .cursor_pointer()
-                    .bg(c(ui::panel()))
+                    .bg(c(ui::raised()))
                     .map(|d| {
                         if on {
-                            d.border_color(c(ui::pick()))
+                            d.border_2().border_color(c(ui::ink()))
                         } else {
-                            d.border_color(c(ui::line()))
+                            d.border_1()
+                                .border_color(c(ui::line()))
                                 .hover(|s| s.border_color(c(ui::line_hi())))
                         }
                     })
-                    .child(swatch(shown))
                     .child(
                         div()
-                            .px(px(4.))
+                            .h(px(94.))
+                            .flex()
+                            .relative()
+                            .border_b_1()
+                            .border_color(c(ui::line()))
+                            .child(look_half(light))
+                            .child(look_half(dark_t))
+                            .when(on, |d| {
+                                d.child(
+                                    div()
+                                        .absolute()
+                                        .top(px(6.))
+                                        .right(px(6.))
+                                        .size(px(18.))
+                                        .rounded(px(4.))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .bg(c(ui::pick_fill()))
+                                        .text_color(c(ui::pick_on()))
+                                        .child(Icon::new(IconName::Check).size(px(12.))),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .px(px(12.))
+                            .pt(px(10.))
+                            .pb(px(12.))
                             .flex()
                             .flex_col()
-                            .gap(px(2.))
+                            .gap(px(5.))
                             .child(
                                 div()
                                     .flex()
@@ -1573,8 +1498,8 @@ impl Shell {
                                     .gap(px(8.))
                                     .child(
                                         div()
-                                            .text_size(px(13.))
-                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_size(px(14.))
+                                            .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(c(ui::ink()))
                                             .child(f.name),
                                     )
@@ -1584,16 +1509,16 @@ impl Shell {
                                             .text_size(px(10.5))
                                             .font_family(ui::MONO)
                                             .text_color(c(ui::faint()))
-                                            .child("LIGHT · DARK"),
+                                            .child("LIGHT \u{b7} DARK"),
                                     ),
                             )
                             .child(
                                 div()
-                                    .text_size(px(11.5))
-                                    .text_color(c(ui::muted()))
-                                    .truncate()
+                                    .text_size(px(12.5))
+                                    .text_color(c(ui::body()))
                                     .child(f.line),
-                            ),
+                            )
+                            .child(dots.mt(px(4.))),
                     )
                     .on_click(cx.listener(move |_, _, window, cx| {
                         let pref = if follow {
@@ -1612,72 +1537,69 @@ impl Shell {
         // Light, dark or the system's, for the look in use (or the default
         // look, while an older theme is picked).
         let fam = family.unwrap_or(&theme::FAMILIES[0]);
-        let mode = |id: &'static str, label: &'static str, on: bool, pref: String| {
-            segment(id, label, on).on_click(cx.listener(move |_, _, window, cx| {
-                theme::set_pref(&pref, super::system_dark(window.appearance()));
-                let pref = pref.clone();
-                save(cx, |st| st.v2_theme = pref);
-                cx.notify();
-            }))
-        };
         let in_family = family.is_some();
+        let mode =
+            |id: &'static str, icon: IconName, label: &'static str, on: bool, pref: String| {
+                segment_i(id, icon, label, on).on_click(cx.listener(move |_, _, window, cx| {
+                    theme::set_pref(&pref, super::system_dark(window.appearance()));
+                    let pref = pref.clone();
+                    save(cx, |st| st.v2_theme = pref);
+                    cx.notify();
+                }))
+            };
         let modes = segmented(vec![
             mode(
                 "look-light",
+                IconName::Sun,
                 "Light",
                 in_family && !follow && !dark,
                 fam.light.to_string(),
             ),
             mode(
                 "look-dark",
+                IconName::Moon,
                 "Dark",
                 in_family && !follow && dark,
                 fam.dark.to_string(),
             ),
             mode(
                 "look-system",
+                IconName::Monitor,
                 "Match the system",
                 in_family && follow,
                 format!("{}{}", fam.id, theme::SYSTEM),
             ),
         ]);
-        let note = if follow {
-            if dark {
-                "Every theme has both. Right now it's dark, because your system is."
-            } else {
-                "Every theme has both. Right now it's light, because your system is."
-            }
-        } else {
-            "Every theme has both. Pick one, or follow your system as it changes."
+        let note = match (follow, dark) {
+            (true, true) => "Every theme has both. Right now it's dark, because your system is.",
+            (true, false) => "Every theme has both. Right now it's light, because your system is.",
+            (false, _) => "Every theme has both. Pick one, or follow your system as it changes.",
         };
         div()
             .flex()
             .flex_col()
-            .gap(px(space::SM))
+            .gap(px(7.))
             .child(
                 div()
                     .flex()
-                    .flex_col()
-                    .gap(px(3.))
-                    .child(
-                        div()
-                            .text_size(px(13.5))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c(ui::ink()))
-                            .child("Theme"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(12.5))
-                            .text_color(c(ui::muted()))
-                            .child("Three looks to start, each in light and dark."),
-                    ),
+                    .justify_between()
+                    .font_family(ui::MONO)
+                    .text_size(px(10.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(c(ui::faint()))
+                    .child("THEME")
+                    .child("3 to start, more on the way"),
             )
             .child(cards)
-            .child(group(
-                "Light or dark",
-                vec![row("Light or dark", note, modes)],
-            ))
+            .child(
+                div()
+                    .mt(px(12.))
+                    .rounded(px(6.))
+                    .bg(c(ui::raised()))
+                    .border_1()
+                    .border_color(c(ui::line()))
+                    .child(row("Light or dark", note, modes).border_t(px(0.))),
+            )
     }
 
     /// Window transparency: a switch, and a slider for how far the desktop shows
@@ -2215,7 +2137,7 @@ impl Shell {
         .when(current == Pattern::Off, |d| d.opacity(0.6));
         group(
             "BACKGROUND PATTERN",
-            vec![div().px(px(18.)).pb(px(14.)).child(tiles), sidebar_row],
+            vec![div().p(px(12.)).child(tiles), sidebar_row],
         )
     }
 
