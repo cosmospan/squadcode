@@ -32,6 +32,22 @@ struct Day {
     usage: Option<crate::usage::Usage>,
 }
 
+/// The plan window closest to its limit, as a percent used, and what today
+/// cost: the status bar's figures, for the menu bar panel.
+pub(super) fn plan_and_spend(
+    st: &crate::settings::AppSettings,
+    store: &Store,
+) -> (Option<f32>, f64) {
+    let days = engines_today(st, store);
+    let spend = days.iter().map(|d| d.spend).sum::<f64>();
+    let plan = days
+        .iter()
+        .take(BAR_ENGINES)
+        .filter_map(|d| d.usage.as_ref().and_then(|u| u.headline().map(|w| w.used)))
+        .fold(None, |t: Option<f32>, u| Some(t.map_or(u, |t| t.max(u))));
+    (plan, spend)
+}
+
 /// The engines in play today: the default one first, then every engine a job
 /// ran on today, in the order they first ran.
 fn engines_today(st: &crate::settings::AppSettings, store: &Store) -> Vec<Day> {

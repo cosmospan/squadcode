@@ -172,18 +172,6 @@ fn menu_box(key: &str, list: impl IntoElement) -> Div {
         )
 }
 
-/// Squad Code's app icon, for showing inside the app.
-fn app_icon() -> std::sync::Arc<Image> {
-    static ICON: std::sync::OnceLock<std::sync::Arc<Image>> = std::sync::OnceLock::new();
-    ICON.get_or_init(|| {
-        std::sync::Arc::new(Image::from_bytes(
-            ImageFormat::Png,
-            include_bytes!("../assets/icon/png/squadcode-128.png").to_vec(),
-        ))
-    })
-    .clone()
-}
-
 fn icon(name: IconName, size: f32, color: u32) -> Icon {
     Icon::new(name).size(px(size)).text_color(rgb(color))
 }

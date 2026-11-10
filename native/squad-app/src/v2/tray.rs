@@ -23,7 +23,7 @@ use gpui_kit::*;
 use super::data::Member;
 use super::store::{self, Job, Status, Store};
 use super::ui::{self, c, ca};
-use super::{Pane, Place, Shell};
+use super::{Place, Shell};
 
 /// The panel's width.
 pub(crate) const WIDTH: f32 = 380.;
@@ -73,6 +73,8 @@ struct Line {
     /// The tool use it waits on: the request's id, "Builder wants to run", and
     /// the command, if any.
     ask: Option<(String, String, Option<String>)>,
+    /// The seatbelt holds it, or it clashes with another job: Approve waits.
+    blocked: bool,
 }
 
 /// Everything the panel lists, sorted into its sections.
@@ -179,14 +181,16 @@ fn line(j: &Job) -> Line {
     let running = j.status == Status::Running;
     let note = match j.status {
         Status::Running => j.doing(),
+        Status::Review if held(j) => "held by Seatbelt".into(),
+        Status::Review if !j.conflict.is_empty() => "clash ahead".into(),
         Status::Review => {
             let (add, del) = j.lines();
             let files = j.changes.len().max(j.files.len());
             if files == 0 {
-                "Ready for review".into()
+                "ready for review".into()
             } else {
                 format!(
-                    "Ready for review · {files} file{} · +{add} −{del}",
+                    "{files} file{} · +{add} −{del}",
                     if files == 1 { "" } else { "s" }
                 )
             }
@@ -213,6 +217,23 @@ fn line(j: &Job) -> Line {
         },
         progress: if running { j.progress() } else { None },
         ask: None,
+        blocked: j.status == Status::Review && (held(j) || !j.conflict.is_empty()),
+    }
+}
+
+/// The seatbelt is holding the job's changes.
+fn held(j: &Job) -> bool {
+    !j.held.is_empty() && !j.belt_ok
+}
+
+/// A bot's face from the open window, or its letter tile when it is closed.
+fn face(bot: Member, size: f32, cx: &mut App) -> AnyElement {
+    match shell(cx) {
+        Some(s) => {
+            let image = s.update(cx, |s, _| s.avatar_image(bot, size));
+            img(image).size(px(size)).flex_none().into_any_element()
+        }
+        None => bot_tile(bot).into_any_element(),
     }
 }
 
@@ -259,7 +280,8 @@ pub(crate) struct Tray {
 
 impl Tray {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Hand the crew a job…"));
+        let input = cx
+            .new(|cx| InputState::new(window, cx).placeholder("Ask Peek, or give the crew a job…"));
         let focus = cx.focus_handle();
         let subs = vec![
             cx.subscribe_in(&input, window, |this, input, event, window, cx| {
@@ -342,108 +364,93 @@ impl Tray {
         cx.notify();
     }
 
-    fn header(&self, b: &Board, live: bool) -> Div {
+    fn header(&self, b: &Board, live: bool, projects: usize, cx: &mut Context<Self>) -> Div {
         let status = match (live, b.needs_n) {
-            (true, _) => b.summary(),
-            (false, 0) => "Window closed".to_string(),
-            (false, n) => format!(
-                "Window closed · {n} job{} waiting for you",
-                if n == 1 { "" } else { "s" }
-            ),
+            (true, _) => format!("{projects} project{}", if projects == 1 { "" } else { "s" }),
+            (false, 0) => "window closed".to_string(),
+            (false, n) => format!("window closed · {n} waiting"),
         };
-        let board = Some(b);
-        let quiet = b.running == 0 && b.needs_n == 0;
+        let quitting = self.quitting;
+        let running = b.running;
         div()
             .flex()
             .items_center()
-            .gap(px(11.))
+            .gap(px(8.))
             .px(px(14.))
-            .pt(px(14.))
-            .pb(px(12.))
+            .py(px(12.))
+            .border_b_1()
+            .border_color(c(ui::line()))
+            .child(face(Member::Fin, 22., cx))
             .child(
-                img(crate::app_icon())
-                    .size(px(30.))
+                div()
                     .flex_none()
-                    .rounded(px(8.)),
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(ui::ink()))
+                    .child("Squad Code"),
             )
             .child(
                 div()
-                    .flex_1()
                     .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(1.))
-                    .child(
-                        div()
-                            .text_size(px(14.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c(ui::ink()))
-                            .child("Squad Code"),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .text_size(px(12.))
-                            .text_color(c(ui::muted()))
-                            .when_some(board.filter(|_| !quiet), |d, b| {
-                                d.child(div().size(px(6.)).rounded_full().bg(c(if b.needs_n > 0 {
-                                    ui::AMBER
-                                } else {
-                                    ui::BLUE
-                                })))
-                            })
-                            .child(div().truncate().child(status)),
-                    ),
+                    .truncate()
+                    .font_family(ui::MONO)
+                    .text_size(px(11.))
+                    .text_color(c(ui::faint()))
+                    .child(status),
             )
-            .when(live, |d| {
-                d.child(
-                    tip(
-                        ui::icon_btn("tray-settings", IconName::Settings),
-                        "Settings",
-                    )
-                    .on_click(|_, _, cx| show(Place::Settings(Pane::Work), cx)),
-                )
-            })
+            .child(div().flex_1())
+            .child(
+                ui::dbtn("tray-open", "Open app", ui::Btn::Plain)
+                    .h(px(24.))
+                    .px(px(9.))
+                    .text_size(px(12.))
+                    .on_click(|_, _, cx| show(Place::Today, cx)),
+            )
             .child(
                 tip(
-                    ui::icon_btn("tray-open", IconName::ExternalLink),
-                    "Open Squad Code",
+                    ui::icon_btn("tray-quit", IconName::Power),
+                    if quitting {
+                        "Click again to quit and stop the running jobs"
+                    } else {
+                        "Quit Squad Code"
+                    },
                 )
-                .on_click(|_, _, cx| show(Place::Today, cx)),
+                .when(quitting, |d| d.text_color(c(ui::t_red())))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if running > 0 && !this.quitting {
+                        this.quitting = true;
+                        cx.notify();
+                    } else {
+                        crate::menubar::quit(cx);
+                    }
+                })),
             )
     }
 
-    /// The box that hands the crew a job, and the folder it goes to.
-    fn hand_box(&self, folder: &str) -> Div {
+    /// The box that hands the crew a job, in the current project.
+    fn hand_box(&self) -> Div {
         let sent = self
             .sent
             .as_ref()
             .filter(|(_, at)| at.elapsed() < Duration::from_secs(4))
             .map(|(t, _)| t.clone());
         div()
-            .px(px(12.))
-            .pb(px(10.))
+            .mx(px(14.))
+            .my(px(10.))
             .flex()
             .flex_col()
-            .gap(px(6.))
+            .gap(px(5.))
             .child(
                 div()
-                    .h(px(38.))
+                    .h(px(34.))
                     .px(px(10.))
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .rounded(px(10.))
-                    .bg(c(ui::panel()))
+                    .rounded(px(6.))
+                    .bg(c(ui::raised()))
                     .border_1()
-                    .border_color(ca(ui::VIOLET, 0.45))
-                    .child(
-                        Icon::new(IconName::Sparkles)
-                            .size(px(14.))
-                            .text_color(c(ui::VIOLET)),
-                    )
+                    .border_color(c(ui::line_hi()))
                     .child(
                         div()
                             .flex_1()
@@ -453,20 +460,16 @@ impl Tray {
                     )
                     .child(ui::kbd("↵")),
             )
-            .child(
-                div()
-                    .px(px(4.))
-                    .text_size(px(11.))
-                    .text_color(c(if sent.is_some() {
-                        ui::t_green()
-                    } else {
-                        ui::faint()
-                    }))
-                    .truncate()
-                    .child(
-                        sent.unwrap_or_else(|| format!("In {folder} · Peek picks the bot").into()),
-                    ),
-            )
+            .when_some(sent, |d, sent| {
+                d.child(
+                    div()
+                        .font_family(ui::MONO)
+                        .text_size(px(10.5))
+                        .text_color(c(ui::t_green()))
+                        .truncate()
+                        .child(sent),
+                )
+            })
     }
 
     /// The banner when the window is closed.
@@ -590,28 +593,54 @@ impl Tray {
             )
     }
 
-    /// A job in a list: its bot, title, what it is doing and its time. Click to
-    /// open it; a running one offers Stop under the pointer.
+    /// A job waiting for you: its bot, title and a mono line under it. Changes
+    /// to review get Open and Approve; Approve waits while the seatbelt holds
+    /// it. The row under the pointer is raised with a lime ring.
     fn row(&self, l: &Line, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = l.id;
         let hovered = self.hovered == Some(id);
-        let running = l.status == Status::Running;
         let review = l.status == Status::Review;
-        let accent = l.bot.accent();
+        let blocked = l.blocked;
+        let mut meta = vec![l.bot.name().to_string(), format!("#{id}")];
+        if !l.folder.is_empty() {
+            meta.push(l.folder.clone());
+        }
+        if !l.note.is_empty() {
+            meta.push(l.note.clone());
+        }
         let tone = match l.status {
-            Status::Failed | Status::Interrupted => Some(ui::t_red()),
-            Status::Review => Some(ui::t_amber()),
-            _ => None,
+            Status::Failed | Status::Interrupted => ui::t_red(),
+            _ => ui::faint(),
         };
+        let bot = face(l.bot, 20., cx);
         div()
             .id(("tray-row", id))
-            .mx(px(6.))
-            .px(px(8.))
-            .py(px(8.))
-            .rounded(px(10.))
+            .flex()
+            .items_start()
+            .gap(px(10.))
+            .py(px(9.))
             .cursor_pointer()
-            .when(hovered, |d| d.bg(c(ui::hover())))
-            .active(|d| d.bg(c(ui::press())))
+            .map(|d| {
+                if hovered {
+                    d.mx(px(8.))
+                        .px(px(8.))
+                        .rounded(px(6.))
+                        .bg(c(ui::raised()))
+                        .border(px(1.5))
+                        .border_color(c(ui::accent_bar()))
+                        .shadow(vec![BoxShadow {
+                            color: ca(ui::pick_fill(), 0.35),
+                            offset: point(px(0.), px(0.)),
+                            blur_radius: px(0.),
+                            spread_radius: px(3.),
+                            inset: false,
+                        }])
+                } else {
+                    d.px(px(14.))
+                        .border(px(1.5))
+                        .border_color(gpui_kit::transparent_black())
+                }
+            })
             .on_hover(cx.listener(move |this, over: &bool, _, cx| {
                 if *over {
                     this.hovered = Some(id);
@@ -621,91 +650,174 @@ impl Tray {
                 cx.notify();
             }))
             .on_click(move |_, _, cx| show(Place::Live(id), cx))
-            .flex()
-            .flex_col()
-            .gap(px(6.))
+            .child(bot)
             .child(
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(bot_tile(l.bot))
+                    .flex_col()
                     .child(
                         div()
-                            .flex_1()
-                            .min_w_0()
+                            .truncate()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child(l.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .mt(px(1.))
+                            .truncate()
+                            .font_family(ui::MONO)
+                            .text_size(px(10.5))
+                            .text_color(c(tone))
+                            .child(meta.join(" · ")),
+                    )
+                    .when(review, |d| {
+                        d.child(
+                            div()
+                                .mt(px(7.))
+                                .flex()
+                                .gap(px(6.))
+                                .child(
+                                    ui::dbtn(("tray-open-job", id), "Open", ui::Btn::Plain)
+                                        .h(px(24.))
+                                        .px(px(9.))
+                                        .text_size(px(12.))
+                                        .on_click(move |_, _, cx| show(Place::Live(id), cx)),
+                                )
+                                .child(
+                                    ui::dbtn(("tray-approve", id), "Approve", ui::Btn::Primary)
+                                        .h(px(24.))
+                                        .px(px(9.))
+                                        .text_size(px(12.))
+                                        .when(blocked, |d| d.opacity(0.4).cursor_default())
+                                        .on_click(move |_, _, cx| {
+                                            cx.stop_propagation();
+                                            if blocked {
+                                                show(Place::Live(id), cx);
+                                            } else if let Some(shell) = shell(cx) {
+                                                shell.update(cx, |s, cx| s.approve(id, cx));
+                                            }
+                                        }),
+                                ),
+                        )
+                    }),
+            )
+            .when(!review, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .font_family(ui::MONO)
+                        .text_size(px(10.5))
+                        .text_color(c(ui::faint()))
+                        .child(l.time.clone()),
+                )
+            })
+    }
+
+    /// A running job: its bot, title, its step in mono blue and a dashed bar.
+    /// Stop shows under the pointer.
+    fn working_row(&self, l: &Line, cx: &mut Context<Self>) -> Stateful<Div> {
+        let id = l.id;
+        let hovered = self.hovered == Some(id);
+        let step = match l.progress {
+            Some((d, n)) if n > 0 => format!("{} of {n}", (d + 1).min(n)),
+            _ => l.time.clone(),
+        };
+        let frac = match l.progress {
+            Some((d, n)) if n > 0 => (d + 1).min(n) as f32 / n as f32,
+            _ => 0.3,
+        };
+        let bot = face(l.bot, 18., cx);
+        div()
+            .id(("tray-row", id))
+            .flex()
+            .items_start()
+            .gap(px(10.))
+            .px(px(14.))
+            .pt(px(9.))
+            .pb(px(6.))
+            .cursor_pointer()
+            .when(hovered, |d| d.bg(c(ui::hover())))
+            .on_hover(cx.listener(move |this, over: &bool, _, cx| {
+                if *over {
+                    this.hovered = Some(id);
+                } else if this.hovered == Some(id) {
+                    this.hovered = None;
+                }
+                cx.notify();
+            }))
+            .on_click(move |_, _, cx| show(Place::Live(id), cx))
+            .child(bot)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
                             .flex()
-                            .flex_col()
-                            .gap(px(1.))
+                            .items_center()
+                            .gap(px(8.))
                             .child(
                                 div()
+                                    .flex_1()
+                                    .min_w_0()
                                     .truncate()
                                     .text_size(px(13.))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(c(ui::ink()))
                                     .child(l.title.clone()),
                             )
-                            .child(
-                                div()
-                                    .truncate()
+                            .child(if hovered {
+                                ui::dbtn(("tray-stop", id), "Stop", ui::Btn::Plain)
+                                    .h(px(22.))
+                                    .px(px(8.))
                                     .text_size(px(11.5))
-                                    .text_color(c(tone.unwrap_or(ui::muted())))
-                                    .child(sub_line(l)),
-                            ),
+                                    .on_click(cx.listener(move |_, _, _, cx| {
+                                        cx.stop_propagation();
+                                        if let Some(shell) = shell(cx) {
+                                            shell.update(cx, |s, cx| s.stop_job(id, cx));
+                                        }
+                                    }))
+                                    .into_any_element()
+                            } else {
+                                ui::mono_status(ui::t_blue(), &step)
+                                    .flex_none()
+                                    .into_any_element()
+                            }),
                     )
-                    .child(match (running && hovered, review && hovered) {
-                        (true, _) => ui::ghost(("tray-stop", id), "Stop")
-                            .h(px(26.))
-                            .px(px(10.))
-                            .text_size(px(12.))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(move |_, _, _, cx| {
-                                cx.stop_propagation();
-                                if let Some(shell) = shell(cx) {
-                                    shell.update(cx, |s, cx| s.stop_job(id, cx));
-                                }
-                            }))
-                            .into_any_element(),
-                        (_, true) => ui::solid(("tray-review", id), "Review")
-                            .h(px(26.))
-                            .px(px(10.))
-                            .text_size(px(12.))
-                            .on_click(move |_, _, cx| show(Place::Live(id), cx))
-                            .into_any_element(),
-                        _ => div()
-                            .flex_none()
-                            .text_size(px(11.5))
-                            .text_color(c(ui::faint()))
-                            .child(l.time.clone())
-                            .into_any_element(),
-                    }),
+                    .child(
+                        div()
+                            .mt(px(6.))
+                            .child(super::channel::dashed_bar(frac, ui::t_blue())),
+                    ),
             )
-            .when(running, |d| {
-                d.child(div().pl(px(36.)).child(match l.progress {
-                    Some((done, all)) if all > 0 => ui::bar(done as f32 / all as f32, accent),
-                    _ => ui::sweep(accent, 0.),
-                }))
-            })
     }
 
-    fn section(
-        &self,
-        label: &str,
-        dot: Option<u32>,
-        lines: &[Line],
-        more: Place,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let mut out = div().flex().flex_col().pb(px(4.)).child(
-            div().px(px(16.)).pt(px(6.)).pb(px(6.)).child(ui::heading(
-                label,
-                dot,
-                Some(lines.len()),
-            )),
+    fn section(&self, label: &str, lines: &[Line], more: Place, cx: &mut Context<Self>) -> Div {
+        let mut out = div().flex().flex_col().child(
+            div()
+                .flex()
+                .justify_between()
+                .px(px(14.))
+                .pt(px(12.))
+                .pb(px(4.))
+                .font_family(ui::MONO)
+                .text_size(px(10.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c(ui::faint()))
+                .child(label.to_uppercase())
+                .child(lines.len().to_string()),
         );
         for l in lines.iter().take(ROWS) {
             out = out.child(if l.ask.is_some() {
                 self.ask_card(l, cx)
+            } else if l.status == Status::Running {
+                self.working_row(l, cx)
             } else {
                 self.row(l, cx)
             });
@@ -715,14 +827,13 @@ impl Tray {
             out = out.child(
                 div()
                     .id(SharedString::from(format!("tray-more-{label}")))
-                    .mx(px(6.))
-                    .px(px(8.))
+                    .px(px(14.))
                     .py(px(5.))
-                    .rounded(px(8.))
                     .cursor_pointer()
-                    .text_size(px(12.))
-                    .text_color(c(ui::muted()))
-                    .hover(|d| d.bg(c(ui::hover())).text_color(c(ui::ink())))
+                    .font_family(ui::MONO)
+                    .text_size(px(11.))
+                    .text_color(c(ui::faint()))
+                    .hover(|d| d.text_color(c(ui::ink())))
                     .child(format!("{n} more"))
                     .on_click(move |_, _, cx| show(more, cx)),
             );
@@ -757,69 +868,49 @@ impl Tray {
             )
     }
 
-    fn footer(&self, running: usize, live: bool, cx: &mut Context<Self>) -> Div {
-        let quitting = self.quitting;
+    /// Where the crew runs, the plan closest to its limit, and today's spend.
+    fn footer(&self, cx: &mut Context<Self>) -> Div {
+        let (plan, spend) = match shell(cx) {
+            Some(s) => {
+                let st = cx.global::<crate::settings::AppSettings>();
+                super::statusbar::plan_and_spend(st, &s.read(cx).crew.store)
+            }
+            None => (None, 0.),
+        };
         div()
             .flex()
             .items_center()
-            .gap(px(6.))
-            .px(px(10.))
-            .py(px(8.))
+            .gap(px(12.))
+            .px(px(14.))
+            .py(px(10.))
             .border_t_1()
             .border_color(c(ui::line()))
-            .when(live, |d| {
-                d.child(
-                    ui::pill_i("tray-new", IconName::Plus, "New job", false)
-                        .on_click(|_, _, cx| new_job(cx)),
-                )
-                .child(
-                    ui::pill_i("tray-inbox", IconName::Inbox, "Inbox", false)
-                        .on_click(|_, _, cx| show(Place::Inbox, cx)),
-                )
-                .child(
-                    ui::pill_i("tray-history", IconName::Clock, "History", false)
-                        .on_click(|_, _, cx| show(Place::History, cx)),
-                )
-            })
+            .font_family(ui::MONO)
+            .text_size(px(11.))
+            .text_color(c(ui::body()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(div().size(px(6.)).rounded(px(1.)).bg(c(ui::t_green())))
+                    .child(super::machines::here_name()),
+            )
+            .when_some(plan, |d, used| d.child(format!("Plan {used:.0}%")))
             .child(div().flex_1())
             .child(
-                ui::pill(
-                    "tray-quit",
-                    if quitting {
-                        format!(
-                            "Quit and stop {running} job{}?",
-                            if running == 1 { "" } else { "s" }
-                        )
-                    } else {
-                        "Quit".to_string()
-                    },
-                    false,
-                )
-                .when(quitting, |d| d.text_color(c(ui::t_red())))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if running > 0 && !this.quitting {
-                        this.quitting = true;
-                        cx.notify();
-                    } else {
-                        crate::menubar::quit(cx);
-                    }
-                })),
+                div()
+                    .flex()
+                    .gap(px(5.))
+                    .child(
+                        div()
+                            .text_color(c(ui::ink()))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(format!("${spend:.2}")),
+                    )
+                    .child("today"),
             )
     }
-}
-
-/// The line under a job's title: its folder and what it is doing or how it ended.
-fn sub_line(l: &Line) -> String {
-    let mut parts = Vec::new();
-    if !l.folder.is_empty() {
-        parts.push(l.folder.clone());
-    }
-    if let (Status::Running, Some((done, all))) = (l.status, l.progress) {
-        parts.push(format!("{} · {done}/{all}", l.note));
-    } else if !l.note.is_empty() {
-        parts.push(l.note.clone());
-    }
-    parts.join(" · ")
 }
 
 /// Allows or denies a waiting request, from the window's crew.
@@ -907,18 +998,23 @@ impl Render for Tray {
         if live.is_some() {
             self.saved = None;
         }
-        let (board, folder) = match &live {
+        let (board, folder, projects) = match &live {
             Some(s) => {
                 let s = s.read(cx);
                 (
                     Board::of(&s.crew.store, true, |j| s.crew.asks_for(j)),
                     s.crew.store.folder().map(|f| f.name.clone()),
+                    s.crew.store.folders.len(),
                 )
             }
             None => {
                 let store = self.saved.get_or_insert_with(Store::load_view);
                 // Nothing runs with the window closed, whatever the file last said.
-                (Board::of(store, false, |_| Vec::new()), None)
+                (
+                    Board::of(store, false, |_| Vec::new()),
+                    None,
+                    store.folders.len(),
+                )
             }
         };
         if board.running == 0 {
@@ -943,23 +1039,17 @@ impl Render for Tray {
             .flex()
             .flex_col();
         if !board.needs.is_empty() {
-            list =
-                list.child(self.section("Inbox", Some(ui::AMBER), &board.needs, Place::Inbox, cx));
+            list = list.child(self.section("Inbox", &board.needs, Place::Inbox, cx));
         }
         if !board.working.is_empty() {
-            list = list.child(self.section(
-                "Working",
-                Some(ui::BLUE),
-                &board.working,
-                Place::History,
-                cx,
-            ));
+            list = list.child(self.section("Working", &board.working, Place::History, cx));
         }
         if board.needs.is_empty() && board.working.is_empty() && live.is_some() {
             list = list.child(self.empty());
         }
-        if !board.recent.is_empty() {
-            list = list.child(self.section("Recent", None, &board.recent, Place::History, cx));
+        // With the window closed, the last jobs that ended, to pick one up.
+        if live.is_none() && !board.recent.is_empty() {
+            list = list.child(self.section("Recent", &board.recent, Place::History, cx));
         }
 
         let drawn = self.drawn.clone();
@@ -970,10 +1060,10 @@ impl Render for Tray {
             .flex_col()
             // Never taller than the panel gets: the list gives way and scrolls.
             .max_h(px(MAX_HEIGHT - 2.))
-            .child(self.header(&board, live.is_some()).flex_none())
-            .when_some(folder.filter(|_| live.is_some()), |d, f| {
-                d.child(self.hand_box(&f).flex_none())
-            })
+            .child(
+                self.header(&board, live.is_some(), projects, cx)
+                    .flex_none(),
+            )
             .when(live.is_none(), |d| {
                 d.child(
                     self.closed_banner(!board.needs.is_empty() || !board.recent.is_empty())
@@ -981,8 +1071,10 @@ impl Render for Tray {
                 )
             })
             .child(list)
-            .child(div().h(px(4.)))
-            .child(self.footer(board.running, live.is_some(), cx).flex_none())
+            .when(folder.is_some() && live.is_some(), |d| {
+                d.child(self.hand_box().flex_none())
+            })
+            .child(self.footer(cx).flex_none())
             .child(
                 canvas(
                     move |bounds, window, _| {
@@ -1001,7 +1093,6 @@ impl Render for Tray {
                 .size_full(),
             );
 
-        let light = ui::theme().light;
         div()
             .id("tray")
             .track_focus(&self.focus)
@@ -1012,18 +1103,14 @@ impl Render for Tray {
             })
             .w_full()
             .p(px(1.))
-            .rounded(px(16.))
-            .bg(linear_gradient(
-                160.,
-                linear_color_stop(ca(ui::VIOLET, if light { 0.45 } else { 0.6 }), 0.),
-                linear_color_stop(c(ui::line_hi()), 1.),
-            ))
+            .rounded(px(12.))
+            .bg(c(ui::line_hi()))
             .child(
                 div()
                     .w_full()
-                    .rounded(px(15.))
+                    .rounded(px(11.))
                     .overflow_hidden()
-                    .bg(c(ui::float() & 0xff_ffff))
+                    .bg(c(ui::bg() & 0xff_ffff))
                     .text_color(c(ui::ink()))
                     .child(content),
             )

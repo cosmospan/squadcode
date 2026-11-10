@@ -89,6 +89,12 @@ pub(crate) fn snapshot(cx: &App) -> Snapshot {
     }
 }
 
+/// Open the panel at the top left of the screen, with no glyph to hang
+/// under: for screenshots of it.
+pub(crate) fn open_panel(cx: &mut App) {
+    panel::toggle(None, cx);
+}
+
 /// Close the panel, if it is open.
 pub(crate) fn close_panel(cx: &mut App) {
     panel::close(cx);

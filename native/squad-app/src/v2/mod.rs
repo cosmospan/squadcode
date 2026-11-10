@@ -1541,6 +1541,8 @@ impl Shell {
             // The status bar's usage popover, open.
             Ok("usage-open") => shell.usage_open = true,
             Ok("palette") => shell.open_palette(window, cx),
+            // The menu bar panel, open on its own at the screen's corner.
+            Ok("tray") => cx.defer(crate::menubar::open_panel),
             // "welcome:3" opens the walkthrough on its fourth step.
             Ok(p) if p.starts_with("welcome:") => {
                 shell.setup_step = p[8..].parse().unwrap_or(0);
