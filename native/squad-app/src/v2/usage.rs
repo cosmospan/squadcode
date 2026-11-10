@@ -556,7 +556,8 @@ fn finished_well(status: Status) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{took, took_long, weekday};
+    use std::prelude::v1::test;
 
     #[test]
     fn says_how_long_a_job_took() {
