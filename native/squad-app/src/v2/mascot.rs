@@ -172,6 +172,7 @@ pub fn figure_with(who: Member, mood: Mood, gaze: (i8, i8), offset: u8) -> Figur
 #[cfg(test)]
 mod tests {
     use super::*;
+    use squad_holo::fin::ROLES;
 
     #[test]
     fn looks_round_trip_and_defaults_are_not_saved() {
