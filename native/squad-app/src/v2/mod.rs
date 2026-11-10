@@ -634,8 +634,6 @@ pub struct Shell {
     /// The machine open on the Machines page: 0 this computer, 1 your server.
     machine_pick: u8,
     crew_tab: crew::CrewTab,
-    /// The project whose lessons the Memory tab shows, when not this one.
-    memory_folder: Option<String>,
     /// Memory's line for adding something a bot should always know.
     memory_input: Entity<InputState>,
     /// The filter over the right sidebar's Files tab.
@@ -652,6 +650,8 @@ pub struct Shell {
     files_changed_only: bool,
     /// The bot the DM box's placeholder names.
     chat_hint: Option<Member>,
+    /// What the Memory tab's box says it teaches.
+    memory_hint: Option<String>,
     /// How many days Settings > Usage looks back: 7, 14 or 30.
     usage_days: u64,
     /// The Settings drop-down that is open, by its id.
@@ -1276,6 +1276,7 @@ impl Shell {
         };
         let start = match std::env::var("SQUADCODE_PLACE").as_deref() {
             Ok("crew") => Place::Crew,
+            Ok(p) if p.starts_with("crew:") => Place::Crew,
             Ok("chat") => Place::Chat(Member::Fin),
             // "chat:explainer" opens a direct message with that bot.
             Ok(p) if p.starts_with("chat:") => Member::all()
@@ -1461,7 +1462,6 @@ impl Shell {
             crew_pick: None,
             machine_pick: 0,
             crew_tab: crew::CrewTab::default(),
-            memory_folder: None,
             memory_input,
             files_input,
             list_files: false,
@@ -1471,6 +1471,7 @@ impl Shell {
             files_changed_only: false,
             usage_days: 7,
             chat_hint: None,
+            memory_hint: None,
             select_open: None,
             files_seeded: Default::default(),
             job_view: None,
@@ -1585,6 +1586,22 @@ impl Shell {
                         if let Ok(id) = p[4..].split(':').next().unwrap_or_default().parse() {
                             shell.toggle_term(id, window, cx);
                         }
+                    }
+                }
+            }
+            // "crew:fixer:memory" opens Fixer's profile on its Memory tab.
+            Ok(p) if p.starts_with("crew:") => {
+                let mut parts = p[5..].split(':');
+                let who = parts.next().unwrap_or_default();
+                shell.crew_pick = Member::all()
+                    .into_iter()
+                    .find(|m| m.name().eq_ignore_ascii_case(who));
+                if let Some(tab) = parts.next() {
+                    if let Some(t) = crew::CrewTab::ALL
+                        .into_iter()
+                        .find(|t| format!("{t:?}").eq_ignore_ascii_case(tab))
+                    {
+                        shell.crew_tab = t;
                     }
                 }
             }
@@ -3799,7 +3816,23 @@ impl Render for Shell {
             Place::Live(id) => self.workspace(id, window, cx),
             Place::Race(id) => self.race(id, cx),
             Place::Goal(id) => self.goal_page(id, cx),
-            Place::Crew => self.crew(cx),
+            Place::Crew => {
+                let teach = self.crew_pick.map(|who| {
+                    let here = self
+                        .crew
+                        .store
+                        .folder()
+                        .map(|f| f.name.clone())
+                        .unwrap_or_else(|| "this project".into());
+                    format!("Teach {} something about {here}\u{2026}", who.name())
+                });
+                if let Some(t) = teach.filter(|t| self.memory_hint.as_ref() != Some(t)) {
+                    self.memory_hint = Some(t.clone());
+                    self.memory_input
+                        .update(cx, |i, cx| i.set_placeholder(t, window, cx));
+                }
+                self.crew(cx)
+            }
             Place::Chat(who) => {
                 if self.chat_hint != Some(who) {
                     self.chat_hint = Some(who);

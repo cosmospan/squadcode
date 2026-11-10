@@ -218,6 +218,13 @@ impl Shell {
             .filter(|l| l.bot == who && l.folder == here)
             .count();
         let tab = self.crew_tab;
+        let st = cx.global::<crate::settings::AppSettings>();
+        let engine = super::engine::label(st, who);
+        let asks = match (st.v2_plan_first, st.v2_auto_merge) {
+            (true, _) => "asks before anything",
+            (false, true) => "merges when checks pass",
+            (false, false) => "asks before merging",
+        };
         let head = div()
             .flex()
             .items_center()
@@ -240,8 +247,16 @@ impl Shell {
                     .child(
                         div()
                             .text_size(px(13.5))
-                            .text_color(c(ui::muted()))
+                            .text_color(c(ui::body()))
                             .child(who.role()),
+                    )
+                    .child(
+                        div()
+                            .mt(px(3.))
+                            .font_family(ui::MONO)
+                            .text_size(px(11.))
+                            .text_color(c(ui::faint()))
+                            .child(format!("{engine} \u{b7} {asks}")),
                     ),
             )
             .child(
@@ -297,8 +312,7 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .font_family(ui::MONO)
-                    .text_size(px(12.))
+                    .text_size(px(12.5))
                     .cursor_pointer()
                     .border_b_2()
                     .map(|d| {
@@ -342,7 +356,6 @@ impl Shell {
             CrewTab::Activity => self.bot_tab_activity(who, cx),
         };
         div()
-            .max_w(px(920.))
             .px(px(32.))
             .pt(px(28.))
             .pb(px(40. + super::DOCK_ROOM))
@@ -588,24 +601,16 @@ impl Shell {
         out
     }
 
-    /// Memory: what it learned from your reviews in each project, a line to
-    /// add something by hand, and what it starts every job knowing.
+    /// Memory: what the bot has learned, a card per project, this one first,
+    /// with a box to teach it something here.
     fn bot_tab_memory(&mut self, who: Member, here: &str, cx: &mut Context<Self>) -> Div {
-        // Projects it has lessons in, this one first.
-        let mut places: Vec<(String, usize)> = Vec::new();
+        let mut places: Vec<String> = vec![here.to_string()];
         for l in self.crew.store.lessons.iter().filter(|l| l.bot == who) {
-            match places.iter_mut().find(|p| p.0 == l.folder) {
-                Some(p) => p.1 += 1,
-                None => places.push((l.folder.clone(), 1)),
+            if !places.contains(&l.folder) {
+                places.push(l.folder.clone());
             }
         }
-        let shown = match &self.memory_folder {
-            Some(f) if places.iter().any(|p| &p.0 == f) => f.clone(),
-            _ => here.to_string(),
-        };
-        if !places.iter().any(|p| p.0 == here) {
-            places.insert(0, (here.to_string(), 0));
-        }
+        places.retain(|p| !p.is_empty());
         let names: Vec<(String, String)> = self
             .crew
             .store
@@ -625,163 +630,206 @@ impl Shell {
                 })
                 .unwrap_or_else(|| path.to_string())
         };
-        let mut out = div().flex().flex_col().gap(px(14.));
-        if places.len() > 1 {
-            let mut row = div().flex().flex_wrap().gap(px(6.));
-            for (i, (path, n)) in places.iter().enumerate() {
-                let p = path.clone();
-                row = row.child(
-                    ui::pill(
-                        ("mem-project", i),
-                        format!("{} {n}", name_of(path)),
-                        *path == shown,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.memory_folder = Some(p.clone());
-                        cx.notify();
-                    })),
+        let name = who.name();
+        let mut out = div().flex().flex_col().gap(px(12.)).child(
+            div()
+                .text_size(px(13.))
+                .text_color(c(ui::body()))
+                .child(format!(
+                    "What {name} has learned, per project. {name} reads these before every job. Forget anything that's wrong."
+                )),
+        );
+        for (pi, folder) in places.into_iter().enumerate() {
+            let mut lessons: Vec<(usize, super::learn::Lesson)> = self
+                .crew
+                .store
+                .lessons
+                .iter()
+                .enumerate()
+                .filter(|(_, l)| l.bot == who && l.folder == folder)
+                .map(|(i, l)| (i, l.clone()))
+                .collect();
+            lessons.sort_by_key(|(_, l)| std::cmp::Reverse(l.at));
+            let n = lessons.len();
+            let mut card = div()
+                .px(px(15.))
+                .pb(px(12.))
+                .flex()
+                .flex_col()
+                .rounded(px(6.))
+                .bg(c(ui::raised()))
+                .border_1()
+                .border_color(c(ui::line()))
+                .child(
+                    div()
+                        .py(px(11.))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .font_family(ui::MONO)
+                        .text_size(px(11.))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(c(ui::body()))
+                                .child(name_of(&folder).to_uppercase()),
+                        )
+                        .child(
+                            div()
+                                .text_color(c(ui::faint()))
+                                .child(format!("{n} lesson{}", if n == 1 { "" } else { "s" })),
+                        ),
+                );
+            if lessons.is_empty() {
+                card = card.child(
+                    div()
+                        .py(px(10.))
+                        .border_t_1()
+                        .border_color(c(ui::line()))
+                        .border_dashed()
+                        .text_size(px(12.5))
+                        .text_color(c(ui::faint()))
+                        .child(format!(
+                            "Nothing yet. When you send {name}'s work back or comment on its changes, the lasting lessons land here."
+                        )),
                 );
             }
-            out = out.child(row);
-        }
-        let mut lessons: Vec<(usize, super::learn::Lesson)> = self
-            .crew
-            .store
-            .lessons
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| l.bot == who && l.folder == shown)
-            .map(|(i, l)| (i, l.clone()))
-            .collect();
-        lessons.sort_by_key(|(_, l)| std::cmp::Reverse(l.at));
-        let mut list = div().flex().flex_col().gap(px(8.));
-        if lessons.is_empty() {
-            list = list.child(quiet_text(format!(
-                "Nothing yet. When you send {}'s work back or comment on its changes, the lasting lessons land here.",
-                who.name()
-            )));
-        }
-        for (i, l) in lessons {
-            let from = if l.job == 0 {
-                format!("Added by you \u{b7} {}", super::store::ago(l.at))
-            } else {
-                format!(
-                    "From your review of #{} \u{b7} {}",
-                    l.job,
-                    super::store::ago(l.at)
-                )
-            };
-            let text = l.text.clone();
-            list = list.child(
-                ui::card()
-                    .px(px(16.))
-                    .py(px(12.))
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .child(
+            for (i, l) in lessons {
+                let tag = if l.job == 0 {
+                    "you said".to_string()
+                } else {
+                    format!("learned from #{}", l.job)
+                };
+                let text = l.text.clone();
+                card = card.child(
+                    div()
+                        .py(px(10.))
+                        .flex()
+                        .items_start()
+                        .gap(px(10.))
+                        .border_t_1()
+                        .border_color(c(ui::line()))
+                        .border_dashed()
+                        .child(
+                            div()
+                                .mt(px(7.))
+                                .size(px(6.))
+                                .flex_none()
+                                .bg(c(ui::accent_bar())),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap(px(6.))
+                                .child(
+                                    div()
+                                        .text_size(px(13.5))
+                                        .text_color(c(ui::ink()))
+                                        .child(l.text.clone()),
+                                )
+                                .child(
+                                    div().flex().gap(px(6.)).child(
+                                        div()
+                                            .px(px(5.))
+                                            .py(px(1.))
+                                            .rounded(px(3.))
+                                            .bg(c(ui::hover()))
+                                            .font_family(ui::MONO)
+                                            .text_size(px(10.5))
+                                            .text_color(c(ui::body()))
+                                            .child(tag),
+                                    ),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id(("mem-forget", i))
+                                .px(px(10.))
+                                .py(px(3.))
+                                .rounded(px(4.))
+                                .cursor_pointer()
+                                .text_size(px(12.5))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c(ui::body()))
+                                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                                .child("Forget")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    let store = &mut this.crew.store;
+                                    if let Some(at) = store.lessons.iter().position(|x| {
+                                        x.bot == who && x.text == text && x.at == l.at
+                                    }) {
+                                        store.lessons.remove(at);
+                                        super::learn::set_all(&store.lessons);
+                                        store.save();
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                );
+            }
+            // Teaching it something goes in this project's card.
+            if pi == 0 {
+                let folder = folder.clone();
+                card =
+                    card.child(
                         div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(3.))
-                            .child(
-                                div()
-                                    .text_size(px(13.5))
-                                    .text_color(c(ui::ink()))
-                                    .child(l.text.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(c(ui::faint()))
-                                    .child(from),
-                            ),
-                    )
-                    .child(ui::ghost(("mem-forget", i), "Forget").on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            let store = &mut this.crew.store;
-                            if let Some(at) = store
-                                .lessons
-                                .iter()
-                                .position(|x| x.bot == who && x.text == text && x.at == l.at)
-                            {
-                                store.lessons.remove(at);
-                                super::learn::set_all(&store.lessons);
-                                store.save();
-                            }
-                            cx.notify();
-                        },
-                    ))),
-            );
-        }
-        let folder = shown.clone();
-        let label = if folder.is_empty() {
-            "What it has learned".to_string()
-        } else {
-            format!("What it has learned in {}", name_of(&folder))
-        };
-        out = out.child(section(&label, list));
-        if !folder.is_empty() {
-            out = out.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(
-                        div()
-                            .flex_1()
-                            .h(px(36.))
-                            .px(px(4.))
+                            .pt(px(4.))
                             .flex()
                             .items_center()
-                            .rounded(px(7.))
-                            .bg(c(ui::raised()))
-                            .border_1()
-                            .border_color(c(ui::line()))
-                            .text_size(px(13.))
+                            .gap(px(8.))
                             .child(
-                                Input::new(&self.memory_input)
-                                    .appearance(false)
-                                    .bordered(false),
-                            ),
-                    )
-                    .child(ui::ghost("mem-add", "Add").on_click(cx.listener(
-                        move |this, _, window, cx| {
-                            let text = this.memory_input.read(cx).value().trim().to_string();
-                            if text.is_empty() {
-                                return;
-                            }
-                            let added = super::learn::add(
-                                &mut this.crew.store.lessons,
-                                super::learn::Lesson {
-                                    bot: who,
-                                    folder: folder.clone(),
-                                    text,
-                                    job: 0,
-                                    at: super::store::now(),
-                                    crew: false,
-                                },
-                            );
-                            if added {
-                                super::learn::set_all(&this.crew.store.lessons);
-                                this.crew.store.save();
-                            }
-                            this.memory_input
-                                .update(cx, |i, cx| i.set_value("", window, cx));
-                            cx.notify();
-                        },
-                    ))),
-            );
+                                div()
+                                    .flex_1()
+                                    .h(px(34.))
+                                    .px(px(4.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(px(5.))
+                                    .bg(c(ui::raised()))
+                                    .border_1()
+                                    .border_color(c(ui::line_hi()))
+                                    .text_size(px(13.))
+                                    .child(
+                                        Input::new(&self.memory_input)
+                                            .appearance(false)
+                                            .bordered(false),
+                                    ),
+                            )
+                            .child(ui::dbtn("mem-add", "Add", ui::Btn::Primary).on_click(
+                                cx.listener(move |this, _, window, cx| {
+                                    let text =
+                                        this.memory_input.read(cx).value().trim().to_string();
+                                    if text.is_empty() {
+                                        return;
+                                    }
+                                    let added = super::learn::add(
+                                        &mut this.crew.store.lessons,
+                                        super::learn::Lesson {
+                                            bot: who,
+                                            folder: folder.clone(),
+                                            text,
+                                            job: 0,
+                                            at: super::store::now(),
+                                            crew: false,
+                                        },
+                                    );
+                                    if added {
+                                        super::learn::set_all(&this.crew.store.lessons);
+                                        this.crew.store.save();
+                                    }
+                                    this.memory_input
+                                        .update(cx, |i, cx| i.set_value("", window, cx));
+                                    cx.notify();
+                                }),
+                            )),
+                    );
+            }
+            out = out.child(card);
         }
-        let setup = super::setup::of(who);
-        let mut knows: Vec<String> = setup.memory.clone();
-        if !setup.reads.is_empty() {
-            knows.insert(0, format!("Reads {} first", setup.reads.join(", ")));
-        }
-        knows.push("Its last jobs in the project, as a short notebook".to_string());
-        out.child(section("Starts every job knowing", bullets(knows)))
+        out
     }
 
     /// Activity: its latest jobs, newest first.
@@ -933,7 +981,7 @@ impl CrewTab {
         match self {
             CrewTab::Profile => "Profile",
             CrewTab::Brain => "Brain",
-            CrewTab::Skills => "Skills and tools",
+            CrewTab::Skills => "Skills",
             CrewTab::Memory => "Memory",
             CrewTab::Activity => "Activity",
         }

@@ -474,12 +474,29 @@ pub fn seed() -> Store {
                 ..Default::default()
             },
         ],
-        lessons: vec![super::learn::Lesson {
+        lessons: vec![
+        super::learn::Lesson {
             bot: Member::Builder,
             folder: folder.path.clone(),
             text: "Use the money helpers in src/lib/money.ts, never floats, for prices.".into(),
             job: 1,
             at: t - 3_000,
+            crew: false,
+        },
+        super::learn::Lesson {
+            bot: Member::Fixer,
+            folder: folder.path.clone(),
+            text: "Run npm test -- --runInBand; the payment tests share a port.".into(),
+            job: 4,
+            at: t - 2_000,
+            crew: false,
+        },
+        super::learn::Lesson {
+            bot: Member::Fixer,
+            folder: folder.path.clone(),
+            text: "Money is kept in cents everywhere. Never use floats for totals.".into(),
+            job: 0,
+            at: t - 4_000,
             crew: false,
         }],
         threads: vec![
