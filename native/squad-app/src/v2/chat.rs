@@ -6,7 +6,7 @@ use gpui_kit::component::input::Input;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use squad_holo::{Framing, Mood};
+use squad_holo::Mood;
 
 use super::channel::{self, Msg};
 use super::data::Member;
@@ -48,7 +48,7 @@ impl Shell {
             self.crew.store.dm_jobs(who).into_iter().cloned().collect();
         let header = self.dm_head(who, engine, !log.is_empty(), cx);
 
-        let mut body = div().flex().flex_col().px(px(20.)).py(px(16.));
+        let mut body = div().flex().flex_col().px(px(24.)).py(px(16.));
         body = body.child(self.dm_intro(who, log.is_empty() && jobs.is_empty(), cx));
         // The bot's jobs sit among the lines, by when they started, with a
         // line between days as in a thread.
@@ -171,20 +171,14 @@ impl Shell {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&self.chat_scroll)
-                    .child(div().max_w(px(980.)).w_full().mx_auto().child(body)),
+                    .child(body),
             )
             .child(
                 div()
                     .flex_none()
-                    .px(px(20.))
+                    .px(px(24.))
                     .pb(px(super::DOCK_ROOM))
-                    .child(
-                        div()
-                            .max_w(px(980.))
-                            .w_full()
-                            .mx_auto()
-                            .child(self.dm_composer(who, cx)),
-                    ),
+                    .child(self.dm_composer(who, cx)),
             )
     }
 
@@ -270,7 +264,12 @@ impl Shell {
                     .gap(px(6.))
                     .text_size(px(12.5))
                     .text_color(c(ui::muted()))
-                    .child(div().flex_none().text_color(c(tint)).child(word))
+                    .child(
+                        div()
+                            .flex_none()
+                            .when(busy, |d| d.text_color(c(tint)))
+                            .child(if busy { word } else { who.role().to_string() }),
+                    )
                     .child(div().text_color(c(ui::faint())).child("\u{b7}"))
                     .child(
                         div()
@@ -294,18 +293,16 @@ impl Shell {
                         this.go(Place::Crew, cx);
                     })),
             )
-            .when(who.mode() != super::data::Mode::Ask, |d| {
-                d.child(
-                    ui::solid_i("chat-give", IconName::Plus, "Give a job")
-                        .h(px(30.))
-                        .flex_none()
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.dm_do = true;
-                            this.chat_input.update(cx, |i, cx| i.focus(window, cx));
-                            cx.notify();
-                        })),
-                )
-            })
+            .child(
+                ui::solid_i("chat-give", IconName::Plus, "Give a job")
+                    .h(px(30.))
+                    .flex_none()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.dm_do = true;
+                        this.chat_input.update(cx, |i, cx| i.focus(window, cx));
+                        cx.notify();
+                    })),
+            )
             .when(said, |d| {
                 d.child(
                     ui::ghost_i("chat-clear", IconName::Eraser, "Clear")
@@ -320,52 +317,31 @@ impl Shell {
             })
     }
 
-    /// The top of a DM, as the top of a thread: the bot, what it's for, and
+    /// The top of a DM: a quiet note that only you and the bot see it, and
     /// while it's empty, a few things to ask it.
     fn dm_intro(&mut self, who: Member, empty: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        let mood = if self.thinking(who) {
-            Mood::Thinking
-        } else {
-            self.mood(who)
-        };
-        let hero = self.bot(who, mood, 72., Framing::Full);
-        let project = self
-            .crew
-            .store
-            .folder()
-            .map(|f| f.name.clone())
-            .unwrap_or_else(|| "this project".into());
+        let name = who.name();
         div()
             .w_full()
-            .pt(px(8.))
             .pb(px(16.))
-            .mb(px(4.))
             .flex()
             .flex_col()
-            .gap(px(8.))
+            .gap(px(12.))
             .child(
-                div().flex().items_center().gap(px(14.)).child(hero).child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .child(
-                            div()
-                                .text_size(px(24.))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(c(ui::ink()))
-                                .child(who.name()),
-                        )
-                        .child(div().text_size(px(13.5)).text_color(c(ui::muted())).child(
-                            format!(
-                                "Your DM with {} in {project}. {} Its jobs here show up too.",
-                                who.name(),
-                                who.pitch()
-                            ),
-                        )),
-                ),
+                div()
+                    .w_full()
+                    .py(px(8.))
+                    .flex()
+                    .justify_center()
+                    .rounded(px(6.))
+                    .bg(c(ui::raised()))
+                    .border_1()
+                    .border_color(c(ui::line()))
+                    .text_size(px(12.5))
+                    .text_color(c(ui::body()))
+                    .child(format!(
+                        "Direct messages with {name} \u{b7} only you and {name} see this"
+                    )),
             )
             .when(empty, |d| d.child(self.chat_empty(who, cx)))
     }
@@ -414,7 +390,7 @@ impl Shell {
             .px(px(14.))
             .pt(px(12.))
             .pb(px(10.))
-            .rounded(px(14.))
+            .rounded(px(8.))
             .bg(c(ui::raised()))
             .border_1()
             .border_color(c(if ready {

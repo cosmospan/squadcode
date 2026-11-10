@@ -650,6 +650,8 @@ pub struct Shell {
     /// the files the job changed.
     file_pick: Option<String>,
     files_changed_only: bool,
+    /// The bot the DM box's placeholder names.
+    chat_hint: Option<Member>,
     /// How many days Settings > Usage looks back: 7, 14 or 30.
     usage_days: u64,
     /// The Settings drop-down that is open, by its id.
@@ -1275,6 +1277,12 @@ impl Shell {
         let start = match std::env::var("SQUADCODE_PLACE").as_deref() {
             Ok("crew") => Place::Crew,
             Ok("chat") => Place::Chat(Member::Fin),
+            // "chat:explainer" opens a direct message with that bot.
+            Ok(p) if p.starts_with("chat:") => Member::all()
+                .into_iter()
+                .find(|m| m.name().eq_ignore_ascii_case(&p[5..]))
+                .map(Place::Chat)
+                .unwrap_or(Place::Today),
             Ok("inbox") => Place::Inbox,
             Ok("history") => Place::History,
             Ok("overview") => Place::Overview,
@@ -1462,6 +1470,7 @@ impl Shell {
             file_pick: None,
             files_changed_only: false,
             usage_days: 7,
+            chat_hint: None,
             select_open: None,
             files_seeded: Default::default(),
             job_view: None,
@@ -3791,7 +3800,15 @@ impl Render for Shell {
             Place::Race(id) => self.race(id, cx),
             Place::Goal(id) => self.goal_page(id, cx),
             Place::Crew => self.crew(cx),
-            Place::Chat(who) => self.chat(who, cx),
+            Place::Chat(who) => {
+                if self.chat_hint != Some(who) {
+                    self.chat_hint = Some(who);
+                    let hint = format!("Message {}\u{2026}", who.name());
+                    self.chat_input
+                        .update(cx, |i, cx| i.set_placeholder(hint, window, cx));
+                }
+                self.chat(who, cx)
+            }
             Place::Inbox => self.inbox(cx),
             Place::History => self.history(cx),
             Place::Overview => self.overview(cx),
