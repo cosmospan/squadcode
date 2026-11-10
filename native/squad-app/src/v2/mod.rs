@@ -1565,6 +1565,11 @@ impl Shell {
                     .find(|t| t.name().eq_ignore_ascii_case(tab))
                 {
                     shell.ws_tab = t;
+                    if t == peek::Tab::Terminal {
+                        if let Ok(id) = p[4..].split(':').next().unwrap_or_default().parse() {
+                            shell.toggle_term(id, window, cx);
+                        }
+                    }
                 }
             }
             // The menu bar panel, open on its own at the screen's corner.

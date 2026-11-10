@@ -21,6 +21,8 @@ const FONT: f32 = 12.5;
 const LINE: f32 = 17.;
 /// Rows the drawer shows.
 pub const ROWS: u16 = 14;
+/// Rows the job workspace's Terminal tab shows.
+const TAB_ROWS: u16 = 28;
 /// Width of one column, near enough for a monospace face at FONT.
 const CELL: f32 = FONT * 0.6;
 
@@ -301,7 +303,17 @@ impl Shell {
             format!("{} \u{b7} {}", job.branch, job.dir())
         };
         let width = self.view_w - 560.;
-        self.drawer(job.id, place, quick(job), width, cx)
+        self.drawer(job.id, place, quick(job), width, ROWS, false, cx)
+    }
+
+    /// The job workspace's Terminal tab: quick commands over a dark shell
+    /// that fills the pane, in the job's own copy of the project.
+    pub(super) fn term_tab(&mut self, job: &Job, cx: &mut Context<Self>) -> Option<Div> {
+        if self.term_open != Some(job.id) {
+            return None;
+        }
+        let width = self.view_w - self.side_w() - super::peek::TALK_W - 36. - 26.;
+        self.drawer(job.id, String::new(), quick(job), width, TAB_ROWS, true, cx)
     }
 
     /// The project's drawer, under whatever page is showing, when it's open.
@@ -309,7 +321,15 @@ impl Shell {
         if self.term_open == Some(SERVER) {
             let host = self.crew.link.as_ref()?.cfg.host.clone();
             let width = self.view_w - super::sidebar::WIDTH - 24.;
-            return self.drawer(SERVER, format!("ssh {host}"), server_quick(), width, cx);
+            return self.drawer(
+                SERVER,
+                format!("ssh {host}"),
+                server_quick(),
+                width,
+                ROWS,
+                false,
+                cx,
+            );
         }
         let id = self.term_open.filter(|id| is_project(*id))?;
         let dir = self
@@ -326,15 +346,18 @@ impl Shell {
             _ => dir,
         };
         let width = self.view_w - self.side_w() - 24.;
-        self.drawer(id, dir, quick, width, cx)
+        self.drawer(id, dir, quick, width, ROWS, false, cx)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn drawer(
         &mut self,
         id: u64,
         place: String,
         quick: Vec<(&'static str, String)>,
         width: f32,
+        rows: u16,
+        tab: bool,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
         // Fit the shell to the drawer's width.
@@ -343,7 +366,7 @@ impl Shell {
             self.term_cols = cols;
         }
         let sh = self.terms.get(&id)?;
-        sh.resize(ROWS, cols);
+        sh.resize(rows, cols);
         let focused = self.term_focused;
         let exited = sh.exited();
         let color = |col: vt100::Color, default: u32| match col {
@@ -415,6 +438,9 @@ impl Shell {
             }
             lines
         });
+        if tab {
+            return Some(self.tab_terminal(id, cols, rows, quick, lines, exited, cx));
+        }
         let mut bar = div()
             .h(px(34.))
             .px(px(12.))
@@ -527,6 +553,108 @@ impl Shell {
             super::motion::key(("drawer", id)),
             24.,
         ))
+    }
+
+    /// The Terminal tab's layout around the shell's screen.
+    #[allow(clippy::too_many_arguments)]
+    fn tab_terminal(
+        &mut self,
+        id: u64,
+        cols: u16,
+        rows: u16,
+        quick: Vec<(&'static str, String)>,
+        lines: Div,
+        exited: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let mut bar = div().flex().items_center().gap(px(6.)).child(
+            div()
+                .mr(px(2.))
+                .font_family(ui::MONO)
+                .text_size(px(11.))
+                .text_color(c(ui::faint()))
+                .child("Quick"),
+        );
+        for (k, (label, command)) in quick.into_iter().enumerate() {
+            bar = bar.child(
+                div()
+                    .id(("term-quick", k))
+                    .h(px(24.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .rounded(px(4.))
+                    .bg(c(ui::raised()))
+                    .border_1()
+                    .border_color(c(ui::line_hi()))
+                    .font_family(ui::MONO)
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(c(ui::body()))
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(c(ui::ink())).bg(c(ui::hover())))
+                    .when(label == "Run checks", |d| {
+                        d.child(Icon::new(IconName::Play).size(px(10.)))
+                    })
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.term_run(id, &command, window, cx)
+                    })),
+            );
+        }
+        let shell = std::env::var("SHELL")
+            .ok()
+            .and_then(|s| s.rsplit('/').next().map(str::to_string))
+            .unwrap_or_else(|| "sh".into());
+        bar = bar.child(div().flex_1()).child(
+            div()
+                .font_family(ui::MONO)
+                .text_size(px(11.))
+                .text_color(c(ui::faint()))
+                .child(format!("{shell} \u{b7} {cols}\u{d7}{rows} {}", KEY)),
+        );
+        div()
+            .size_full()
+            .px(px(18.))
+            .py(px(14.))
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(bar)
+            .child(
+                div()
+                    .id("term-screen")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .track_focus(&self.term_focus)
+                    .rounded(px(6.))
+                    .bg(c(term_bg()))
+                    .px(px(14.))
+                    .py(px(12.))
+                    .font_family(ui::MONO)
+                    .text_size(px(FONT))
+                    .line_height(px(LINE))
+                    .text_color(c(term_fg()))
+                    .cursor_text()
+                    .on_click(cx.listener(|this, _, window, cx| window.focus(&this.term_focus, cx)))
+                    .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, _, cx| {
+                        this.term_key(id, ev, cx)
+                    }))
+                    .child(lines)
+                    .when(exited, |d| {
+                        d.child(div().text_color(c(term_dim())).child(
+                            "The shell ended. Open the tab again for a new one.",
+                        ))
+                    }),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(c(ui::faint()))
+                    .child("This shell runs in the job's own copy of the repo, so nothing here touches your checkout. squad drives the crew from here."),
+            )
     }
 
     fn term_key(&mut self, id: u64, ev: &KeyDownEvent, cx: &mut Context<Self>) {

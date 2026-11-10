@@ -718,8 +718,12 @@ impl Shell {
                                 .child(n.to_string()),
                         )
                     })
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
                         this.ws_tab = t;
+                        // The Terminal tab opens straight onto a shell.
+                        if t == Tab::Terminal && this.term_open != Some(id) {
+                            this.toggle_term(id, window, cx);
+                        }
                         cx.notify();
                     })),
             );
@@ -779,8 +783,8 @@ impl Shell {
                     .into_any_element()
                 }
             }
-            Tab::Terminal => match self.term_drawer(&job, cx) {
-                Some(term) => div().size_full().child(term).into_any_element(),
+            Tab::Terminal => match self.term_tab(&job, cx) {
+                Some(term) => term.into_any_element(),
                 None => empty(
                     "A shell in the job's own copy of the project.",
                     Some(
