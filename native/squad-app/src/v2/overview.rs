@@ -108,7 +108,8 @@ pub(super) fn did(j: &Job) -> String {
     }
 }
 
-/// A card's title and its quiet line under it.
+/// A card's title, in small mono capitals like the design, and its quiet
+/// line under it.
 fn card_head(title: &str, sub: Option<String>) -> Div {
     div()
         .flex()
@@ -116,10 +117,11 @@ fn card_head(title: &str, sub: Option<String>) -> Div {
         .gap(px(2.))
         .child(
             div()
-                .text_size(px(15.))
+                .font_family(ui::MONO)
+                .text_size(px(10.5))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(c(ui::ink()))
-                .child(title.to_string()),
+                .text_color(c(ui::faint()))
+                .child(title.to_uppercase()),
         )
         .when_some(sub, |d, s| {
             d.child(
@@ -142,18 +144,19 @@ fn field(key: &str, value: Div) -> Div {
         .flex()
         .items_center()
         .gap(px(12.))
-        .py(px(7.))
-        .border_t_1()
+        .py(px(6.))
+        .border_b_1()
         .border_color(c(ui::line2()))
         .child(
             div()
                 .w(px(70.))
                 .flex_none()
-                .text_size(px(12.5))
-                .text_color(c(ui::muted()))
-                .child(key.to_string()),
+                .font_family(ui::MONO)
+                .text_size(px(12.))
+                .text_color(c(ui::faint()))
+                .child(key.to_lowercase()),
         )
-        .child(div().flex_1().min_w_0().child(value))
+        .child(div().flex_1().min_w_0().flex().justify_end().child(value))
 }
 
 /// A value in mono, or a quiet dash when there's none.
@@ -200,11 +203,11 @@ impl Shell {
         }
         let title = div()
             .flex()
-            .flex_col()
-            .gap(px(4.))
+            .items_baseline()
+            .gap(px(10.))
             .child(
                 div()
-                    .text_size(px(26.))
+                    .text_size(px(22.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c(ui::ink()))
                     .child(folder.name.clone()),
@@ -407,7 +410,7 @@ impl Shell {
             (Some(_), None) => format!("{} \u{b7} in the project", project::FILE),
             (None, None) => format!("No {} yet \u{b7} Squad works these out", project::FILE),
         };
-        let mut card = panel().child(card_head("How every job sets up", Some(sub)));
+        let mut card = panel().child(card_head("Setup", Some(sub)));
         if self.proj_form.editing {
             let row = |key: &str, input: &Entity<InputState>| {
                 field(
@@ -841,7 +844,7 @@ impl Shell {
     }
 
     /// Lately in the project: the latest jobs, newest first.
-    fn overview_lately(&mut self, name: &str, jobs: &[Job], cx: &mut Context<Self>) -> Div {
+    fn overview_lately(&mut self, _name: &str, jobs: &[Job], cx: &mut Context<Self>) -> Div {
         let mut recent: Vec<&Job> = jobs.iter().collect();
         recent.sort_by_key(|j| std::cmp::Reverse(j.ended.unwrap_or(j.started)));
         recent.truncate(6);
@@ -900,7 +903,7 @@ impl Shell {
                 div()
                     .flex()
                     .items_center()
-                    .child(card_head(&format!("Lately in {name}"), None))
+                    .child(card_head("Lately", None))
                     .child(
                         div().ml_auto().child(
                             ui::ghost("ov-all-jobs", "All jobs").on_click(

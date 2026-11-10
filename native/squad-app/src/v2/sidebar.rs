@@ -45,10 +45,24 @@ fn row(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
         .cursor_pointer()
         .map(|d| {
             if on {
-                d.bg(c(ui::raised()))
+                d.relative()
+                    .bg(c(ui::raised()))
                     .border_1()
                     .border_color(c(ui::line()))
                     .text_color(c(ui::ink()))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    // The picked row's mark: a 4px bar in the accent down its
+                    // left edge.
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(-1.))
+                            .top(px(-1.))
+                            .bottom(px(-1.))
+                            .w(px(4.))
+                            .rounded_l(px(8.))
+                            .bg(c(ui::pick_fill())),
+                    )
                     .shadow(vec![BoxShadow {
                         color: hsla(0., 0., 0., 0.05),
                         offset: point(px(0.), px(1.)),
@@ -163,15 +177,6 @@ const TINTS: [u32; 6] = [
     ui::AMBER,
     ui::RED,
 ];
-
-/// #general is grey; every other thread takes a colour of its own.
-fn thread_tint(id: u64) -> u32 {
-    if id == 0 {
-        0x8B8B97
-    } else {
-        TINTS[(id as usize + 1) % TINTS.len()]
-    }
-}
 
 /// A project's colour, the same wherever it sits in the list.
 fn path_tint(path: &str) -> u32 {
@@ -314,31 +319,16 @@ fn busy_dot() -> Div {
 /// What a section's + does.
 type AddFn = fn(&mut Shell, &mut Window, &mut Context<Shell>);
 
-/// The + in front of an "Add a …" row, on a quiet tile.
-fn add_mark() -> Div {
+/// A thread's #, plain and in mono like the design: faint, or ink on the
+/// thread you're in.
+fn hash(on: bool) -> Div {
     div()
-        .size(px(18.))
+        .w(px(14.))
         .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(5.))
-        .bg(c(ui::hover()))
-        .child(Icon::new(IconName::Plus).size(px(12.)))
-}
-
-/// A thread's # on a coloured tile.
-fn hash(tint: u32) -> Div {
-    div()
-        .size(px(18.))
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(5.))
-        .bg(c(tint))
-        .text_color(c(0xFFFFFF))
-        .child(Icon::new(IconName::Hash).size(px(11.)))
+        .font_family(ui::MONO)
+        .text_size(px(13.))
+        .text_color(c(if on { ui::ink() } else { ui::faint() }))
+        .child("#")
 }
 
 impl Shell {
@@ -351,10 +341,14 @@ impl Shell {
         }
     }
 
-    /// The labelled panel is put away, or Settings has the window: Settings
-    /// brings its own column, so only the rail stays beside it.
+    /// The labelled panel is put away, or Settings, the Inbox, the Crew or
+    /// Machines has the window: each brings its own column, so only the rail stays beside it.
     fn panel_off(&self) -> bool {
-        self.side_slim || matches!(self.place, Place::Settings(_))
+        self.side_slim
+            || matches!(
+                self.place,
+                Place::Settings(_) | Place::Inbox | Place::Crew | Place::Server
+            )
     }
 
     pub(super) fn sidebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -822,46 +816,50 @@ impl Shell {
             .children(dock)
     }
 
-    /// A section's heading that folds it open or shut: a caret, its name,
-    /// and, when it has one, a + on the right that adds to it.
+    /// A section's heading, in small mono capitals: click it to fold the
+    /// section open or shut. On the right, a + that adds to it, or a word
+    /// that does something with it (Manage).
     fn fold_label(
         &mut self,
         key: &'static str,
         text: &'static str,
-        add: Option<(&'static str, AddFn)>,
+        add: Option<(&'static str, Option<&'static str>, AddFn)>,
         cx: &mut Context<Self>,
     ) -> (bool, Stateful<Div>) {
         let open = self.side_folds.get(key).copied().unwrap_or(true);
         let head = div()
             .id(key)
-            .h(px(28.))
-            .mt(px(14.))
-            .px(px(6.))
+            .h(px(26.))
+            .mt(px(16.))
+            .mb(px(2.))
+            .px(px(8.))
             .flex()
             .items_center()
             .gap(px(6.))
             .rounded(px(6.))
-            .text_size(px(12.5))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(c(ui::muted()))
+            .font_family(ui::MONO)
+            .text_size(px(10.5))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(c(ui::faint()))
             .cursor_pointer()
-            .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
-            .child(
-                div().w(px(16.)).flex().justify_center().child(
-                    Icon::new(if open {
-                        IconName::ChevronDown
-                    } else {
-                        IconName::ChevronRight
-                    })
-                    .size(px(13.)),
-                ),
-            )
-            .child(div().flex_1().child(text))
-            .when_some(add, |d, (say, act)| {
+            .hover(|s| s.text_color(c(ui::muted())))
+            .child(div().flex_1().child(text.to_uppercase()))
+            .when(!open, |d| {
+                d.child(Icon::new(IconName::ChevronRight).size(px(11.)))
+            })
+            .when_some(add, |d, (say, word, act)| {
+                let btn = match word {
+                    Some(w) => div()
+                        .id(("side-add", key.len()))
+                        .px(px(4.))
+                        .rounded(px(4.))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                        .child(w.to_uppercase()),
+                    None => small_btn(("side-add", key.len()), IconName::Plus).size(px(20.)),
+                };
                 d.child(
-                    small_btn(("side-add", key.len()), IconName::Plus)
-                        .size(px(20.))
-                        .tooltip(tip(say))
+                    btn.tooltip(tip(say))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             cx.stop_propagation();
                             act(this, window, cx);
@@ -881,7 +879,9 @@ impl Shell {
         let (open, head) = self.fold_label(
             "threads",
             "Threads",
-            Some(("New thread", |this, window, cx| this.new_thread(window, cx))),
+            Some(("New thread", None, |this, window, cx| {
+                this.new_thread(window, cx)
+            })),
             cx,
         );
         let mut list = div().flex().flex_col().gap(px(1.)).child(head);
@@ -904,7 +904,7 @@ impl Shell {
             let unread = !on && self.crew.store.unread(&path, id);
             list = list.child(
                 row(("side-thread", id as usize), on)
-                    .child(hash(thread_tint(id)))
+                    .child(hash(on))
                     .child(
                         div()
                             .flex_1()
@@ -952,19 +952,22 @@ impl Shell {
                     })),
             );
         }
-        list.child(
-            row("side-new-thread", false)
-                .text_color(c(ui::faint()))
-                .child(add_mark())
-                .child("Add a thread")
-                .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx))),
-        )
+        list
     }
 
     /// The crew as direct messages: each bot's face with a dot for what it's
     /// doing (blue working, amber asking you), its name, and a word on it.
     fn crew_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let (open, head) = self.fold_label("crew", "Bots", None, cx);
+        let (open, head) = self.fold_label(
+            "crew",
+            "Bots",
+            Some((
+                "Manage the crew: add, change or retire bots",
+                Some("Manage"),
+                |this, _, cx| this.go(Place::Crew, cx),
+            )),
+            cx,
+        );
         let mut list = div().flex().flex_col().gap(px(1.)).child(head);
         if !open {
             return list;
@@ -1055,12 +1058,20 @@ impl Shell {
                     )
                     .child(div().flex_1().min_w_0().truncate().child(who.name()))
                     .when(!word.is_empty(), |d| {
+                        let lead = tint == ui::faint();
                         d.child(
                             div()
                                 .flex_none()
-                                .text_size(px(11.5))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(c(tint))
+                                .flex()
+                                .items_center()
+                                .gap(px(5.))
+                                .font_family(ui::MONO)
+                                .text_size(px(11.))
+                                .font_weight(FontWeight::NORMAL)
+                                .text_color(c(ui::faint()))
+                                .when(!lead, |d| {
+                                    d.child(div().size(px(6.)).flex_none().bg(c(tint)))
+                                })
                                 .child(word),
                         )
                     })
@@ -1108,23 +1119,7 @@ impl Shell {
                     })),
             );
         }
-        list.child(
-            row("side-crew", place == Place::Crew)
-                .text_color(c(ui::muted()))
-                .child(Icon::new(IconName::Users).size(px(15.)))
-                .child("Manage the crew")
-                .on_click(cx.listener(|this, _, _, cx| this.go(Place::Crew, cx))),
-        )
-        .child(
-            row("side-add-bot", false)
-                .text_color(c(ui::faint()))
-                .child(add_mark())
-                .child("Add a bot")
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.go(Place::Crew, cx);
-                    this.open_maker(None, None, window, cx);
-                })),
-        )
+        list
     }
 
     /// Each live thread in the current project, #general first: its id, name,

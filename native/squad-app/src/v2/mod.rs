@@ -758,6 +758,8 @@ pub struct Shell {
     splitting: bool,
     /// The Run it later menu by the send button is open.
     later_menu: bool,
+    /// A DM's box starts a job (Do) instead of asking (Ask).
+    dm_do: bool,
     /// When the next job sent from the thread's box starts, as /later words
     /// ("tonight", "tomorrow 9am"); None sends it now.
     later_pick: Option<String>,
@@ -1133,7 +1135,11 @@ impl Shell {
                     let text = input.read(cx).value().trim().to_string();
                     if let (false, Place::Chat(who)) = (text.is_empty(), this.place) {
                         input.update(cx, |i, cx| i.set_value("", window, cx));
-                        this.ask(who, text, cx);
+                        if this.dm_do {
+                            this.job_from_dm(who, text, cx);
+                        } else {
+                            this.ask(who, text, cx);
+                        }
                     }
                 }
             }),
@@ -1514,6 +1520,7 @@ impl Shell {
             racing: 0,
             splitting: false,
             later_menu: false,
+            dm_do: false,
             later_pick: None,
             issue_list: None,
             rewind_ask: None,

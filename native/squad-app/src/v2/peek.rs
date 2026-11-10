@@ -225,6 +225,7 @@ impl Shell {
             let on = t == tab;
             let count = match t {
                 Tab::Changes if !job.changes.is_empty() => Some(job.changes.len()),
+                Tab::Checks if !job.checks.is_empty() => Some(job.checks.len()),
                 _ => None,
             };
             tabs = tabs.child(
@@ -235,12 +236,13 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .text_size(px(13.))
+                    .font_family(ui::MONO)
+                    .text_size(px(12.))
                     .cursor_pointer()
                     .border_b_2()
                     .map(|d| {
                         if on {
-                            d.border_color(c(ui::ink()))
+                            d.border_color(c(ui::pick_fill()))
                                 .text_color(c(ui::ink()))
                                 .font_weight(FontWeight::SEMIBOLD)
                         } else {
@@ -250,7 +252,21 @@ impl Shell {
                         }
                     })
                     .child(t.name())
-                    .when_some(count, |d, n| d.child(mono(n.to_string())))
+                    .when_some(count, |d, n| {
+                        d.child(
+                            div()
+                                .h(px(17.))
+                                .px(px(6.))
+                                .flex()
+                                .items_center()
+                                .rounded(px(3.))
+                                .bg(c(ui::hover()))
+                                .font_weight(FontWeight::NORMAL)
+                                .text_size(px(10.5))
+                                .text_color(c(ui::muted()))
+                                .child(n.to_string()),
+                        )
+                    })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.ws_tab = t;
                         cx.notify();

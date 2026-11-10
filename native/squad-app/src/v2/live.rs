@@ -97,7 +97,7 @@ impl Shell {
             Status::Shipped | Status::Shipping => Mood::Signature,
             _ => Mood::Idle,
         };
-        let hero = self.bot(who, mood, 64., Framing::Bust);
+        let hero = self.bot(who, mood, 26., Framing::Bust);
         let progress = job.progress();
         // The engine's own summary already says how long it took.
         let mut meta = if job.summary.is_empty() || running {
@@ -226,85 +226,70 @@ impl Shell {
             }
             _ => None,
         };
+        // One quiet line, like the design: the bot's face, the title, its
+        // number and how it stands, with what you can do on the right. Who,
+        // which engine and where are in the details beside it.
+        let about = format!("{} \u{b7} {}", who.name(), facts.join(" \u{b7} "));
         let header = ui::chrome(div())
             .flex_none()
             .flex()
             .flex_col()
             .border_b_1()
             .border_color(c(ui::line()))
-            .bg(linear_gradient(
-                180.,
-                linear_color_stop(ca(accent, 0.07), 0.0),
-                linear_color_stop(ca(ui::panel(), 0.0), 1.0),
-            ))
             .child(
                 div()
+                    .min_h(px(50.))
                     .flex()
-                    .flex_wrap()
                     .items_center()
-                    .gap(px(14.))
-                    .px(px(28.))
-                    .pt(px(if cfg!(target_os = "macos") { 16. } else { 12. }))
-                    .pb(px(14.))
-                    .child(div().flex_none().size(px(64.)).child(hero))
+                    .gap(px(10.))
+                    .px(px(20.))
+                    .py(px(8.))
                     .child(
                         div()
-                            .flex_1()
-                            .min_w(px(320.))
-                            .flex()
-                            .flex_col()
-                            .gap(px(5.))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(10.))
-                                    .child(
-                                        div()
-                                            .id("job-title")
-                                            .min_w_0()
-                                            .truncate()
-                                            .text_size(px(20.))
-                                            .line_height(px(26.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(c(ui::ink()))
-                                            .child(job.label().to_string())
-                                            .tooltip({
-                                                let ask = job.title.clone();
-                                                move |window, cx| {
-                                                    gpui_kit::component::tooltip::Tooltip::new(
-                                                        ask.clone(),
-                                                    )
-                                                    .build(window, cx)
-                                                }
-                                            }),
-                                    )
-                                    .child(ui::badge(tone, word)),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap(px(6.))
-                                    .text_size(px(12.5))
-                                    .text_color(c(ui::muted()))
-                                    .child(
-                                        div()
-                                            .id("job-bot-dm")
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(c(ui::ink()))
-                                            .cursor_pointer()
-                                            .hover(|s| s.underline())
-                                            .child(who.name())
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.go(Place::Chat(who), cx)
-                                            })),
-                                    )
-                                    .child(div().text_color(c(ui::faint())).child("\u{b7}"))
-                                    .child(facts.join(" \u{b7} ")),
+                            .id("job-bot-dm")
+                            .flex_none()
+                            .size(px(26.))
+                            .cursor_pointer()
+                            .child(hero)
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(format!(
+                                    "Message {}",
+                                    who.name()
+                                ))
+                                .build(window, cx)
+                            })
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.go(Place::Chat(who), cx)),
                             ),
                     )
+                    .child(
+                        div()
+                            .id("job-title")
+                            .flex_shrink(1.)
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child(job.label().to_string())
+                            .tooltip({
+                                let ask = format!("{}\n{about}", job.title);
+                                move |window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(ask.clone())
+                                        .build(window, cx)
+                                }
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(ui::MONO)
+                            .text_size(px(11.5))
+                            .text_color(c(ui::faint()))
+                            .child(format!("#{}", job.id)),
+                    )
+                    .child(ui::badge(tone, word))
+                    .child(div().flex_1())
                     .child(div().flex_none().child(actions)),
             )
             .child(match fraction {

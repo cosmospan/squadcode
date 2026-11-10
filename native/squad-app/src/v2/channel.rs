@@ -2872,8 +2872,48 @@ impl Shell {
         } else {
             format!("{} \u{b7} {}", target.name(), self.mode.label())
         };
-        // What you can type, in the quiet line under the box.
-        let placeholder_hint = "/ for commands \u{b7} @ to bring in a bot \u{b7} # for a thread";
+        // How it's sent, as the design's chips: Ask answers, Do starts a job,
+        // Plan has Peek plan it first, Race tries it on two engines.
+        let how = if value.starts_with("/race") {
+            "Race"
+        } else if value.starts_with("/plan") {
+            "Plan"
+        } else if value.starts_with("/ask")
+            || (self.mode == Mode::Ask && (self.mode_pinned || !value.trim().is_empty()))
+        {
+            "Ask"
+        } else {
+            "Do"
+        };
+        let mut hows = div().flex().items_center().gap(px(2.));
+        for (i, name) in ["Ask", "Do", "Plan", "Race"].into_iter().enumerate() {
+            let on = how == name;
+            hows = hows.child(
+                div()
+                    .id(("compose-how", i))
+                    .h(px(26.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(5.))
+                    .text_size(px(12.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .cursor_pointer()
+                    .map(|d| {
+                        if on {
+                            d.bg(c(ui::pick_fill())).text_color(c(ui::pick_on()))
+                        } else {
+                            d.text_color(c(ui::muted()))
+                                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                        }
+                    })
+                    .child(name)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.pick_how(name, window, cx);
+                    })),
+            );
+        }
+        let sep = || div().w(px(1.)).h(px(16.)).mx(px(4.)).bg(c(ui::line()));
         div()
             .w_full()
             .flex()
@@ -2886,7 +2926,7 @@ impl Shell {
             .bg(c(ui::raised()))
             .border_1()
             .border_color(c(if ready {
-                super::theme::mix(ui::raised(), ui::VIOLET, 0.55)
+                super::theme::mix(ui::raised(), ui::pick_fill(), ui::pick_k(0.55).min(0.9))
             } else {
                 ui::line_hi()
             }))
@@ -2916,31 +2956,35 @@ impl Shell {
                     .gap(px(8.))
                     .child(
                         div()
-                            .flex_1()
-                            .text_size(px(12.))
-                            .text_color(c(ui::faint()))
-                            .child(placeholder_hint),
-                    )
-                    // Where a job from here runs, once there's a server.
-                    .when(self.mode != Mode::Ask && !value.starts_with('/'), |d| {
-                        d.children(self.run_on_pill(cx))
-                    })
-                    .child(
-                        div()
                             .id("thread-goes-to")
-                            .h(px(28.))
+                            .h(px(26.))
                             .pl(px(5.))
-                            .pr(px(10.))
+                            .pr(px(9.))
                             .flex()
+                            .flex_none()
                             .items_center()
                             .gap(px(6.))
-                            .rounded_full()
+                            .rounded(px(5.))
                             .bg(c(ui::well()))
-                            .text_size(px(12.))
-                            .text_color(c(ui::muted()))
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c(ui::ink()))
                             .child(face)
-                            .child(goes),
+                            .child(goes)
+                            .tooltip(|window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(
+                                    "/ for commands \u{b7} @ to bring in a bot \u{b7} # for a thread",
+                                )
+                                .build(window, cx)
+                            }),
                     )
+                    .child(sep())
+                    .child(hows)
+                    // Where a job from here runs, once there's a server.
+                    .when(how != "Ask" && !value.starts_with('/'), |d| {
+                        d.children(self.run_on_pill(cx).map(|p| div().flex().items_center().child(sep()).child(p)))
+                    })
+                    .child(div().flex_1())
                     .child(self.later_button(cx))
                     .child(
                         div()
@@ -2952,23 +2996,52 @@ impl Shell {
                             .justify_center()
                             .map(|d| {
                                 if ready {
-                                    d.bg(c(ui::VIOLET))
+                                    d.bg(c(ui::pick_fill()))
                                         .cursor_pointer()
                                         .hover(|s| s.opacity(0.9))
                                 } else {
-                                    d.bg(c(ui::press()))
+                                    d.bg(c(ui::pick_fill())).opacity(0.45)
                                 }
                             })
                             .child(
                                 Icon::new(IconName::ArrowUp)
                                     .size(px(16.))
-                                    .text_color(c(if ready { 0xFFFFFF } else { ui::faint() })),
+                                    .text_color(c(ui::pick_on())),
                             )
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.send_from_composer(window, cx);
                             })),
                     ),
             )
+    }
+
+    /// One of the composer's Ask / Do / Plan / Race chips: Ask and Do set
+    /// how it goes, Plan and Race put their command at the front.
+    fn pick_how(&mut self, how: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.composer.read(cx).value().to_string();
+        let mut body = text.trim_start();
+        for cmd in ["/plan", "/race", "/ask"] {
+            if let Some(rest) = body.strip_prefix(cmd) {
+                body = rest.trim_start();
+            }
+        }
+        let body = body.to_string();
+        let next = match how {
+            "Plan" => format!("/plan {body}"),
+            "Race" => format!("/race {body}"),
+            _ => body,
+        };
+        if next != text {
+            self.composer.update(cx, |i, cx| {
+                ui::put_text(i, next, window, cx);
+            });
+        }
+        self.set_mode(
+            if how == "Ask" { Mode::Ask } else { Mode::Build },
+            window,
+            cx,
+        );
+        self.composer.update(cx, |i, cx| i.focus(window, cx));
     }
 
     /// Run it later: a clock by the send button with the times a job can wait

@@ -145,47 +145,64 @@ impl Shell {
             .id("inbox-list")
             .flex_1()
             .overflow_y_scroll()
-            .p(px(12.))
+            .px(px(10.))
+            .pb(px(12.))
             .flex()
             .flex_col()
-            .gap(px(8.));
+            .gap(px(2.));
         let mut group = u8::MAX;
         for (n, j) in jobs.iter().enumerate() {
             let (g, heading) = inbox_group(j);
             if g != group {
                 group = g;
+                let in_group = jobs.iter().filter(|x| inbox_group(x).0 == g).count();
                 list = list.child(
                     div()
-                        .pt(px(if n == 0 { 0. } else { 8. }))
-                        .px(px(4.))
+                        .pt(px(if n == 0 { 4. } else { 14. }))
+                        .pb(px(4.))
+                        .px(px(6.))
+                        .flex()
+                        .justify_between()
                         .font_family(ui::MONO)
                         .text_size(px(10.5))
                         .text_color(c(ui::faint()))
-                        .child(heading.to_uppercase()),
+                        .child(heading.to_uppercase())
+                        .child(in_group.to_string()),
                 );
             }
             let id = j.id;
             let on = id == pick;
-            let face = self.avatar(j.bot, 30.);
+            let face = self.avatar(j.bot, 26.);
             let (word, tone) = super::home::status_of(j);
             list = list.child(
                 div()
                     .id(("inbox", id as usize))
                     .map(|d| super::motion::enter(d, super::motion::key(("inbox", id)), n))
+                    .relative()
                     .flex()
                     .gap(px(12.))
-                    .p(px(14.))
-                    .rounded(px(10.))
+                    .px(px(12.))
+                    .py(px(11.))
+                    .rounded(px(7.))
                     .border_1()
                     .cursor_pointer()
                     .map(|d| {
                         if on {
-                            // The one you're reading: lifted, with a firmer edge.
-                            d.bg(c(ui::raised())).border_color(c(ui::line_hi()))
+                            // The one you're reading: lifted, with the
+                            // accent bar down its left edge.
+                            d.bg(c(ui::raised())).border_color(c(ui::line())).child(
+                                div()
+                                    .absolute()
+                                    .left(px(-1.))
+                                    .top(px(-1.))
+                                    .bottom(px(-1.))
+                                    .w(px(4.))
+                                    .rounded_l(px(7.))
+                                    .bg(c(ui::pick_fill())),
+                            )
                         } else {
-                            d.bg(c(ui::panel()))
-                                .border_color(c(ui::line2()))
-                                .hover(|s| s.border_color(c(ui::line_hi())))
+                            d.border_color(transparent_black())
+                                .hover(|s| s.bg(c(ui::hover())))
                         }
                     })
                     .child(div().flex_none().child(face))
@@ -220,8 +237,9 @@ impl Shell {
                             )
                             .child(
                                 div()
-                                    .text_size(px(12.))
-                                    .text_color(c(ui::muted()))
+                                    .font_family(ui::MONO)
+                                    .text_size(px(11.))
+                                    .text_color(c(ui::faint()))
                                     .truncate()
                                     .child(format!(
                                         "{} · #{} · {}",
@@ -230,12 +248,7 @@ impl Shell {
                                         j.folder.name
                                     )),
                             )
-                            .child(
-                                div()
-                                    .mt(px(4.))
-                                    .flex()
-                                    .child(super::home::pill(&word, tone)),
-                            ),
+                            .child(div().mt(px(3.)).child(ui::mono_status(tone.0, &word))),
                     )
                     .on_mouse_down(
                         MouseButton::Right,
@@ -745,8 +758,8 @@ impl Shell {
         }
 
         let search = div()
-            .w(px(280.))
-            .h(px(36.))
+            .w(px(220.))
+            .h(px(32.))
             .px(px(12.))
             .flex()
             .items_center()
@@ -769,10 +782,10 @@ impl Shell {
             );
 
         let groups = [
-            (2usize, "Working", ui::BLUE, going),
-            (1, "To review", ui::AMBER, needs),
-            (4, "Stopped", ui::RED, trouble),
-            (3, "Done", ui::GREEN, done),
+            (2usize, "Working", ui::t_blue(), going),
+            (1, "To review", ui::t_amber(), needs),
+            (4, "Stopped", ui::t_red(), trouble),
+            (3, "Done", ui::t_green(), done),
         ];
         // The board: a column per state, side by side. The list: one under another.
         let board = !self.jobs_list;
@@ -813,7 +826,7 @@ impl Shell {
                         .flex()
                         .flex_col()
                         .gap(px(10.))
-                        .child(ui::heading(label, Some(dot), Some(rows.len())).px(px(4.)))
+                        .child(col_head(label, dot, rows.len()))
                         .child(cards),
                 );
                 continue;
@@ -878,39 +891,43 @@ impl Shell {
                     .child(
                         div()
                             .flex()
-                            .items_end()
-                            .gap(px(16.))
+                            .items_center()
+                            .gap(px(10.))
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
                                     .flex()
-                                    .flex_col()
-                                    .gap(px(5.))
+                                    .items_baseline()
+                                    .gap(px(10.))
                                     .child(
                                         div()
-                                            .text_size(px(24.))
+                                            .flex_none()
+                                            .text_size(px(22.))
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .child("Jobs"),
                                     )
                                     .child(
                                         div()
-                                            .text_size(px(13.5))
+                                            .min_w_0()
+                                            .truncate()
+                                            .text_size(px(13.))
                                             .text_color(c(ui::muted()))
                                             .child(said.join(" \u{b7} ")),
                                     ),
                             )
-                            .child(search),
+                            .child(self.board_toggle(board, cx))
+                            .child(search)
+                            .child(ui::solid_i("jobs-new", IconName::Plus, "New job").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.set_mode(super::data::Mode::Build, window, cx);
+                                    this.go(super::Place::Today, cx);
+                                    this.composer.update(cx, |i, cx| i.focus(window, cx));
+                                    this.focus_moved = std::time::Instant::now();
+                                }),
+                            )),
                     )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(10.))
-                            .when(!board, |d| d.child(filters))
-                            .child(div().flex_1())
-                            .child(self.board_toggle(board, cx)),
-                    )
+                    .when(!board, |d| d.child(div().flex().child(filters)))
                     .child(body)
                     .children(night),
             )
@@ -945,7 +962,9 @@ impl Shell {
                     .cursor_pointer()
                     .map(|d| {
                         if on {
-                            d.bg(c(ui::hover())).text_color(c(ui::ink()))
+                            d.bg(c(ui::pick_fill()))
+                                .text_color(c(ui::pick_on()))
+                                .font_weight(FontWeight::SEMIBOLD)
                         } else {
                             d.text_color(c(ui::muted()))
                                 .hover(|s| s.text_color(c(ui::ink())))
@@ -1065,14 +1084,14 @@ impl Shell {
             .on_click(cx.listener(move |this, _, _, cx| this.open_job(id, cx)))
     }
 
-    /// A board column's card: narrow, so it stacks. The bot and the title (two
-    /// lines at most), how it stands, then the lines it changed and when. A
-    /// running job shows the step it's on and a thin bar instead.
+    /// A board column's card: narrow, so it stacks. The bot and the job's
+    /// number, the title (two lines at most), a dashed bar while it runs,
+    /// then how it stands in small mono capitals, with the lines it changed
+    /// and when on the right.
     fn board_card(&mut self, j: &Job, cx: &mut Context<Self>) -> impl IntoElement {
         let id = j.id;
-        let accent = j.bot.accent();
         let running = j.status == Status::Running;
-        let face = self.avatar(j.bot, 22.);
+        let face = self.avatar(j.bot, 20.);
         let (word, tone) = super::home::status_of(j);
         let (added, removed) = j.lines();
         let when = match store::ago(j.ended.unwrap_or(j.started)).as_str() {
@@ -1086,35 +1105,30 @@ impl Shell {
             None
         };
         let pulse = 0.4 + 0.6 * super::motion::breath();
-        let (state, col) = if running {
+        let (state, col, right) = if running {
             let what = match j.progress() {
                 Some((d, n)) => format!("Step {} of {n}", (d + 1).min(n)),
                 None => "Working".to_string(),
             };
-            (
-                format!("{what} \u{b7} {}", store::span(j.seconds())),
-                accent,
-            )
+            (what, ui::t_blue(), store::span(j.seconds()))
         } else {
-            (word, tone.0)
+            let mut right = Vec::new();
+            if added + removed > 0 {
+                right.push(format!("+{added} \u{2212}{removed}"));
+            }
+            right.push(when);
+            (word, tone.0, right.join(" \u{b7} "))
         };
-        let edge = if j.needs_you() {
-            super::theme::mix(ui::line(), tone.0, 0.35)
-        } else {
-            ui::line2()
-        };
-        let hover_edge = super::theme::mix(ui::line(), accent, 0.6);
         let foot = div()
             .flex()
             .items_center()
-            .gap(px(8.))
-            .text_size(px(11.5))
-            .text_color(c(ui::faint()))
+            .gap(px(7.))
+            .font_family(ui::MONO)
+            .text_size(px(10.5))
             .child(
                 div()
                     .size(px(6.))
                     .flex_none()
-                    .rounded_full()
                     .bg(c(col))
                     .when(running, |d| d.opacity(pulse)),
             )
@@ -1123,72 +1137,54 @@ impl Shell {
                     .flex_1()
                     .min_w_0()
                     .truncate()
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c(col))
-                    .child(state),
+                    .child(state.to_uppercase()),
             )
-            .when(added + removed > 0, |d| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .flex()
-                        .gap(px(4.))
-                        .font_family(ui::MONO)
-                        .child(
-                            div()
-                                .text_color(c(ui::t_green()))
-                                .child(format!("+{added}")),
-                        )
-                        .child(
-                            div()
-                                .text_color(c(ui::t_red()))
-                                .child(format!("\u{2212}{removed}")),
-                        ),
-                )
-            })
-            .when(!running, |d| d.child(div().flex_none().child(when)));
+            .child(div().flex_none().text_color(c(ui::faint())).child(right));
         div()
             .id(("jobs-board", id as usize))
             .flex()
             .flex_col()
             .gap(px(8.))
             .p(px(12.))
-            .rounded(px(9.))
-            .bg(c(ui::panel()))
+            .rounded(px(7.))
+            .bg(c(ui::raised()))
             .border_1()
-            .border_color(c(edge))
+            .border_color(c(ui::line()))
             .cursor_pointer()
-            .hover(|s| s.bg(c(ui::raised())).border_color(c(hover_edge)))
+            .hover(|s| s.border_color(c(ui::line_hi())))
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .min_w_0()
-                    .text_size(px(11.5))
-                    .text_color(c(ui::muted()))
-                    .child(face_tile(face, accent, 24.))
-                    .child(
-                        div()
-                            .flex_none()
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(c(super::theme::mix(accent, ui::ink(), 0.35)))
-                            .child(j.bot.name()),
-                    )
+                    .child(div().flex_none().child(face))
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .truncate()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child(j.bot.name()),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
                             .font_family(ui::MONO)
+                            .text_size(px(11.))
                             .text_color(c(ui::faint()))
-                            .child(format!("{} #{}", j.folder.name, j.id)),
+                            .child(format!("#{}", j.id)),
                     ),
             )
             .child(
                 div()
-                    .text_size(px(13.))
-                    .line_height(px(18.))
-                    .max_h(px(36.))
+                    .text_size(px(13.5))
+                    .line_height(px(19.))
+                    .max_h(px(38.))
                     .overflow_hidden()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c(ui::ink()))
@@ -1196,8 +1192,8 @@ impl Shell {
             )
             .when(running, |d| {
                 d.child(match frac {
-                    Some(f) => ui::bar(f, accent).h(px(3.)),
-                    None => ui::sweep(accent, 0.).h(px(3.)),
+                    Some(f) => ui::bar(f, ui::t_blue()).h(px(3.)),
+                    None => ui::sweep(ui::t_blue(), 0.).h(px(3.)),
                 })
             })
             .child(foot)
@@ -1326,6 +1322,26 @@ fn sort_jobs(jobs: &[Job]) -> (Vec<Job>, Vec<Job>, Vec<Job>, Vec<Job>) {
 }
 
 /// The bot's face on a soft square of its own colour.
+/// A board column's head: a square in the column's colour, its name in small
+/// mono capitals, and how many cards it holds.
+fn col_head(label: &str, col: u32, n: usize) -> Div {
+    div()
+        .px(px(2.))
+        .flex()
+        .items_center()
+        .gap(px(7.))
+        .font_family(ui::MONO)
+        .text_size(px(10.5))
+        .child(div().size(px(6.)).flex_none().bg(c(col)))
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(c(col))
+                .child(label.to_uppercase()),
+        )
+        .child(div().text_color(c(ui::faint())).child(n.to_string()))
+}
+
 fn face_tile(face: Img, accent: u32, size: f32) -> Div {
     div()
         .size(px(size))

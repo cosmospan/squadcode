@@ -384,30 +384,23 @@ fn pill_base(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
         })
 }
 
-/// A tinted status badge, like "Ready for review": the tone's text on its
-/// own soft fill, with a dot.
+/// A status badge the design's way, like "■ TO REVIEW": a small square in
+/// the tone's colour and the word in mono capitals.
 pub fn badge(tone: Tone, label: impl Into<SharedString>) -> Div {
-    let (text, fill, _) = tone;
+    let (text, _, _) = tone;
+    let label: SharedString = label.into();
     div()
-        .h(px(22.))
-        .px(px(8.))
+        .h(px(20.))
         .flex()
         .flex_none()
         .items_center()
         .gap(px(6.))
-        .rounded(px(6.))
-        .bg(c(fill))
-        .text_size(px(12.))
-        .font_weight(FontWeight::MEDIUM)
+        .font_family(MONO)
+        .text_size(px(10.5))
+        .font_weight(FontWeight::SEMIBOLD)
         .text_color(c(text))
-        .child(super::motion::dot(text, 6., live_tone(tone)))
-        .child(label.into())
-}
-
-/// Whether a badge in `tone` is for something live: running, or waiting on
-/// you. Its dot breathes.
-fn live_tone(tone: Tone) -> bool {
-    tone == super::theme::run_tone() || tone == ask_tone()
+        .child(div().size(px(6.)).flex_none().bg(c(text)))
+        .child(label.to_uppercase())
 }
 
 /// A keyboard hint, like "⌘K".
@@ -490,12 +483,11 @@ pub fn heading(label: &str, dot: Option<u32>, count: Option<usize>) -> Div {
         .flex()
         .items_center()
         .gap(px(7.))
-        .text_size(px(11.))
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_family(MONO)
+        .text_size(px(10.5))
+        .font_weight(FontWeight::MEDIUM)
         .text_color(c(faint()))
-        .when_some(dot, |d, col| {
-            d.child(div().size(px(6.)).rounded_full().bg(c(col)))
-        })
+        .when_some(dot, |d, col| d.child(div().size(px(6.)).bg(c(col))))
         .child(label.to_uppercase())
         .child(div().flex_1())
         .when_some(count, |d, n| d.child(n.to_string()))
@@ -521,6 +513,21 @@ pub fn status(color: u32, label: impl Into<SharedString>) -> Div {
         .text_color(c(color))
         .child(div().size(px(7.)).rounded_full().bg(c(color)))
         .child(label.into())
+}
+
+/// How a job stands, the design's way: a small square in its colour and the
+/// words in mono capitals, like "■ TO REVIEW".
+pub fn mono_status(color: u32, label: &str) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .font_family(MONO)
+        .text_size(px(10.5))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(c(color))
+        .child(div().size(px(6.)).flex_none().bg(c(color)))
+        .child(label.to_uppercase())
 }
 
 /// A thin progress bar.

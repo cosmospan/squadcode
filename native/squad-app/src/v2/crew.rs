@@ -56,78 +56,117 @@ impl Shell {
             .border_color(c(ui::line()))
             .child(
                 div()
-                    .px(px(10.))
-                    .pb(px(10.))
+                    .px(px(8.))
+                    .pt(px(8.))
+                    .pb(px(14.))
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .child(
                         div()
                             .flex_1()
-                            .text_size(px(12.5))
-                            .text_color(c(ui::muted()))
-                            .child(format!(
-                                "{n} {} \u{b7} {busy} working",
-                                if n == 1 { "bot" } else { "bots" }
-                            )),
+                            .text_size(px(22.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child("Crew"),
                     )
                     .child(
                         ui::solid_i("crew-make", IconName::Plus, "Make a bot")
-                            .h(px(28.))
+                            .h(px(30.))
                             .text_size(px(12.5))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_maker(None, None, window, cx);
                             })),
                     ),
+            )
+            .child(
+                div()
+                    .px(px(8.))
+                    .pb(px(6.))
+                    .flex()
+                    .justify_between()
+                    .font_family(ui::MONO)
+                    .text_size(px(10.5))
+                    .text_color(c(ui::faint()))
+                    .child("ON THE CREW")
+                    .child(if busy > 0 {
+                        format!("{n} \u{b7} {busy} working")
+                    } else {
+                        n.to_string()
+                    }),
             );
         for who in all {
             let on = who == pick;
-            let face = self.avatar(who, 24.);
+            let face = self.avatar(who, 26.);
             let (status, color) = self.status_of(who);
             let quiet = color == ui::faint();
+            let word = if !quiet {
+                status
+            } else if who == Member::Fin {
+                "lead".to_string()
+            } else if !super::data::project_of(who).is_empty() {
+                "this project".to_string()
+            } else {
+                "idle".to_string()
+            };
             list = list.child(
                 div()
                     .id(("crew-row", who.key() as usize))
-                    .h(px(38.))
+                    .relative()
+                    .h(px(50.))
                     .px(px(10.))
                     .flex()
                     .items_center()
                     .gap(px(10.))
                     .rounded(px(7.))
+                    .border_1()
                     .cursor_pointer()
-                    .text_size(px(13.5))
-                    .text_color(c(ui::ink()))
                     .map(|d| {
                         if on {
-                            d.bg(c(ui::raised()))
-                                .border_1()
-                                .border_color(c(ui::line()))
-                                .font_weight(FontWeight::SEMIBOLD)
+                            d.bg(c(ui::raised())).border_color(c(ui::line())).child(
+                                div()
+                                    .absolute()
+                                    .left(px(-1.))
+                                    .top(px(-1.))
+                                    .bottom(px(-1.))
+                                    .w(px(4.))
+                                    .rounded_l(px(7.))
+                                    .bg(c(ui::pick_fill())),
+                            )
                         } else {
-                            d.hover(|s| s.bg(c(ui::hover())))
+                            d.border_color(transparent_black())
+                                .hover(|s| s.bg(c(ui::hover())))
                         }
                     })
                     .on_hover(cx.listener(move |this, on: &bool, _, cx| {
                         this.hover_bot(who, *on, cx);
                     }))
                     .child(face)
-                    .child(div().flex_1().min_w_0().truncate().child(who.name()))
                     .child(
                         div()
-                            .flex_none()
-                            .max_w(px(110.))
-                            .truncate()
-                            .text_size(px(11.5))
-                            .font_weight(FontWeight::NORMAL)
-                            .text_color(c(if quiet { ui::faint() } else { color }))
-                            .child(if !super::data::project_of(who).is_empty() && quiet {
-                                "this project".to_string()
-                            } else if quiet {
-                                String::new()
-                            } else {
-                                status
-                            }),
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(13.5))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c(ui::ink()))
+                                    .child(who.name()),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(12.))
+                                    .text_color(c(ui::muted()))
+                                    .child(who.role()),
+                            ),
                     )
+                    .child(div().flex_none().max_w(px(120.)).overflow_hidden().child(
+                        ui::mono_status(if quiet { ui::faint() } else { color }, &word),
+                    ))
                     .on_mouse_down(
                         MouseButton::Right,
                         self.on_menu(super::menu::Ctx::Bot(who), cx),
@@ -258,12 +297,13 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .text_size(px(13.5))
+                    .font_family(ui::MONO)
+                    .text_size(px(12.))
                     .cursor_pointer()
                     .border_b_2()
                     .map(|d| {
                         if on {
-                            d.border_color(c(ui::ink()))
+                            d.border_color(c(ui::pick_fill()))
                                 .text_color(c(ui::ink()))
                                 .font_weight(FontWeight::SEMIBOLD)
                         } else {
@@ -276,9 +316,15 @@ impl Shell {
                     .when_some(count, |d, n| {
                         d.child(
                             div()
-                                .font_family(ui::MONO)
-                                .text_size(px(11.))
-                                .text_color(c(ui::faint()))
+                                .h(px(17.))
+                                .px(px(6.))
+                                .flex()
+                                .items_center()
+                                .rounded(px(3.))
+                                .bg(c(ui::hover()))
+                                .font_weight(FontWeight::NORMAL)
+                                .text_size(px(10.5))
+                                .text_color(c(ui::muted()))
                                 .child(n.to_string()),
                         )
                     })

@@ -267,34 +267,47 @@ impl Shell {
             .child(
                 div()
                     .min_w_0()
-                    .truncate()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
                     .text_size(px(12.5))
-                    .text_color(c(tint))
-                    .child(word),
+                    .text_color(c(ui::muted()))
+                    .child(div().flex_none().text_color(c(tint)).child(word))
+                    .child(div().text_color(c(ui::faint())).child("\u{b7}"))
+                    .child(
+                        div()
+                            .id("chat-engine")
+                            .truncate()
+                            .cursor_pointer()
+                            .hover(|s| s.text_color(c(ui::ink())))
+                            .child(engine)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.go(Place::Settings(Pane::Engines), cx)
+                            })),
+                    ),
             )
             .child(div().flex_1())
             .child(
-                div()
-                    .id("chat-engine")
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .gap(px(6.))
-                    .px(px(10.))
+                ui::ghost_i("chat-profile", IconName::Users, "Profile")
                     .h(px(30.))
-                    .rounded(px(8.))
-                    .border_1()
-                    .border_color(c(ui::line()))
-                    .text_size(px(12.))
-                    .text_color(c(ui::muted()))
-                    .cursor_pointer()
-                    .hover(|s| s.border_color(c(ui::line_hi())).text_color(c(ui::ink())))
-                    .child(Icon::new(IconName::Cpu).size(px(13.)))
-                    .child(engine)
-                    .on_click(
-                        cx.listener(|this, _, _, cx| this.go(Place::Settings(Pane::Engines), cx)),
-                    ),
+                    .flex_none()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.crew_pick = Some(who);
+                        this.go(Place::Crew, cx);
+                    })),
             )
+            .when(who.mode() != super::data::Mode::Ask, |d| {
+                d.child(
+                    ui::solid_i("chat-give", IconName::Plus, "Give a job")
+                        .h(px(30.))
+                        .flex_none()
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.dm_do = true;
+                            this.chat_input.update(cx, |i, cx| i.focus(window, cx));
+                            cx.notify();
+                        })),
+                )
+            })
             .when(said, |d| {
                 d.child(
                     ui::ghost_i("chat-clear", IconName::Eraser, "Clear")
@@ -364,6 +377,37 @@ impl Shell {
         let value = self.chat_input.read(cx).value().to_string();
         let ready = !value.trim().is_empty();
         let face = self.avatar(who, 20.);
+        // Ask has the bot answer; Do starts a job, as the design's chips.
+        let do_it = self.dm_do;
+        let mut hows = div().flex().items_center().gap(px(2.));
+        for (i, name) in ["Ask", "Do"].into_iter().enumerate() {
+            let on = (i == 1) == do_it;
+            hows = hows.child(
+                div()
+                    .id(("chat-how", i))
+                    .h(px(26.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(5.))
+                    .text_size(px(12.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .cursor_pointer()
+                    .map(|d| {
+                        if on {
+                            d.bg(c(ui::pick_fill())).text_color(c(ui::pick_on()))
+                        } else {
+                            d.text_color(c(ui::muted()))
+                                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                        }
+                    })
+                    .child(name)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.dm_do = i == 1;
+                        cx.notify();
+                    })),
+            );
+        }
         div()
             .w_full()
             .flex()
@@ -376,7 +420,7 @@ impl Shell {
             .bg(c(ui::raised()))
             .border_1()
             .border_color(c(if ready {
-                super::theme::mix(ui::raised(), ui::VIOLET, 0.55)
+                super::theme::mix(ui::raised(), ui::pick_fill(), ui::pick_k(0.55).min(0.9))
             } else {
                 ui::line_hi()
             }))
@@ -397,87 +441,73 @@ impl Shell {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    .gap(px(6.))
                     .child(
                         div()
-                            .flex_1()
-                            .text_size(px(12.))
-                            .text_color(c(ui::faint()))
-                            .child(if ready {
-                                format!(
-                                    "Send asks {}. Start a job has it change the code.",
-                                    who.name()
-                                )
-                            } else {
-                                format!(
-                                    "{} reads the code and answers. Nothing changes unless you start a job.",
-                                    who.name()
-                                )
-                            }),
-                    )
-                    .when(ready, |d| {
-                        d.child(
-                            ui::ghost("chat-job", "Start a job")
-                                .h(px(28.))
-                                .tooltip(|window, cx| {
-                                    gpui_kit::component::tooltip::Tooltip::new(
-                                        "Skip the chat: the bot works on these words in its own copy of the code, and you review the changes.",
-                                    )
-                                    .build(window, cx)
-                                })
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    let text = this.chat_input.read(cx).value().trim().to_string();
-                                    if !text.is_empty() {
-                                        this.chat_input
-                                            .update(cx, |i, cx| i.set_value("", window, cx));
-                                        this.job_from_dm(who, text, cx);
-                                    }
-                                })),
-                        )
-                    })
-                    .child(
-                        div()
-                            .h(px(28.))
+                            .id("chat-to")
+                            .h(px(26.))
                             .pl(px(5.))
-                            .pr(px(10.))
+                            .pr(px(9.))
                             .flex()
+                            .flex_none()
                             .items_center()
                             .gap(px(6.))
-                            .rounded_full()
+                            .rounded(px(5.))
                             .bg(c(ui::well()))
-                            .text_size(px(12.))
-                            .text_color(c(ui::muted()))
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c(ui::ink()))
                             .child(face)
-                            .child(format!("{} answers", who.name())),
+                            .child(format!("To {}", who.name()))
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(if do_it {
+                                    format!(
+                                        "{} works on it in its own copy of the code, and you review the changes.",
+                                        who.name()
+                                    )
+                                } else {
+                                    format!(
+                                        "{} reads the code and answers. Nothing changes unless you pick Do.",
+                                        who.name()
+                                    )
+                                })
+                                .build(window, cx)
+                            }),
                     )
+                    .child(div().w(px(1.)).h(px(16.)).mx(px(4.)).bg(c(ui::line())))
+                    .child(hows)
+                    .child(div().flex_1())
                     .child(
                         div()
                             .id("chat-send")
                             .size(px(32.))
-                            .rounded(px(9.))
+                            .rounded(px(7.))
                             .flex()
                             .items_center()
                             .justify_center()
+                            .bg(c(ui::pick_fill()))
                             .map(|d| {
                                 if ready {
-                                    d.bg(c(ui::VIOLET))
-                                        .cursor_pointer()
-                                        .hover(|s| s.opacity(0.9))
+                                    d.cursor_pointer().hover(|s| s.opacity(0.9))
                                 } else {
-                                    d.bg(c(ui::press()))
+                                    d.opacity(0.45)
                                 }
                             })
                             .child(
                                 Icon::new(IconName::ArrowUp)
                                     .size(px(16.))
-                                    .text_color(c(if ready { 0xFFFFFF } else { ui::faint() })),
+                                    .text_color(c(ui::pick_on())),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 let text = this.chat_input.read(cx).value().trim().to_string();
                                 if !text.is_empty() {
                                     this.chat_input
                                         .update(cx, |i, cx| i.set_value("", window, cx));
-                                    this.ask(who, text, cx);
+                                    if this.dm_do {
+                                        this.job_from_dm(who, text, cx);
+                                    } else {
+                                        this.ask(who, text, cx);
+                                    }
                                 }
                             })),
                     ),
@@ -677,7 +707,7 @@ impl Shell {
     }
 
     /// "Start a job" in a DM's box: the words go straight to work.
-    fn job_from_dm(&mut self, who: Member, text: String, cx: &mut Context<Self>) {
+    pub(super) fn job_from_dm(&mut self, who: Member, text: String, cx: &mut Context<Self>) {
         self.start_dm_job(who, text, cx);
         self.go(Place::Chat(who), cx);
         cx.notify();

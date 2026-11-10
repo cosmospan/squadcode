@@ -67,22 +67,29 @@ impl Shell {
                 .items_start()
                 .gap(px(10.))
                 .rounded(px(8.))
+                .border_1()
                 .cursor_pointer()
                 .map(|d| {
                     if on {
-                        d.bg(c(ui::raised())).border_1().border_color(c(ui::line()))
+                        d.relative()
+                            .bg(c(ui::raised()))
+                            .border_color(c(ui::line()))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(-1.))
+                                    .top(px(-1.))
+                                    .bottom(px(-1.))
+                                    .w(px(4.))
+                                    .rounded_l(px(8.))
+                                    .bg(c(ui::pick_fill())),
+                            )
                     } else {
-                        d.hover(|s| s.bg(c(ui::hover())))
+                        d.border_color(transparent_black())
+                            .hover(|s| s.bg(c(ui::hover())))
                     }
                 })
-                .child(
-                    div()
-                        .mt(px(6.))
-                        .size(px(8.))
-                        .flex_none()
-                        .rounded_full()
-                        .bg(c(dot)),
-                )
+                .child(div().mt(px(6.)).size(px(7.)).flex_none().bg(c(dot)))
                 .child(
                     div()
                         .flex_1()
@@ -120,6 +127,16 @@ impl Shell {
             .gap(px(4.))
             .border_r_1()
             .border_color(c(ui::line()))
+            .child(
+                div()
+                    .px(px(8.))
+                    .pt(px(8.))
+                    .pb(px(12.))
+                    .text_size(px(22.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(ui::ink()))
+                    .child("Machines"),
+            )
             .child(
                 item(
                     "machine-here",
@@ -345,13 +362,7 @@ impl Shell {
                 .flex()
                 .flex_col()
                 .gap(px(10.))
-                .child(
-                    div()
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c(ui::ink()))
-                        .child(title),
-                )
+                .child(ui::heading(title, None, None))
                 .child(body)
         };
         let body = div()

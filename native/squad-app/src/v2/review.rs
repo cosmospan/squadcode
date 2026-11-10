@@ -274,7 +274,7 @@ impl Shell {
             .gap(px(10.))
             .border_b_1()
             .border_color(c(ui::line()))
-            .child(super::home::pill("Ready for review", ui::ask_tone()))
+            .child(super::home::pill("To review", ui::ask_tone()))
             .child(
                 div()
                     .text_size(px(13.))

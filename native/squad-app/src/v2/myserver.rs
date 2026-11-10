@@ -229,7 +229,7 @@ impl Shell {
             ),
             "here" => (
                 IconName::Laptop,
-                "This computer".to_string(),
+                super::machines::here_name().to_string(),
                 "Runs on this computer. Click to let Squad pick.".to_string(),
             ),
             _ => (

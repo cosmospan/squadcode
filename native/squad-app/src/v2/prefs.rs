@@ -508,8 +508,9 @@ impl Shell {
                     .px(px(10.))
                     .pt(px(10.))
                     .pb(px(6.))
+                    .font_family(ui::MONO)
                     .text_size(px(10.5))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::faint()))
                     .child(label),
             );
@@ -525,19 +526,31 @@ impl Shell {
                         .items_center()
                         .gap(px(9.))
                         .rounded(px(8.))
+                        .border_1()
                         .text_size(px(13.))
                         .cursor_pointer()
                         .map(|d| {
                             if on {
-                                d.bg(c(super::theme::mix(
-                                    ui::bg(),
-                                    ui::pick_fill(),
-                                    ui::pick_k(0.09),
-                                )))
-                                .text_color(c(ui::pick_text()))
-                                .font_weight(FontWeight::MEDIUM)
+                                // Picked: a raised row with the accent bar,
+                                // like the sidebar's.
+                                d.relative()
+                                    .bg(c(ui::raised()))
+                                    .border_color(c(ui::line()))
+                                    .text_color(c(ui::ink()))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .left(px(-1.))
+                                            .top(px(-1.))
+                                            .bottom(px(-1.))
+                                            .w(px(4.))
+                                            .rounded_l(px(8.))
+                                            .bg(c(ui::pick_fill())),
+                                    )
                             } else {
-                                d.text_color(c(ui::body()))
+                                d.border_color(transparent_black())
+                                    .text_color(c(ui::body()))
                                     .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
                             }
                         })

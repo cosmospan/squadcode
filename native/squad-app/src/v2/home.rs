@@ -90,17 +90,17 @@ impl Shell {
 pub(super) fn status_of(j: &Job) -> (String, (u32, u32, u32)) {
     match j.status {
         Status::Running => ("Running".to_string(), ui::run_tone()),
-        Status::Done if j.needs_you() => ("Ready to review".to_string(), ui::ask_tone()),
+        Status::Done if j.needs_you() => ("To review".to_string(), ui::ask_tone()),
         Status::Done => ("Done".to_string(), ui::ok_tone()),
         Status::Failed => ("Failed".to_string(), ui::bad_tone()),
         Status::Interrupted => ("Interrupted".to_string(), ui::ask_tone()),
-        Status::Review => ("Ready for review".to_string(), ui::ask_tone()),
+        Status::Review => ("To review".to_string(), ui::ask_tone()),
         Status::Shipped => ("Shipped".to_string(), ui::ok_tone()),
         s => (s.label().to_string(), ui::grey_tone()),
     }
 }
 
-/// A status pill: a dot and a word on a tinted ground.
+/// A status badge: a square and the word in mono capitals.
 pub(super) fn pill(word: &str, tone: (u32, u32, u32)) -> Div {
     ui::badge(tone, word.to_string())
 }
