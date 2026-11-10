@@ -323,6 +323,30 @@ impl Runtime {
         Opened::Job(id)
     }
 
+    /// A change the person picked on job `from`'s page in its browser: new
+    /// work, so a new job, not another turn of the one whose page it was. The
+    /// same bot takes it when that job could change files (else whoever
+    /// builds), in the same folder and thread, told which job's page it was.
+    pub fn start_from_page(&mut self, st: &AppSettings, from: u64, text: String) -> Option<Opened> {
+        let job = self.store.job(from)?;
+        let (bot, mode) = if job.mode.writes() {
+            (job.bot, job.mode)
+        } else {
+            (
+                Member::doer_for(Mode::Build).unwrap_or(Member::Builder),
+                Mode::Build,
+            )
+        };
+        let (folder, thread) = (job.folder.clone(), job.thread);
+        let text = format!("{text}\n\nThe page was open in #{from}'s browser.");
+        // It goes in the thread the page came from, not wherever the person
+        // last looked.
+        let was = std::mem::replace(&mut self.store.thread_now, thread);
+        let opened = self.start_job(st, bot, mode, text, folder);
+        self.store.thread_now = was;
+        Some(opened)
+    }
+
     /// A new job, on its own branch when it may change files, started on its
     /// bot's engine, or on `pick` (an agent index) for a try in a race. The
     /// caller adds it to the store.
@@ -3510,6 +3534,62 @@ mod tests {
         let ctx = &rt.store.job(id).unwrap().context;
         assert!(ctx.contains("university email") && ctx.contains(".edu addresses"));
         assert!(!ctx.contains("add the sign-up page"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_change_picked_on_a_jobs_page_starts_a_new_job() {
+        let mut st = AppSettings::default();
+        for p in crate::agent::PROVIDERS.iter() {
+            let mut a = st.agent(p.id);
+            a.binary = "/nonexistent/squad-test-agent".into();
+            st.agents.insert(p.id.to_string(), a);
+        }
+        let dir = std::env::temp_dir().join(format!("squad-pick-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut rt = Runtime::new(quiet_store());
+        let folder = store::Folder {
+            name: "t".into(),
+            path: dir.to_string_lossy().into_owned(),
+            ship: String::new(),
+        };
+        rt.store.next_id = 9;
+        rt.store.jobs.push(store::Job {
+            id: 9,
+            bot: Member::Builder,
+            mode: Mode::Build,
+            status: Status::Done,
+            folder: folder.clone(),
+            ..Default::default()
+        });
+        let opened = rt.start_from_page(&st, 9, "make the button green".into());
+        let Some(Opened::Job(id)) = opened else {
+            panic!("expected a new job, got {opened:?}");
+        };
+        assert_ne!(id, 9);
+        let job = rt.store.job(id).unwrap();
+        assert_eq!((job.bot, job.mode), (Member::Builder, Mode::Build));
+        assert_eq!(job.folder, folder);
+        assert!(job.title.contains("make the button green") && job.title.contains("#9"));
+        // The job whose page it was is left as it was.
+        let old = rt.store.job(9).unwrap();
+        assert_eq!(old.status, Status::Done);
+        assert!(old.feed.is_empty() && old.queued.is_empty());
+        // A page from a job that only read goes to whoever builds.
+        rt.store.jobs.push(store::Job {
+            id: 50,
+            bot: Member::Explainer,
+            mode: Mode::Ask,
+            status: Status::Done,
+            folder,
+            ..Default::default()
+        });
+        rt.store.next_id = 50;
+        let Some(Opened::Job(id)) = rt.start_from_page(&st, 50, "say hi".into()) else {
+            panic!("expected a new job");
+        };
+        assert_eq!(rt.store.job(id).unwrap().mode, Mode::Build);
+        assert!(rt.start_from_page(&st, 404, "nothing".into()).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

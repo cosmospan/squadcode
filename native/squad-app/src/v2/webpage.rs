@@ -22,8 +22,9 @@ use crate::browse::host;
 use crate::browse::view::{self, State, Viewer};
 use crate::browser_engine::{key_spec, modifier_bits, KeySpec};
 
+use super::data::{Member, Mode};
 use super::remote;
-use super::store::Status;
+use super::runtime;
 use super::ui::{self, c, ca};
 use super::{Place, Shell};
 
@@ -704,11 +705,20 @@ impl Shell {
 
     /// The bar under the page while pointing or once something is picked.
     fn pick_bar(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+        // A pick starts a new job: by this job's bot when it changes files,
+        // else by whoever builds.
         let bot = self
             .crew
             .store
             .job(self.web.job)
-            .map(|j| j.bot.name())
+            .and_then(|j| {
+                if j.mode.writes() {
+                    Some(j.bot)
+                } else {
+                    Member::doer_for(Mode::Build)
+                }
+            })
+            .map(|m| m.name())
             .unwrap_or("the bot");
         let bar = || {
             div()
@@ -786,7 +796,7 @@ impl Shell {
                         .flex_none()
                         .text_size(px(11.5))
                         .text_color(c(ui::faint()))
-                        .child(format!("goes to {bot}")),
+                        .child(format!("new job for {bot}")),
                 )
                 .child(ui::ghost("web-pick-cancel", "Cancel").on_click(cx.listener(
                     |this, _, window, cx| {
@@ -799,24 +809,33 @@ impl Shell {
         )
     }
 
-    /// Sends what should change about the picked element to the job's bot.
+    /// Starts a new job to change the picked element. It's new work, so it
+    /// isn't sent as another turn of the job whose browser this is.
     pub(super) fn send_pick(&mut self, words: String, cx: &mut Context<Self>) {
         let Some(picked) = self.web.picked.take() else {
             return;
         };
-        let id = self.web.job;
-        let Some(job) = self.crew.store.job(id) else {
-            return;
-        };
-        if job.status == Status::Running {
-            self.say("It's still working. Pick it again once it finishes.");
+        if self.sample_guard(cx) {
             self.web.picked = Some(picked);
-            cx.notify();
             return;
         }
-        let bot = job.bot.name();
-        self.say(format!("Sent to {bot}: change {}.", picked.short()));
-        self.follow_up(id, picked.ask(&words), cx);
+        let st = Self::app_settings(cx);
+        let Some(opened) = self
+            .crew
+            .start_from_page(&st, self.web.job, picked.ask(&words))
+        else {
+            return;
+        };
+        if let runtime::Opened::Job(id) = opened {
+            if let Some(job) = self.crew.store.job(id) {
+                self.say(format!(
+                    "New job for {}: change {}.",
+                    job.bot.name(),
+                    picked.short()
+                ));
+            }
+        }
+        cx.notify();
     }
 }
 
