@@ -392,229 +392,214 @@ impl Shell {
             .into_any_element()
     }
 
+    /// The picked job, the design's way: its crumb with Open job, the bot and
+    /// title, what the bot said, what holds it, its checks and changes side by
+    /// side, and the decision at the foot.
     fn inbox_detail(&mut self, j: &Job, cx: &mut Context<Self>) -> impl IntoElement {
         let id = j.id;
         let face = self.bot(
             j.bot,
             squad_holo::Mood::Idle,
-            56.,
+            44.,
             squad_holo::Framing::Bust,
         );
-        let headline = match j.status {
-            Status::Review => format!("{} has changes for you to review", j.bot.name()),
-            Status::Done if j.files.is_empty() => format!("{} finished", j.bot.name()),
-            Status::Done => format!(
-                "{} changed {} {}",
-                j.bot.name(),
-                j.files.len(),
-                if j.files.len() == 1 { "file" } else { "files" }
-            ),
-            Status::Failed => format!("{} hit a problem", j.bot.name()),
-            _ => format!("{} stopped before the end", j.bot.name()),
-        };
+        let project = j.folder.name.to_uppercase();
+        let thread = self.crew.store.thread_label(j.thread).to_uppercase();
+        let head = div()
+            .h(px(50.))
+            .flex_none()
+            .px(px(20.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .border_b_1()
+            .border_color(c(ui::line()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .flex()
+                    .gap(px(6.))
+                    .font_family(ui::MONO)
+                    .text_size(px(11.5))
+                    .text_color(c(ui::faint()))
+                    .child(
+                        div()
+                            .text_color(c(ui::ink()))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(format!("JOB #{id}")),
+                    )
+                    .child(format!("/ {project} / #{thread}")),
+            )
+            .child(
+                ui::dbtn("inbox-open", "Open job", ui::Btn::Plain)
+                    .child(ui::kbd("\u{21b5}"))
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_job(id, cx))),
+            );
+        let mut meta = vec![j.bot.name().to_string()];
+        if !j.engine.is_empty() {
+            meta.push(j.engine.clone());
+        }
+        if !j.summary.is_empty() {
+            meta.push(j.summary.clone());
+        }
+        let title = div().flex().items_start().gap(px(14.)).child(face).child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_size(px(20.))
+                        .line_height(px(26.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c(ui::ink()))
+                        .child(super::channel::card_title(j)),
+                )
+                .child(
+                    div()
+                        .mt(px(4.))
+                        .truncate()
+                        .font_family(ui::MONO)
+                        .text_size(px(11.5))
+                        .text_color(c(ui::body()))
+                        .child(meta.join(" \u{b7} ")),
+                ),
+        );
         let said = j
             .last_words()
             .map(super::live::plain)
             .unwrap_or_else(|| "No reply was kept for this job.".into());
-        let mut said_lines = div().flex().flex_col().gap(px(8.));
+        let mut said_lines = div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .text_size(px(14.))
+            .line_height(px(22.))
+            .text_color(c(ui::ink()));
         for para in said.split("\n\n").filter(|p| !p.trim().is_empty()).take(6) {
             said_lines = said_lines.child(div().child(para.trim().to_string()));
         }
-        let mut review = self.review_card(j, cx);
-        let mut files = ui::card().overflow_hidden().child(
+        let held = j.status == Status::Review && !j.held.is_empty() && !j.belt_ok;
+        let belt = held.then(|| self.belt_box(j, cx));
+        let clash = self.clash_box(j, cx);
+        let trouble = self.trouble_card(j, cx).map(|t| t.ml(px(0.)));
+        let in_the_way = self.in_the_way_card(j, cx);
+        let shipping = matches!(j.status, Status::Shipping | Status::Shipped)
+            .then(|| self.review_body(j, cx))
+            .flatten();
+        let checks = super::peek::peek_checks(j);
+        let changes = self.peek_changes(j, cx);
+        let lists = (checks.is_some() || changes.is_some()).then(|| {
             div()
-                .h(px(40.))
-                .px(px(16.))
                 .flex()
-                .items_center()
-                .border_b_1()
-                .border_color(c(ui::line()))
-                .text_size(px(12.5))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Files changed")
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .font_weight(FontWeight::NORMAL)
-                        .text_color(c(ui::faint()))
-                        .child(j.files.len().to_string()),
-                ),
-        );
-        if j.files.is_empty() {
-            files = files.child(
+                .gap(px(20.))
+                .child(div().flex_1().min_w_0().children(checks))
+                .child(div().flex_1().min_w_0().children(changes))
+        });
+
+        // The foot: a hint, then the decision.
+        let review = j.status == Status::Review && !j.changes.is_empty();
+        let blocked = held || !j.conflict.is_empty();
+        let full = self.approve_label(j);
+        let hint = match j.status {
+            Status::Review => "A approves \u{b7} \u{21b5} opens the job to send it back",
+            Status::Done => "E marks it seen \u{b7} \u{21b5} opens the job",
+            _ => "E marks it seen \u{b7} \u{21b5} opens the job to carry on",
+        };
+        let foot = div()
+            .flex_none()
+            .px(px(28.))
+            .py(px(12.))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .border_t_1()
+            .border_color(c(ui::line()))
+            .child(
                 div()
-                    .px(px(16.))
-                    .py(px(14.))
-                    .text_size(px(12.5))
-                    .text_color(c(ui::faint()))
-                    .child("Nothing was changed."),
-            );
-        }
-        for f in j.files.iter().take(12) {
-            files = files.child(
-                div()
-                    .h(px(34.))
-                    .px(px(16.))
-                    .flex()
-                    .items_center()
-                    .border_b_1()
-                    .border_color(c(ui::line2()))
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
                     .font_family(ui::MONO)
-                    .text_size(px(12.))
-                    .child(f.clone()),
-            );
-        }
-        let mut plan = div().flex().flex_col().gap(px(7.));
-        for (s, state) in &j.plan {
-            plan = plan.child(
-                div()
-                    .flex()
-                    .gap(px(8.))
-                    .text_size(px(12.5))
-                    .text_color(c(if *state == 2 { ui::body() } else { ui::faint() }))
-                    .child(if *state == 2 { "✓" } else { "·" })
-                    .child(s.clone()),
-            );
-        }
+                    .text_size(px(11.))
+                    .text_color(c(ui::faint()))
+                    .child(hint),
+            )
+            .when(review, |d| {
+                d.child(
+                    ui::dbtn("inbox-discard", "Discard", ui::Btn::Ghost)
+                        .on_click(cx.listener(move |this, _, _, cx| this.discard_job(id, cx))),
+                )
+                .child(
+                    ui::dbtn("inbox-send-back", "Send back", ui::Btn::Plain)
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_job(id, cx))),
+                )
+                .when(blocked, |d| {
+                    d.child(
+                        div()
+                            .ml(px(6.))
+                            .font_family(ui::MONO)
+                            .text_size(px(10.5))
+                            .text_color(c(ui::faint()))
+                            .child(if held { "HELD" } else { "CLASH" }),
+                    )
+                })
+                .child(
+                    ui::dbtn("inbox-approve", "Approve", ui::Btn::Primary)
+                        .tooltip(move |window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new(full.clone())
+                                .build(window, cx)
+                        })
+                        .when(blocked, |d| d.opacity(0.35).cursor_default())
+                        .when(!blocked, |d| {
+                            d.on_click(cx.listener(move |this, _, _, cx| this.approve(id, cx)))
+                        }),
+                )
+            })
+            .when(!review, |d| {
+                d.child(
+                    ui::dbtn("inbox-seen", "Mark as seen", ui::Btn::Primary).on_click(cx.listener(
+                        move |this, _, _, cx| {
+                            if let Some(j) = this.crew.store.jobs.iter_mut().find(|j| j.id == id) {
+                                j.seen = true;
+                            }
+                            this.inbox_pick = None;
+                            this.crew.store.save();
+                            cx.notify();
+                        },
+                    )),
+                )
+            });
         div()
             .flex_1()
             .min_w_0()
             .h_full()
             .flex()
             .flex_col()
+            .bg(c(ui::panel()))
+            .child(head)
             .child(
                 div()
                     .id("inbox-detail")
                     .flex_1()
+                    .min_h_0()
                     .overflow_y_scroll()
                     .px(px(28.))
-                    .pt(px(24.))
-                    .pb(px(24.))
+                    .py(px(20.))
                     .flex()
                     .flex_col()
-                    .gap(px(16.))
-                    .child(
-                        div().flex().items_center().gap(px(16.)).child(face).child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .child(
-                                    div()
-                                        .text_size(px(18.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(headline),
-                                )
-                                .child(
-                                    div()
-                                        .mt(px(3.))
-                                        .text_size(px(12.5))
-                                        .text_color(c(ui::muted()))
-                                        .truncate()
-                                        .child(format!(
-                                            "{} · Job #{id} · {}{}",
-                                            j.label(),
-                                            if j.engine.is_empty() {
-                                                "—"
-                                            } else {
-                                                &j.engine
-                                            },
-                                            if j.summary.is_empty() {
-                                                String::new()
-                                            } else {
-                                                format!(" · {}", j.summary)
-                                            }
-                                        )),
-                                ),
-                        ),
-                    )
-                    .child(
-                        ui::card()
-                            .px(px(18.))
-                            .py(px(14.))
-                            .text_size(px(13.5))
-                            .line_height(px(21.))
-                            .text_color(c(ui::body()))
-                            .child(said_lines),
-                    )
-                    .children(self.trouble_card(j, cx).map(|t| t.ml(px(0.))))
-                    .map(|d| match review.take() {
-                        Some(card) => d.child(card.ml(px(0.))),
-                        None => d.child(files),
-                    })
-                    .when(!j.plan.is_empty(), |d| {
-                        d.child(
-                            ui::card()
-                                .px(px(18.))
-                                .py(px(14.))
-                                .flex()
-                                .flex_col()
-                                .gap(px(10.))
-                                .child(
-                                    div()
-                                        .text_size(px(11.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(c(ui::faint()))
-                                        .child("PLAN"),
-                                )
-                                .child(plan),
-                        )
-                    }),
+                    .gap(px(14.))
+                    .child(title)
+                    .child(said_lines)
+                    .children(belt)
+                    .children(clash)
+                    .children(trouble)
+                    .children(in_the_way)
+                    .children(shipping)
+                    .children(lists),
             )
-            .child(
-                div()
-                    .h(px(60.))
-                    .px(px(28.))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .bg(c(ui::panel()))
-                    .border_t_1()
-                    .border_color(c(ui::line()))
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(12.5))
-                            .text_color(c(ui::muted()))
-                            .child(match j.status {
-                                Status::Review => {
-                                    "\u{2191}\u{2193} to move \u{b7} A approves \u{b7} Enter opens the job to send it back."
-                                }
-                                Status::Done => "\u{2191}\u{2193} to move \u{b7} E marks it seen \u{b7} Enter opens the job.",
-                                _ => "\u{2191}\u{2193} to move \u{b7} E marks it seen \u{b7} Enter opens the job to carry on.",
-                            }),
-                    )
-                    .child(
-                        ui::ghost(
-                            "inbox-open",
-                            if matches!(j.status, Status::Done | Status::Review) {
-                                "Send back"
-                            } else {
-                                "Open job"
-                            },
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| this.open_job(id, cx))),
-                    )
-                    .when(j.status == Status::Review && !j.changes.is_empty(), |d| {
-                        let label = self.approve_label(j);
-                        d.child(self.approve_button("inbox-approve", j, label, cx))
-                    })
-                    .when(j.status != Status::Review, |d| {
-                        d.child(
-                            ui::solid_i("inbox-seen", IconName::Check, "Mark as seen").on_click(
-                                cx.listener(move |this, _, _, cx| {
-                                    if let Some(j) =
-                                        this.crew.store.jobs.iter_mut().find(|j| j.id == id)
-                                    {
-                                        j.seen = true;
-                                    }
-                                    this.inbox_pick = None;
-                                    this.crew.store.save();
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                    }),
-            )
+            .child(foot)
     }
 
     /// All jobs: what needs you, what's running and what finished, as cards in
@@ -1048,8 +1033,8 @@ impl Shell {
                     ),
             )
             .map(|d| match frac {
-                Some(f) => d.child(ui::bar(f, accent).h(px(3.))),
-                None => d.child(ui::sweep(accent, 0.).h(px(3.))),
+                Some(f) => d.child(super::channel::dashed_bar(f, ui::t_blue())),
+                None => d.child(super::channel::dashed_bar(0.5, ui::t_blue())),
             })
             .child(
                 div()
@@ -1192,8 +1177,8 @@ impl Shell {
             )
             .when(running, |d| {
                 d.child(match frac {
-                    Some(f) => ui::bar(f, ui::t_blue()).h(px(3.)),
-                    None => ui::sweep(ui::t_blue(), 0.).h(px(3.)),
+                    Some(f) => super::channel::dashed_bar(f, ui::t_blue()),
+                    None => super::channel::dashed_bar(0.5, ui::t_blue()),
                 })
             })
             .child(foot)

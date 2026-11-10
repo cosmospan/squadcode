@@ -684,7 +684,7 @@ pub(super) fn line(head: Option<(AnyElement, Div)>, words: impl IntoElement) -> 
 
 /// The design's dashed progress bar: 6px dashes with 2px gaps in `col`,
 /// `frac` of the way along a hairline track.
-fn dashed_bar(frac: f32, col: u32) -> Div {
+pub(super) fn dashed_bar(frac: f32, col: u32) -> Div {
     let mut dashes = div().h_full().flex().gap(px(2.)).overflow_hidden();
     for _ in 0..80 {
         dashes = dashes.child(div().w(px(6.)).h_full().flex_none().bg(c(col)));

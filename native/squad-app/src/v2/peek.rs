@@ -262,83 +262,8 @@ impl Shell {
             .then(|| self.review_body(job, cx))
             .flatten();
 
-        // Checks: each command and how it went.
-        let checks = (!job.checks.is_empty() || job.checking).then(|| {
-            let mut list = div().flex().flex_col().child(label("Checks"));
-            for ch in &job.checks {
-                let (mark, tone) = if ch.ok {
-                    ("\u{2713}", ui::t_green())
-                } else if !ch.infra.is_empty() {
-                    ("\u{2013}", ui::faint())
-                } else {
-                    ("\u{2715}", ui::t_red())
-                };
-                list = list.child(kv(
-                    mono_ink(ch.command.clone()),
-                    mono_tone(format!("{mark} {}", secs(ch.secs)), tone),
-                ));
-            }
-            if job.checking {
-                list = list.child(kv(
-                    mono_ink("Checker is running them".to_string()),
-                    mono_tone("\u{2026}".to_string(), ui::faint()),
-                ));
-            }
-            list
-        });
-
-        // Changes: each file with its lines.
-        let changes = (!job.changes.is_empty()).then(|| {
-            let n = job.changes.len();
-            let mut list = div().flex().flex_col().child(label(&format!(
-                "Changes \u{b7} {n} {}",
-                if n == 1 { "file" } else { "files" }
-            )));
-            for (i, f) in job.changes.iter().enumerate() {
-                let path = f.path.clone();
-                list = list.child(
-                    kv(
-                        mono_ink(f.path.clone()),
-                        div()
-                            .flex()
-                            .flex_none()
-                            .gap(px(6.))
-                            .font_family(ui::MONO)
-                            .text_size(px(12.))
-                            .when(f.added > 0, |d| {
-                                d.child(
-                                    div()
-                                        .text_color(c(ui::t_green()))
-                                        .child(format!("+{}", f.added)),
-                                )
-                            })
-                            .when(f.removed > 0, |d| {
-                                d.child(
-                                    div()
-                                        .text_color(c(ui::t_red()))
-                                        .child(format!("\u{2212}{}", f.removed)),
-                                )
-                            }),
-                    )
-                    .id(("peek-file", i))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(c(ui::hover())))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.diff_text = this
-                            .crew
-                            .store
-                            .job(id)
-                            .map(|j| super::work::diff(j, &path))
-                            .unwrap_or_default();
-                        this.diff_open = Some((id, path.clone()));
-                        this.ws_tab = Tab::Changes;
-                        this.reply_open = None;
-                        this.open_job(id, cx);
-                    })),
-                );
-            }
-            list
-        });
+        let checks = peek_checks(job);
+        let changes = self.peek_changes(job, cx);
 
         // Log: the job's last few steps, on a line.
         let steps: Vec<(String, u8)> = job
@@ -469,6 +394,63 @@ impl Shell {
                     .children(stats),
             )
             .children(foot)
+    }
+
+    /// A peek list of the files the job changed; a click opens its diff.
+    pub(super) fn peek_changes(&mut self, job: &Job, cx: &mut Context<Self>) -> Option<Div> {
+        let id = job.id;
+        // Changes: each file with its lines.
+        (!job.changes.is_empty()).then(|| {
+            let n = job.changes.len();
+            let mut list = div().flex().flex_col().child(label(&format!(
+                "Changes \u{b7} {n} {}",
+                if n == 1 { "file" } else { "files" }
+            )));
+            for (i, f) in job.changes.iter().enumerate() {
+                let path = f.path.clone();
+                list = list.child(
+                    kv(
+                        mono_ink(f.path.clone()),
+                        div()
+                            .flex()
+                            .flex_none()
+                            .gap(px(6.))
+                            .font_family(ui::MONO)
+                            .text_size(px(12.))
+                            .when(f.added > 0, |d| {
+                                d.child(
+                                    div()
+                                        .text_color(c(ui::t_green()))
+                                        .child(format!("+{}", f.added)),
+                                )
+                            })
+                            .when(f.removed > 0, |d| {
+                                d.child(
+                                    div()
+                                        .text_color(c(ui::t_red()))
+                                        .child(format!("\u{2212}{}", f.removed)),
+                                )
+                            }),
+                    )
+                    .id(("peek-file", i))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(c(ui::hover())))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.diff_text = this
+                            .crew
+                            .store
+                            .job(id)
+                            .map(|j| super::work::diff(j, &path))
+                            .unwrap_or_default();
+                        this.diff_open = Some((id, path.clone()));
+                        this.ws_tab = Tab::Changes;
+                        this.reply_open = None;
+                        this.open_job(id, cx);
+                    })),
+                );
+            }
+            list
+        })
     }
 
     /// The seatbelt's catch, red: what it found and where, then the two ways on.
@@ -877,6 +859,34 @@ impl Shell {
             )
             .into_any_element()
     }
+}
+
+/// A peek list of the job's checks: each command and how it went.
+pub(super) fn peek_checks(job: &Job) -> Option<Div> {
+    // Checks: each command and how it went.
+    (!job.checks.is_empty() || job.checking).then(|| {
+        let mut list = div().flex().flex_col().child(label("Checks"));
+        for ch in &job.checks {
+            let (mark, tone) = if ch.ok {
+                ("\u{2713}", ui::t_green())
+            } else if !ch.infra.is_empty() {
+                ("\u{2013}", ui::faint())
+            } else {
+                ("\u{2715}", ui::t_red())
+            };
+            list = list.child(kv(
+                mono_ink(ch.command.clone()),
+                mono_tone(format!("{mark} {}", secs(ch.secs)), tone),
+            ));
+        }
+        if job.checking {
+            list = list.child(kv(
+                mono_ink("Checker is running them".to_string()),
+                mono_tone("\u{2026}".to_string(), ui::faint()),
+            ));
+        }
+        list
+    })
 }
 
 #[cfg(test)]

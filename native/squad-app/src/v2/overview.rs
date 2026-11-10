@@ -201,23 +201,54 @@ impl Shell {
                 n => format!("{n} files changed"),
             });
         }
-        let title = div()
+        // The header bar: the project, its line, and Reveal and Terminal.
+        let reveal_path = std::path::PathBuf::from(&here);
+        let head = div()
+            .h(px(64.))
+            .flex_none()
+            .px(px(20.))
             .flex()
-            .items_baseline()
+            .items_center()
             .gap(px(10.))
+            .border_b_1()
+            .border_color(c(ui::line()))
             .child(
                 div()
-                    .text_size(px(22.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c(ui::ink()))
-                    .child(folder.name.clone()),
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .items_baseline()
+                    .gap(px(10.))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(19.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child(folder.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_family(ui::MONO)
+                            .text_size(px(12.))
+                            .text_color(c(ui::faint()))
+                            .child(sub.join(" \u{b7} ")),
+                    ),
             )
             .child(
-                div()
-                    .font_family(ui::MONO)
-                    .text_size(px(12.))
-                    .text_color(c(ui::faint()))
-                    .child(sub.join(" \u{b7} ")),
+                ui::dbtn_i("ov-reveal", IconName::FolderOpen, "Reveal", ui::Btn::Ghost)
+                    .on_click(cx.listener(move |_, _, _, cx| cx.reveal_path(&reveal_path))),
+            )
+            .child(
+                ui::dbtn_i(
+                    "ov-term",
+                    IconName::SquareTerminal,
+                    "Terminal",
+                    ui::Btn::Plain,
+                )
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_project_term(window, cx))),
             );
 
         let run = self.overview_run(&here, cx);
@@ -225,54 +256,83 @@ impl Shell {
         let work = self.overview_work(&folder, cx);
         let lately = self.overview_lately(&folder.name, &jobs, cx);
         let issues = self.overview_issues(&here, &jobs, cx);
-        let git = panel()
+        // Git down the right, as a side panel with its own header.
+        let git = div()
             .w(px(GIT_W))
             .flex_none()
-            .gap(px(0.))
-            .py(px(4.))
-            .child(self.git_sections(&here, &jobs, cx));
-
-        div()
-            .id("overview")
-            .size_full()
-            .overflow_y_scroll()
-            .px(px(32.))
-            .pt(px(28.))
-            .pb(px(40. + super::DOCK_ROOM))
+            .h_full()
+            .flex()
+            .flex_col()
+            .bg(c(ui::panel()))
+            .border_l_1()
+            .border_color(c(ui::line()))
             .child(
                 div()
-                    .max_w(px(MAX_W))
+                    .h(px(50.))
+                    .flex_none()
+                    .px(px(18.))
+                    .flex()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(c(ui::line()))
+                    .font_family(ui::MONO)
+                    .text_size(px(11.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(c(ui::ink()))
+                    .child("GIT"),
+            )
+            .child(
+                div()
+                    .id("overview-git")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px(px(18.))
+                    .pb(px(24.))
+                    .child(self.git_sections(&here, &jobs, cx)),
+            );
+
+        div()
+            .size_full()
+            .flex()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
                     .flex()
                     .flex_col()
-                    .gap(px(22.))
-                    .child(title)
+                    .child(head)
                     .child(
                         div()
-                            .flex()
-                            .items_start()
-                            .gap(px(16.))
+                            .id("overview")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .px(px(24.))
+                            .pt(px(20.))
+                            .pb(px(40. + super::DOCK_ROOM))
                             .child(
                                 div()
-                                    .flex_1()
-                                    .min_w_0()
+                                    .max_w(px(MAX_W))
                                     .flex()
                                     .flex_col()
-                                    .gap(px(16.))
+                                    .gap(px(14.))
                                     .child(run)
                                     .child(
                                         div()
                                             .flex()
                                             .items_start()
-                                            .gap(px(16.))
+                                            .gap(px(14.))
                                             .child(setup.flex_1().min_w_0())
                                             .child(work.flex_1().min_w_0()),
                                     )
-                                    .child(issues)
-                                    .child(lately),
-                            )
-                            .child(git),
+                                    .child(lately)
+                                    .child(issues),
+                            ),
                     ),
             )
+            .child(git)
             .into_any_element()
     }
 
@@ -538,64 +598,64 @@ impl Shell {
     /// run and what Approve does.
     fn overview_work(&mut self, folder: &store::Folder, cx: &mut Context<Self>) -> Div {
         let st = cx.global::<crate::settings::AppSettings>().clone();
-        let level = match (st.v2_plan_first, st.v2_auto_merge) {
-            (true, _) => "Ask a lot: Peek's plan, the changes and the merge wait for you",
-            (false, true) => "Hands off: approved PRs merge once checks pass",
-            (false, false) => "Balanced: you approve, then merge",
-        };
         let here = if cfg!(target_os = "macos") {
             "This Mac"
         } else {
             "This computer"
         };
-        let runs = match self.crew.link.as_ref() {
-            Some(_) => format!("Jobs run on {here}, or on your server"),
-            None => format!("Jobs run on {here}"),
+        let level = match (st.v2_plan_first, st.v2_auto_merge) {
+            (true, _) => "Ask before anything",
+            (false, true) => "Merge when checks pass",
+            (false, false) => "Ask before merging",
+        }
+        .to_string();
+        let where_ = if self.crew.link.is_some() {
+            format!("{here} or your server")
+        } else {
+            here.to_string()
         };
         let ship = match folder.ship.as_str() {
-            "pr" => "Approve opens a pull request",
-            "merge" => "Approve merges into your branch",
-            _ => "Approve opens a pull request when there's a remote, else merges",
-        };
-        let line = |text: String| {
-            div()
-                .flex()
-                .items_start()
-                .gap(px(8.))
-                .text_size(px(13.))
-                .line_height(px(19.))
-                .text_color(c(ui::body()))
-                .child(
-                    div()
-                        .mt(px(7.))
-                        .size(px(5.))
-                        .flex_none()
-                        .rounded_full()
-                        .bg(c(ui::faint())),
-                )
-                .child(div().flex_1().min_w_0().child(text))
-        };
+            "pr" => "Pull request",
+            "merge" => "Merge here",
+            _ => "Pull request or merge",
+        }
+        .to_string();
         panel()
-            .child(card_head(
-                "How work runs here",
-                Some("The same everywhere, from Settings".into()),
-            ))
+            .gap(px(8.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .child(card_head("How work runs here", None))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .id("ov-work")
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::accent_text()))
+                            .cursor_pointer()
+                            .child("Change")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.go(Place::Settings(super::prefs::Pane::Work), cx)
+                            })),
+                    ),
+            )
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(6.))
-                    .child(line(level.to_string()))
-                    .child(line(runs))
-                    .child(line(ship.to_string())),
+                    .child(field("level", code(level)))
+                    .child(field("where", code(where_)))
+                    .child(field("ship", code(ship)))
+                    .child(field("seatbelt", code("On \u{b7} secrets, .env".into()))),
             )
-            .child(div().flex().child(
-                ui::ghost_i("ov-work", IconName::SlidersHorizontal, "Change").on_click(
-                    cx.listener(|this, _, _, cx| {
-                        this.go(Place::Settings(super::prefs::Pane::Work), cx)
-                    }),
-                ),
-            ))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(c(ui::faint()))
+                    .child("Same as your defaults in Settings."),
+            )
     }
 
     /// The project's open issues, each one a click from a job, what the crew

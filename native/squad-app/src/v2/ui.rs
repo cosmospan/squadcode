@@ -270,7 +270,7 @@ pub fn chrome(el: Div) -> Div {
 }
 
 /// A card's corner radius.
-pub const CARD_R: f32 = 10.;
+pub const CARD_R: f32 = 6.;
 
 /// The ground under everything: the sidebar sits on it and the page canvas
 /// floats over it. A shade darker than the page in every theme, keeping a
@@ -679,6 +679,22 @@ pub enum Btn {
 
 /// The design's small button (`.btn`): 28 tall, radius 4, 12.5px.
 pub fn dbtn(id: impl Into<ElementId>, label: impl Into<SharedString>, kind: Btn) -> Stateful<Div> {
+    dbtn_base(id, kind).child(label.into())
+}
+
+/// A design button led by an icon, like "▣ Terminal".
+pub fn dbtn_i(
+    id: impl Into<ElementId>,
+    icon: IconName,
+    label: impl Into<SharedString>,
+    kind: Btn,
+) -> Stateful<Div> {
+    dbtn_base(id, kind)
+        .child(Icon::new(icon).size(px(13.)))
+        .child(label.into())
+}
+
+fn dbtn_base(id: impl Into<ElementId>, kind: Btn) -> Stateful<Div> {
     let d = div()
         .id(id)
         .h(px(28.))
@@ -714,5 +730,4 @@ pub fn dbtn(id: impl Into<ElementId>, label: impl Into<SharedString>, kind: Btn)
             .hover(|s| s.bg(c(hover())).text_color(c(ink())))
             .active(|s| s.bg(c(press()))),
     }
-    .child(label.into())
 }

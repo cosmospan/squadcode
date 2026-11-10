@@ -51,11 +51,6 @@ impl Shell {
         b.on_click(cx.listener(move |this, _, _, cx| this.approve(id, cx)))
     }
 
-    /// The review card at the end of a job's feed, once it has changes.
-    pub(super) fn review_card(&mut self, job: &Job, cx: &mut Context<Self>) -> Option<Div> {
-        self.review_body(job, cx).map(|d| d.ml(px(40.)))
-    }
-
     /// Checker's run of the project's checks on a job: the verdict with Run
     /// again, then each check with its time, and the end of a failing one's
     /// output. The review and the workspace's Checks tab both show it.
