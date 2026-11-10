@@ -86,17 +86,18 @@ fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
     });
 }
 
-/// A small on/off switch.
+/// A small on/off switch: lime with a dark knob when on, a quiet track
+/// with a white knob when off.
 pub(super) fn switch(on: bool) -> Div {
     div()
-        .w(px(34.))
-        .h(px(20.))
+        .w(px(30.))
+        .h(px(18.))
         .flex_none()
         .rounded_full()
         .bg(c(if on { ui::pick_fill() } else { ui::off() }))
         .border_1()
         .border_color(c(if on {
-            super::theme::mix(ui::pick_fill(), ui::ink(), 0.2)
+            super::theme::mix(ui::pick_fill(), ui::ink(), 0.25)
         } else {
             ui::line_hi()
         }))
@@ -105,41 +106,42 @@ pub(super) fn switch(on: bool) -> Div {
             div()
                 .absolute()
                 .top(px(2.))
-                .left(px(if on { 16. } else { 2. }))
-                .size(px(14.))
+                .left(px(if on { 14. } else { 2. }))
+                .size(px(12.))
                 .rounded_full()
-                .bg(c(0xFFFFFF)),
+                .bg(c(if on { ui::pick_on() } else { 0xFFFFFF })),
         )
 }
 
-/// One setting: what it is and what it does on the left, its control on the right.
+/// One setting: what it is and what it does on the left, its control on the
+/// right, under a hairline that stops short of the card's edges.
 fn row(title: &'static str, line: impl Into<SharedString>, control: impl IntoElement) -> Div {
     div()
-        .px(px(18.))
-        .py(px(14.))
+        .mx(px(14.))
+        .py(px(10.))
         .flex()
         .items_center()
         .gap(px(space::M))
         .border_t_1()
-        .border_color(c(ui::line2()))
+        .border_color(c(ui::line()))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .gap(px(3.))
+                .gap(px(1.))
                 .child(
                     div()
-                        .text_size(px(13.5))
-                        .font_weight(FontWeight::MEDIUM)
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(c(ui::ink()))
                         .child(title),
                 )
                 .child(
                     div()
-                        .text_size(px(12.5))
-                        .text_color(c(ui::muted()))
+                        .text_size(px(12.))
+                        .text_color(c(ui::body()))
                         .child(line.into()),
                 ),
         )
@@ -211,23 +213,32 @@ fn face_row(
         .child(control)
 }
 
-/// A card of settings rows under a small heading.
+/// A card of settings rows under a mono heading.
 fn group(title: &'static str, rows: Vec<Div>) -> Div {
-    let mut card = ui::card().overflow_hidden().flex().flex_col();
-    card = card.child(
-        div()
-            .px(px(18.))
-            .pt(px(14.))
-            .pb(px(10.))
-            .text_size(px(11.5))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(c(ui::muted()))
-            .child(title),
-    );
-    for r in rows {
-        card = card.child(r);
+    let mut card = div()
+        .flex()
+        .flex_col()
+        .rounded(px(6.))
+        .bg(c(ui::raised()))
+        .border_1()
+        .border_color(c(ui::line()))
+        .overflow_hidden();
+    for (i, r) in rows.into_iter().enumerate() {
+        card = card.child(if i == 0 { r.border_t(px(0.)) } else { r });
     }
-    card
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(7.))
+        .child(
+            div()
+                .font_family(ui::MONO)
+                .text_size(px(10.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c(ui::faint()))
+                .child(title.to_uppercase()),
+        )
+        .child(card)
 }
 
 /// A row of options with one picked, on a sunken track.
@@ -270,46 +281,6 @@ fn segment(id: impl Into<ElementId>, label: impl Into<SharedString>, on: bool) -
             }
         })
         .child(label.into())
-}
-
-/// − value + for a number setting.
-fn stepper(value: impl Into<SharedString>, down: Stateful<Div>, up: Stateful<Div>) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .rounded(px(8.))
-        .border_1()
-        .border_color(c(ui::line()))
-        .bg(c(ui::raised()))
-        .child(down)
-        .child(
-            div()
-                .min_w(px(78.))
-                .px(px(6.))
-                .flex()
-                .justify_center()
-                .text_size(px(12.5))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(c(ui::ink()))
-                .child(value.into()),
-        )
-        .child(up)
-}
-
-fn step_button(id: impl Into<ElementId>, icon: IconName) -> Stateful<Div> {
-    div()
-        .id(id)
-        .size(px(28.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_color(c(ui::body()))
-        .cursor_pointer()
-        .map(|d| super::motion::hover_fill(d, None, ui::hover()))
-        .hover(|s| s.text_color(c(ui::ink())))
-        .active(|s| s.bg(c(ui::press())))
-        .child(Icon::new(icon).size(px(13.)))
 }
 
 /// The label in front of a row of choices in the Mascot customizer.
@@ -459,45 +430,21 @@ impl Shell {
             ("CONNECTIONS", &[Pane::Server]),
         ];
         let mut col = div()
-            .w(px(210.))
+            .w(px(236.))
             .h_full()
             .flex_none()
             .flex()
             .flex_col()
-            .px(px(10.))
-            .pt(px(22.))
+            .px(px(8.))
+            .pt(px(14.))
             .border_r_1()
             .border_color(c(ui::line2()))
             .bg(c(ui::bg()))
-            // Settings has the window, so the way out is at its top.
             .child(
                 div()
-                    .id("settings-back")
-                    .h(px(28.))
-                    .px(px(8.))
-                    .mb(px(8.))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .rounded(px(7.))
-                    .text_size(px(12.5))
-                    .text_color(c(ui::muted()))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
-                    .child(Icon::new(IconName::ArrowLeft).size(px(14.)))
-                    .child("Back")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.back(cx);
-                        if matches!(this.place, Place::Settings(_)) {
-                            this.go(Place::Today, cx);
-                        }
-                    })),
-            )
-            .child(
-                div()
-                    .px(px(10.))
-                    .pb(px(14.))
-                    .text_size(px(17.))
+                    .px(px(4.))
+                    .pb(px(16.))
+                    .text_size(px(15.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c(ui::ink()))
                     .child("Settings"),
@@ -505,8 +452,8 @@ impl Shell {
         for (label, panes) in groups {
             col = col.child(
                 div()
-                    .px(px(10.))
-                    .pt(px(10.))
+                    .px(px(9.))
+                    .pt(px(14.))
                     .pb(px(6.))
                     .font_family(ui::MONO)
                     .text_size(px(10.5))
@@ -520,12 +467,12 @@ impl Shell {
                     div()
                         .id(("settings-pane", p as usize))
                         .h(px(31.))
-                        .px(px(10.))
+                        .px(px(9.))
                         .mb(px(1.))
                         .flex()
                         .items_center()
                         .gap(px(9.))
-                        .rounded(px(8.))
+                        .rounded(px(4.))
                         .border_1()
                         .text_size(px(13.))
                         .cursor_pointer()
@@ -545,7 +492,7 @@ impl Shell {
                                             .top(px(-1.))
                                             .bottom(px(-1.))
                                             .w(px(4.))
-                                            .rounded_l(px(8.))
+                                            .rounded_l(px(4.))
                                             .bg(c(ui::pick_fill())),
                                     )
                             } else {
@@ -584,31 +531,136 @@ impl Shell {
                 div()
                     .w_full()
                     .max_w(px(980.))
-                    .px(px(28.))
-                    .pt(px(24.))
+                    .px(px(36.))
+                    .pt(px(26.))
                     .pb(px(space::XL + super::DOCK_ROOM))
                     .flex()
                     .flex_col()
-                    .gap(px(space::L))
+                    .gap(px(22.))
                     .child(
                         div()
                             .child(
                                 div()
-                                    .text_size(px(24.))
+                                    .text_size(px(22.))
                                     .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c(ui::ink()))
                                     .child(title),
                             )
                             .child(
                                 div()
                                     .mt(px(6.))
-                                    .text_size(px(13.5))
-                                    .text_color(c(ui::muted()))
+                                    .text_size(px(12.5))
+                                    .text_color(c(ui::body()))
                                     .child(line),
                             ),
                     )
                     .child(body),
             )
             .into_any_element()
+    }
+
+    /// A drop-down: the picked option with a chevron, and the list under it
+    /// while open. `set` saves option `i`.
+    fn select(
+        &mut self,
+        id: &'static str,
+        labels: Vec<String>,
+        cur: usize,
+        set: fn(&mut AppSettings, usize),
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let open = self.select_open == Some(id);
+        let shown = labels.get(cur).cloned().unwrap_or_default();
+        let button = div()
+            .id(id)
+            .h(px(28.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(4.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(if open {
+                ui::accent_bar()
+            } else {
+                ui::line_hi()
+            }))
+            .text_size(px(12.5))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(c(ui::ink()))
+            .cursor_pointer()
+            .hover(|s| s.bg(c(ui::hover())))
+            .child(shown)
+            .child(
+                Icon::new(IconName::ChevronDown)
+                    .size(px(12.))
+                    .text_color(c(ui::body())),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.select_open = if this.select_open == Some(id) {
+                    None
+                } else {
+                    Some(id)
+                };
+                cx.notify();
+            }));
+        let mut d = div().relative().flex_none().child(button);
+        if open {
+            let mut list = div()
+                .id((id, 9999usize))
+                .absolute()
+                .top(px(32.))
+                .right_0()
+                .min_w(px(150.))
+                .py(px(4.))
+                .rounded(px(6.))
+                .bg(c(ui::raised()))
+                .border_1()
+                .border_color(c(ui::line_hi()))
+                .shadow(vec![BoxShadow {
+                    color: ca(0x000000, 0.14),
+                    offset: point(px(0.), px(8.)),
+                    blur_radius: px(24.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }])
+                .occlude()
+                .flex()
+                .flex_col();
+            for (i, label) in labels.into_iter().enumerate() {
+                let on = i == cur;
+                list = list.child(
+                    div()
+                        .id((id, i))
+                        .h(px(28.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .text_size(px(12.5))
+                        .text_color(c(ui::ink()))
+                        .when(on, |d| d.font_weight(FontWeight::SEMIBOLD))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(c(ui::hover())))
+                        .child(div().flex_1().child(label))
+                        .when(on, |d| {
+                            d.child(
+                                Icon::new(IconName::Check)
+                                    .size(px(12.))
+                                    .text_color(c(ui::accent_text())),
+                            )
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            save(cx, |st| set(st, i));
+                            this.select_open = None;
+                            cx.notify();
+                        })),
+                );
+            }
+            d = d.child(deferred(list).with_priority(2));
+        }
+        d
     }
 
     /// How work runs: one choice for how often the crew checks with you, the
@@ -1048,11 +1100,13 @@ impl Shell {
 
     fn settings_general(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let st = cx.global::<AppSettings>().clone();
+        // A switch; a sound's switch plays it when turned on, so you hear it.
         let toggle = |id: &'static str,
                       title: &'static str,
                       line: &'static str,
                       on: bool,
                       set: fn(&mut AppSettings, bool),
+                      cue: Option<crate::sounds::Cue>,
                       cx: &mut Context<Self>| {
             row(
                 title,
@@ -1063,88 +1117,7 @@ impl Shell {
                     .child(switch(on))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         save(cx, |st| set(st, !on));
-                        cx.notify();
-                    })),
-            )
-        };
-        let number = |id: &'static str,
-                      title: &'static str,
-                      line: &'static str,
-                      shown: String,
-                      get: fn(&AppSettings) -> u32,
-                      set: fn(&mut AppSettings, u32),
-                      step: u32,
-                      cx: &mut Context<Self>| {
-            row(
-                title,
-                line,
-                stepper(
-                    shown,
-                    step_button((id, 0usize), IconName::Minus).on_click(cx.listener(
-                        move |_, _, _, cx| {
-                            save(cx, |st| {
-                                let v = get(st);
-                                set(st, v.saturating_sub(step));
-                            });
-                            cx.notify();
-                        },
-                    )),
-                    step_button((id, 1usize), IconName::Plus).on_click(cx.listener(
-                        move |_, _, _, cx| {
-                            save(cx, |st| {
-                                let v = get(st);
-                                set(st, v.saturating_add(step));
-                            });
-                            cx.notify();
-                        },
-                    )),
-                ),
-            )
-        };
-        let dollars = |v: u32| {
-            if v == 0 {
-                "No limit".to_string()
-            } else {
-                format!("${v}")
-            }
-        };
-        let minutes = |v: u32| {
-            if v == 0 {
-                "Never".to_string()
-            } else {
-                format!("{v} min")
-            }
-        };
-
-        let look = group(
-            "LOOK AND FEEL",
-            vec![toggle(
-                "set-motion",
-                "Animations",
-                "The crew moves and screens ease in. Off, everything holds still.",
-                st.animations,
-                |s, v| s.animations = v,
-                cx,
-            )],
-        );
-        // A sound's switch plays it when turned on, so you hear what you picked.
-        let sound = |id: &'static str,
-                     title: &'static str,
-                     line: &'static str,
-                     cue: crate::sounds::Cue,
-                     on: bool,
-                     set: fn(&mut AppSettings, bool),
-                     cx: &mut Context<Self>| {
-            row(
-                title,
-                line,
-                div()
-                    .id(id)
-                    .cursor_pointer()
-                    .child(switch(on))
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        save(cx, |st| set(st, !on));
-                        if !on {
+                        if let (false, Some(cue)) = (on, cue) {
                             let style = cx.global::<AppSettings>().sound_style.clone();
                             crate::sounds::preview(crate::sounds::Style::parse(&style), cue);
                         }
@@ -1152,162 +1125,254 @@ impl Shell {
                     })),
             )
         };
-        let mut alert_rows = vec![
-            toggle(
-                "set-notify",
-                "Desktop notifications",
-                "A notification when a job finishes or a bot needs you.",
-                st.notifications,
-                |s, v| s.notifications = v,
-                cx,
-            ),
-            sound(
-                "set-sounds",
-                "Sounds",
-                "A short sound when something needs you. Quiet for the job or thread you're looking at.",
-                crate::sounds::Cue::NeedsYou,
-                st.sounds,
-                |s, v| s.sounds = v,
-                cx,
-            ),
-        ];
-        if st.sounds {
-            let picked = crate::sounds::Style::parse(&st.sound_style);
-            let mut styles = div().flex_none().flex().gap(px(6.));
-            for (i, style) in crate::sounds::Style::ALL.into_iter().enumerate() {
-                styles = styles.child(
-                    ui::pill(("sound-style", i), style.label(), style == picked).on_click(
-                        cx.listener(move |_, _, _, cx| {
-                            save(cx, |st| st.sound_style = style.id().to_string());
-                            crate::sounds::preview(style, crate::sounds::Cue::NeedsYou);
-                            cx.notify();
-                        }),
-                    ),
-                );
-            }
-            alert_rows.push(row(
-                "Sound",
-                match picked {
-                    crate::sounds::Style::Bubble => "Quick blips that slide in pitch.",
-                    crate::sounds::Style::Marimba => "Warm, woody notes.",
-                    crate::sounds::Style::Pluck => "A soft plucked string.",
-                    crate::sounds::Style::Glass => "Airy bells with a shimmer.",
-                },
-                styles,
-            ));
-            alert_rows.push(sound(
-                "set-sound-ask",
-                "When a bot needs you",
-                "A bot asks for your OK or asks you to choose.",
-                crate::sounds::Cue::NeedsYou,
-                st.sound_needs_you,
-                |s, v| s.sound_needs_you = v,
-                cx,
-            ));
-            alert_rows.push(sound(
-                "set-sound-done",
-                "When a job is done",
-                "A job finishes, or its changes are ready to review.",
-                crate::sounds::Cue::Done,
-                st.sound_done,
-                |s, v| s.sound_done = v,
-                cx,
-            ));
-            alert_rows.push(sound(
-                "set-sound-failed",
-                "When a job fails",
-                "A job stops with a problem.",
-                crate::sounds::Cue::Failed,
-                st.sound_failed,
-                |s, v| s.sound_failed = v,
-                cx,
-            ));
-        }
-        alert_rows.push(number(
-            "set-stuck",
-            "Flag a stuck bot after",
-            "A bot quiet this long is marked as maybe stuck, so you can look in.",
-            minutes(st.stuck_after_mins),
-            |s| s.stuck_after_mins,
-            |s, v| s.stuck_after_mins = v,
-            5,
+        use crate::sounds::{Cue, Style};
+
+        let picked = Style::parse(&st.sound_style);
+        let style_at = Style::ALL.iter().position(|s| *s == picked).unwrap_or(0);
+        let style_pick = self.select(
+            "set-sound-style",
+            Style::ALL.iter().map(|s| s.label().to_string()).collect(),
+            style_at,
+            |st, i| {
+                let style = Style::ALL[i];
+                st.sound_style = style.id().to_string();
+                crate::sounds::preview(style, Cue::NeedsYou);
+            },
             cx,
-        ));
-        let alerts = group("ALERTS", alert_rows);
+        );
+        let sounds_on = st.sounds;
+        let sounds = row(
+            "Sounds",
+            format!(
+                "{}: {}",
+                picked.label(),
+                match picked {
+                    Style::Bubble => "quick blips that slide in pitch",
+                    Style::Marimba => "warm, woody notes",
+                    Style::Pluck => "a soft plucked string",
+                    Style::Glass => "airy bells with a shimmer",
+                }
+            ),
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .child(style_pick)
+                .child(
+                    div()
+                        .id("set-sounds")
+                        .cursor_pointer()
+                        .child(switch(sounds_on))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            save(cx, |st| st.sounds = !sounds_on);
+                            if !sounds_on {
+                                let style = cx.global::<AppSettings>().sound_style.clone();
+                                crate::sounds::preview(Style::parse(&style), Cue::NeedsYou);
+                            }
+                            cx.notify();
+                        })),
+                ),
+        );
+
+        // Drop-downs over a few sensible values, keeping one set by hand.
+        fn options(mut v: Vec<u32>, cur: u32) -> (Vec<u32>, usize) {
+            if !v.contains(&cur) {
+                v.push(cur);
+                v.sort();
+            }
+            let at = v.iter().position(|x| *x == cur).unwrap_or(0);
+            (v, at)
+        }
+        let (stuck, stuck_at) = options(vec![0, 5, 10, 15, 20, 30, 60], st.stuck_after_mins);
+        let stuck_labels = stuck
+            .iter()
+            .map(|m| match m {
+                0 => "Never".to_string(),
+                1 => "1 minute".to_string(),
+                m => format!("{m} minutes"),
+            })
+            .collect();
+        let stuck_row = row(
+            "Flag a stuck bot after",
+            "A bot quiet this long is marked so you can look in",
+            self.select(
+                "set-stuck",
+                stuck_labels,
+                stuck_at,
+                |st, i| {
+                    let (v, _) = options(vec![0, 5, 10, 15, 20, 30, 60], st.stuck_after_mins);
+                    st.stuck_after_mins = v[i];
+                },
+                cx,
+            ),
+        );
+        let dollars = |v: &Vec<u32>| {
+            v.iter()
+                .map(|d| {
+                    if *d == 0 {
+                        "No limit".to_string()
+                    } else {
+                        format!("${d}")
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let (day, day_at) = options(vec![0, 5, 10, 20, 50, 100], st.daily_limit_usd);
+        let (job, job_at) = options(vec![0, 1, 2, 5, 10, 20], st.session_limit_usd);
+        let day_pick = self.select(
+            "set-day-limit",
+            dollars(&day),
+            day_at,
+            |st, i| {
+                let (v, _) = options(vec![0, 5, 10, 20, 50, 100], st.daily_limit_usd);
+                st.daily_limit_usd = v[i];
+            },
+            cx,
+        );
+        let job_pick = self.select(
+            "set-job-limit",
+            dollars(&job),
+            job_at,
+            |st, i| {
+                let (v, _) = options(vec![0, 1, 2, 5, 10, 20], st.session_limit_usd);
+                st.session_limit_usd = v[i];
+            },
+            cx,
+        );
+        let motion = self.select(
+            "set-motion",
+            vec!["Full".into(), "Off".into()],
+            if st.animations { 0 } else { 1 },
+            |st, i| st.animations = i == 0,
+            cx,
+        );
+
+        let alerts = group(
+            "Alerts",
+            vec![
+                toggle(
+                    "set-notify",
+                    "Desktop notifications",
+                    "When a job finishes or a bot needs you",
+                    st.notifications,
+                    |s, v| s.notifications = v,
+                    None,
+                    cx,
+                ),
+                sounds,
+                toggle(
+                    "set-sound-ask",
+                    "When a bot needs you",
+                    "It asks for your OK or a choice",
+                    st.sound_needs_you,
+                    |s, v| s.sound_needs_you = v,
+                    Some(Cue::NeedsYou),
+                    cx,
+                )
+                .when(!sounds_on, |d| d.opacity(0.5)),
+                toggle(
+                    "set-sound-done",
+                    "When a job is done",
+                    "Or its changes are ready to review",
+                    st.sound_done,
+                    |s, v| s.sound_done = v,
+                    Some(Cue::Done),
+                    cx,
+                )
+                .when(!sounds_on, |d| d.opacity(0.5)),
+                toggle(
+                    "set-sound-failed",
+                    "When a job fails",
+                    "It stops with a problem",
+                    st.sound_failed,
+                    |s, v| s.sound_failed = v,
+                    Some(Cue::Failed),
+                    cx,
+                )
+                .when(!sounds_on, |d| d.opacity(0.5)),
+                stuck_row,
+            ],
+        );
         let work = group(
-            "WHILE THE CREW WORKS",
+            "While the crew works",
             vec![
                 toggle(
                     "set-awake",
                     "Keep the computer awake",
-                    "Stops the computer sleeping while a job runs.",
+                    "While a job runs",
                     st.keep_awake,
                     |s, v| s.keep_awake = v,
+                    None,
                     cx,
                 ),
                 toggle(
                     "set-credit",
                     "Credit the agent in commits",
-                    "Adds a line naming the agent to commits made from Squad Code.",
+                    "Adds a line naming the agent",
                     st.attribution,
                     |s, v| s.attribution = v,
+                    None,
                     cx,
                 ),
                 toggle(
                     "set-confirm",
                     "Ask before deleting",
-                    "Confirm before a job and its work are thrown away.",
+                    "Before a job and its work go",
                     st.confirm_delete,
                     |s, v| s.confirm_delete = v,
+                    None,
                     cx,
                 ),
                 toggle(
                     "set-tidy",
                     "Remove the worktree with the job",
-                    "Deleting a job also deletes the copy of the code it worked in.",
+                    "Its copy of the code goes too",
                     st.remove_worktree_on_delete,
                     |s, v| s.remove_worktree_on_delete = v,
+                    None,
                     cx,
                 ),
             ],
         );
         let limits = group(
-            "SPENDING LIMITS",
+            "Spending limits",
             vec![
-                number(
-                    "set-day-limit",
+                row(
                     "Each day",
-                    "Jobs wait once the crew has spent this much today.",
-                    dollars(st.daily_limit_usd),
-                    |s| s.daily_limit_usd,
-                    |s, v| s.daily_limit_usd = v,
-                    5,
-                    cx,
+                    "Jobs wait once the crew has spent this",
+                    day_pick,
                 ),
-                number(
-                    "set-job-limit",
-                    "Each job",
-                    "A job stops and asks you once it has spent this much.",
-                    dollars(st.session_limit_usd),
-                    |s| s.session_limit_usd,
-                    |s, v| s.session_limit_usd = v,
-                    1,
-                    cx,
-                ),
+                row("Each job", "A job stops and asks you at this", job_pick),
             ],
+        );
+        let look = group(
+            "Look and feel",
+            vec![row(
+                "Animations",
+                "Breathing borders, feed fade and Peek",
+                motion,
+            )],
         );
         Self::page(
             "settings-general",
             "General",
-            "How Squad Code behaves while your crew works. Changes save straight away.",
+            "Alerts, motion and limits.",
             div()
                 .flex()
-                .flex_col()
-                .gap(px(space::M))
-                .child(look)
-                .child(alerts)
-                .child(work)
-                .child(limits),
+                .items_start()
+                .gap(px(22.))
+                .child(div().flex_1().min_w_0().child(alerts))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(20.))
+                        .child(work)
+                        .child(limits)
+                        .child(look),
+                ),
         )
     }
 

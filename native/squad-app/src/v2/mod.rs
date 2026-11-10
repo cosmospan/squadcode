@@ -650,6 +650,8 @@ pub struct Shell {
     /// the files the job changed.
     file_pick: Option<String>,
     files_changed_only: bool,
+    /// The Settings drop-down that is open, by its id.
+    select_open: Option<&'static str>,
     /// Job folders whose changed files' folders were opened once already.
     files_seeded: std::collections::HashSet<String>,
     /// The picked file as read: its path, lines, and the lines the job
@@ -1456,6 +1458,7 @@ impl Shell {
             files_seen: None,
             file_pick: None,
             files_changed_only: false,
+            select_open: None,
             files_seeded: Default::default(),
             job_view: None,
             server_input,
