@@ -751,41 +751,14 @@ impl Shell {
                 )
                 .into_any_element(),
             },
-            Tab::Checks => {
-                // Checker's run when there is one, then where the job stands
-                // and its plan.
-                let checks = (!job.checks.is_empty() || job.checking).then(|| {
-                    ui::card()
-                        .overflow_hidden()
-                        .child(self.checks_block(&job, cx))
-                });
-                let none = (job.checks.is_empty() && !job.checking).then(|| {
-                    div().text_size(px(13.)).text_color(c(ui::muted())).child(
-                        if job.mode.writes() {
-                            "Checker runs the project's checks when the bot finishes."
-                        } else {
-                            "A job that only reads has no checks to run."
-                        },
-                    )
-                });
-                div()
-                    .id("ws-checks")
-                    .size_full()
-                    .overflow_y_scroll()
-                    .px(px(24.))
-                    .py(px(16.))
-                    .child(
-                        div()
-                            .max_w(px(720.))
-                            .flex()
-                            .flex_col()
-                            .gap(px(14.))
-                            .children(checks)
-                            .children(none)
-                            .child(self.job_details(&job, cx)),
-                    )
-                    .into_any_element()
-            }
+            Tab::Checks => div()
+                .id("ws-checks")
+                .size_full()
+                .overflow_y_scroll()
+                .px(px(18.))
+                .py(px(16.))
+                .child(self.checks_tab(&job, cx))
+                .into_any_element(),
             Tab::Browser => {
                 if self.web.job == id && self.web.live() {
                     self.web_page(window, cx)

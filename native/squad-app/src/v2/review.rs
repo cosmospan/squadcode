@@ -229,6 +229,333 @@ impl Shell {
         proof
     }
 
+    /// The workspace's Checks tab: Checker's run as a header with Run all
+    /// again, a mono tally, one row per check with its output when it
+    /// failed, Merge when checks pass, and where the checks come from.
+    pub(super) fn checks_tab(&mut self, job: &Job, cx: &mut Context<Self>) -> Div {
+        let id = job.id;
+        let n = job.checks.len();
+        let checker = self.avatar(Member::Checker, 22.);
+        let when = job
+            .ended
+            .map(|t| match super::store::ago(t).as_str() {
+                "just now" => "just now".to_string(),
+                a => format!("{a} ago"),
+            })
+            .unwrap_or_default();
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .child(checker)
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(ui::ink()))
+                    .child(if job.checking {
+                        "Checker is running the checks".to_string()
+                    } else if n == 0 {
+                        "No checks have run".to_string()
+                    } else {
+                        format!("Checker ran {n} check{}", if n == 1 { "" } else { "s" })
+                    }),
+            )
+            .when(!job.checking && !when.is_empty() && n > 0, |d| {
+                d.child(
+                    div()
+                        .font_family(ui::MONO)
+                        .text_size(px(11.5))
+                        .text_color(c(ui::faint()))
+                        .child(when),
+                )
+            })
+            .child(div().flex_1())
+            .when(!job.checking && job.mode.writes(), |d| {
+                d.child(
+                    ui::dbtn_i(
+                        "checks-all",
+                        IconName::RotateCw,
+                        "Run all again",
+                        ui::Btn::Plain,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.recheck(id, cx))),
+                )
+            });
+
+        let pass = job.checks.iter().filter(|ch| ch.ok).count();
+        let ignored = job
+            .checks
+            .iter()
+            .filter(|ch| ch.infra == work::IGNORED)
+            .count();
+        let couldnt = job
+            .checks
+            .iter()
+            .filter(|ch| !ch.ok && !ch.infra.is_empty() && ch.infra != work::IGNORED)
+            .count();
+        let fail = n - pass - ignored - couldnt;
+        let mut tally = div()
+            .flex()
+            .gap(px(6.))
+            .font_family(ui::MONO)
+            .text_size(px(11.5));
+        let mut parts: Vec<(String, u32)> = Vec::new();
+        if pass > 0 {
+            parts.push((format!("{pass} passed"), ui::t_green()));
+        }
+        if fail > 0 {
+            parts.push((format!("{fail} failed"), ui::t_red()));
+        }
+        if couldnt > 0 {
+            parts.push((format!("{couldnt} couldn't run"), ui::t_amber()));
+        }
+        if ignored > 0 {
+            parts.push((format!("{ignored} ignored"), ui::faint()));
+        }
+        for (i, (t, col)) in parts.into_iter().enumerate() {
+            if i > 0 {
+                tally = tally.child(div().text_color(c(ui::faint())).child("\u{b7}"));
+            }
+            tally = tally.child(div().text_color(c(col)).child(t));
+        }
+
+        let mut list = div()
+            .flex()
+            .flex_col()
+            .rounded(px(6.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(ui::line()))
+            .overflow_hidden();
+        if job.checking {
+            list = list.child(ui::sweep(ui::BLUE, 0.).h(px(3.)));
+        }
+        for (k, check) in job.checks.iter().enumerate() {
+            let ignored = check.infra == work::IGNORED;
+            let (icon, col) = if check.ok {
+                (IconName::Check, ui::t_green())
+            } else if ignored {
+                (IconName::Minus, ui::faint())
+            } else if !check.infra.is_empty() {
+                (IconName::TriangleAlert, ui::t_amber())
+            } else {
+                (IconName::X, ui::t_red())
+            };
+            let failed = !check.ok && check.infra.is_empty();
+            let tail: Vec<&str> = check.tail.lines().rev().take(12).collect();
+            let tail: Vec<String> = tail.into_iter().rev().map(str::to_string).collect();
+            let mut row = div()
+                .px(px(12.))
+                .py(px(12.))
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .when(k > 0, |d| d.border_t_1().border_color(c(ui::line())))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(
+                            div()
+                                .size(px(18.))
+                                .flex_none()
+                                .rounded(px(3.))
+                                .bg(ca(col, 0.12))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(Icon::new(icon).size(px(12.)).text_color(c(col))),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(c(ui::ink()))
+                                        .child(check_name(&check.command)),
+                                )
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .font_family(ui::MONO)
+                                        .text_size(px(11.))
+                                        .text_color(c(ui::faint()))
+                                        .child(if check.infra.is_empty() || ignored {
+                                            check.command.clone()
+                                        } else {
+                                            format!("{} \u{b7} {}", check.command, check.infra)
+                                        }),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .font_family(ui::MONO)
+                                .text_size(px(11.))
+                                .text_color(c(ui::faint()))
+                                .child(format!("{}s", check.secs)),
+                        )
+                        .when(!job.checking && job.mode.writes(), |d| {
+                            d.child(
+                                ui::dbtn_i(
+                                    ("check-again", k),
+                                    IconName::RotateCw,
+                                    "Run again",
+                                    ui::Btn::Ghost,
+                                )
+                                .tooltip(|window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(
+                                        "Checker runs every check again",
+                                    )
+                                    .build(window, cx)
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| this.recheck(id, cx))),
+                            )
+                        }),
+                );
+            if !check.ok && !ignored && !tail.iter().all(|l| l.trim().is_empty()) {
+                let mut out = div()
+                    .ml(px(28.))
+                    .px(px(10.))
+                    .py(px(8.))
+                    .rounded(px(4.))
+                    .bg(c(ui::panel()))
+                    .border_1()
+                    .border_color(c(ui::line_hi()))
+                    .font_family(ui::MONO)
+                    .text_size(px(11.5))
+                    .line_height(px(19.))
+                    .text_color(c(ui::body()));
+                for (i, l) in tail.into_iter().enumerate() {
+                    out = out.child(
+                        div()
+                            .when(i == 0 && failed, |d| d.text_color(c(ui::t_red())))
+                            .child(l),
+                    );
+                }
+                row = row.child(out);
+            }
+            if failed && !job.checking {
+                let cmd = check.command.clone();
+                let (fix_cmd, tail) = (cmd.clone(), check.tail.clone());
+                let folder = job.folder.clone();
+                row = row.child(
+                    div()
+                        .ml(px(28.))
+                        .flex()
+                        .gap(px(6.))
+                        .child(
+                            ui::dbtn(("check-fix", k), "Start a job to fix it", ui::Btn::Plain)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.fix_check(id, &fix_cmd, &tail, folder.clone(), cx)
+                                })),
+                        )
+                        .child(
+                            ui::dbtn(("check-ignore", k), "Ignore for this job", ui::Btn::Ghost)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.ignore_check(id, &cmd, cx)
+                                })),
+                        ),
+                );
+            }
+            list = list.child(row);
+        }
+
+        let on = job.merge_on_green;
+        let merge =
+            (job.status == Status::Review).then(|| {
+                div()
+                    .id(("merge-green-tab", id as usize))
+                    .px(px(14.))
+                    .py(px(12.))
+                    .rounded(px(6.))
+                    .bg(c(ui::raised()))
+                    .border_1()
+                    .border_color(c(ui::line()))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .cursor_pointer()
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c(ui::ink()))
+                                    .child("Merge when checks pass"),
+                            )
+                            .child(div().text_size(px(12.)).text_color(c(ui::body())).child(
+                                "Approve now, and it merges the moment every check is green.",
+                            )),
+                    )
+                    .child(super::prefs::switch(on))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(j) = this.crew.store.job_mut(id) {
+                            j.merge_on_green = !on;
+                        }
+                        this.crew.store.save();
+                        cx.notify();
+                    }))
+            });
+
+        let source = check_source(&job.folder.path);
+        let foot = div()
+            .flex()
+            .flex_wrap()
+            .gap(px(4.))
+            .text_size(px(12.))
+            .text_color(c(ui::body()))
+            .child("Checks come from")
+            .child(
+                div()
+                    .when(source != "the project", |d| {
+                        d.font_family(ui::MONO).text_color(c(ui::ink()))
+                    })
+                    .child(format!("{source}.")),
+            )
+            .child("Change them in")
+            .child(
+                div()
+                    .id("checks-settings")
+                    .cursor_pointer()
+                    .text_color(c(ui::accent_text()))
+                    .hover(|s| s.underline())
+                    .child("Settings, How work runs.")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.go(super::Place::Settings(super::Pane::Work), cx)
+                    })),
+            );
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(head)
+            .when(n > 0, |d| d.child(tally))
+            .when(n > 0 || job.checking, |d| d.child(list))
+            .when(n == 0 && !job.checking, |d| {
+                d.child(div().text_size(px(13.)).text_color(c(ui::body())).child(
+                    if job.mode.writes() {
+                        "Checker runs the project's checks when the bot finishes."
+                    } else {
+                        "A job that only reads has no checks to run."
+                    },
+                ))
+            })
+            .children(merge)
+            .when(job.mode.writes(), |d| d.child(foot))
+    }
+
     /// The review on its own, without the feed's indent: for the peek pane
     /// and the workspace's Changes tab.
     pub(super) fn review_body(&mut self, job: &Job, cx: &mut Context<Self>) -> Option<Div> {
@@ -1242,9 +1569,67 @@ impl Shell {
     }
 }
 
+/// A check's short name from its command: "npm test" reads "Tests".
+pub(super) fn check_name(command: &str) -> String {
+    let low = command.to_lowercase();
+    for (word, name) in [
+        ("clippy", "Clippy"),
+        ("lint", "Lint"),
+        ("eslint", "Lint"),
+        ("fmt", "Format"),
+        ("format", "Format"),
+        ("prettier", "Format"),
+        ("typecheck", "Types"),
+        ("tsc", "Types"),
+        ("mypy", "Types"),
+        ("test", "Tests"),
+        ("pytest", "Tests"),
+        ("build", "Build"),
+    ] {
+        if low
+            .split(|ch: char| !ch.is_alphanumeric())
+            .any(|w| w == word)
+        {
+            return name.into();
+        }
+    }
+    let last = command.split_whitespace().last().unwrap_or(command);
+    let mut chars = last.chars();
+    match chars.next() {
+        Some(f) => f.to_uppercase().chain(chars).collect(),
+        None => "Check".into(),
+    }
+}
+
+/// The file the project's checks come from.
+fn check_source(dir: &str) -> &'static str {
+    let d = std::path::Path::new(dir);
+    for f in [
+        "squad.toml",
+        "package.json",
+        "Cargo.toml",
+        "pyproject.toml",
+        "go.mod",
+        "Makefile",
+    ] {
+        if d.join(f).exists() {
+            return f;
+        }
+    }
+    "the project"
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{notes_message, numbered, LineNote};
+    use super::{check_name, notes_message, numbered, LineNote};
+
+    #[test]
+    fn checks_read_by_what_they_do() {
+        assert_eq!(check_name("npm test"), "Tests");
+        assert_eq!(check_name("pnpm lint"), "Lint");
+        assert_eq!(check_name("cargo clippy -- -D warnings"), "Clippy");
+        assert_eq!(check_name("make check"), "Check");
+    }
 
     #[test]
     fn lines_are_numbered_from_their_hunk() {
