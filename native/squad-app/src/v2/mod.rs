@@ -646,6 +646,15 @@ pub struct Shell {
     files_open: std::collections::HashSet<String>,
     /// The files last listed for the Files tab: the folder, when, and its files.
     files_seen: Option<(String, Instant, std::sync::Arc<Vec<String>>)>,
+    /// The file shown in a job's Files tab, and whether its tree lists only
+    /// the files the job changed.
+    file_pick: Option<String>,
+    files_changed_only: bool,
+    /// Job folders whose changed files' folders were opened once already.
+    files_seeded: std::collections::HashSet<String>,
+    /// The picked file as read: its path, lines, and the lines the job
+    /// changed, so it isn't read again every frame.
+    job_view: Option<filetab::FileView>,
     /// Settings, My server: the `you@host` box, the connecting in progress and
     /// what it has said so far.
     server_input: Entity<InputState>,
@@ -1288,6 +1297,9 @@ impl Shell {
                 .unwrap_or(Place::Today),
             // "job:9" opens job #9's workspace.
             Ok(p) if p.starts_with("job:") => p[4..]
+                .split(':')
+                .next()
+                .unwrap_or_default()
                 .parse()
                 .ok()
                 .filter(|id| store.job(*id).is_some())
@@ -1442,6 +1454,10 @@ impl Shell {
             list_files: false,
             files_open: Default::default(),
             files_seen: None,
+            file_pick: None,
+            files_changed_only: false,
+            files_seeded: Default::default(),
+            job_view: None,
             server_input,
             server_setup: None,
             server_log: Vec::new(),
@@ -1541,6 +1557,16 @@ impl Shell {
             // The status bar's usage popover, open.
             Ok("usage-open") => shell.usage_open = true,
             Ok("palette") => shell.open_palette(window, cx),
+            // "job:9:files" opens job #9's workspace on its Files tab.
+            Ok(p) if p.starts_with("job:") && p.matches(':').count() == 2 => {
+                let tab = p.rsplit(':').next().unwrap_or_default();
+                if let Some(t) = peek::Tab::ALL
+                    .into_iter()
+                    .find(|t| t.name().eq_ignore_ascii_case(tab))
+                {
+                    shell.ws_tab = t;
+                }
+            }
             // The menu bar panel, open on its own at the screen's corner.
             Ok("tray") => cx.defer(crate::menubar::open_panel),
             // "welcome:3" opens the walkthrough on its fourth step.

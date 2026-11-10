@@ -819,20 +819,7 @@ impl Shell {
                 )
                 .into_any_element(),
             },
-            Tab::Files => {
-                let marks = job
-                    .changes
-                    .iter()
-                    .map(|ch| (ch.path.clone(), ch.status.chars().take(1).collect()))
-                    .collect();
-                let title = if job.branch.is_empty() {
-                    job.folder.name.clone()
-                } else {
-                    job.branch.clone()
-                };
-                let dir = job.dir().to_string();
-                self.files_side(&dir, title, marks, cx).into_any_element()
-            }
+            Tab::Files => self.job_files(&job, cx).into_any_element(),
         };
         div()
             .size_full()
