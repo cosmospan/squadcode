@@ -533,7 +533,8 @@ pub struct Shell {
     /// The agent picked on Engines.
     engine_sel: Option<usize>,
     /// Engines shows each bot's brain rather than the engines themselves.
-    engine_brains: bool,
+    /// Settings › Engines lists every engine it knows, not just the common ones.
+    engines_all: bool,
     /// The Settings pane last open, where the sidebar's Settings goes back to.
     settings_pane: Pane,
     /// The bot being dressed in Settings → Mascot.
@@ -1371,7 +1372,7 @@ impl Shell {
             maker_open: false,
             usage_open: false,
             engine_sel: None,
-            engine_brains: false,
+            engines_all: false,
             settings_pane: Pane::Work,
             applied_theme: look(),
             fin_sel: Member::Guard,
@@ -1539,6 +1540,7 @@ impl Shell {
             }
             // The status bar's usage popover, open.
             Ok("usage-open") => shell.usage_open = true,
+            Ok("palette") => shell.open_palette(window, cx),
             // "welcome:3" opens the walkthrough on its fourth step.
             Ok(p) if p.starts_with("welcome:") => {
                 shell.setup_step = p[8..].parse().unwrap_or(0);

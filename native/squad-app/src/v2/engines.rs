@@ -80,25 +80,6 @@ fn update_cmd(id: &str) -> Option<String> {
     }
 }
 
-/// One tab over the page: its label, underlined when it's the one shown.
-fn tab(id: &'static str, label: &'static str, on: bool) -> Stateful<Div> {
-    div()
-        .id(id)
-        .pb(px(10.))
-        .mb(px(-1.))
-        .border_b_2()
-        .border_color(c(if on { ui::ink() } else { ui::bg() }).opacity(if on { 1. } else { 0. }))
-        .text_size(px(14.))
-        .font_weight(if on {
-            FontWeight::SEMIBOLD
-        } else {
-            FontWeight::NORMAL
-        })
-        .text_color(c(if on { ui::ink() } else { ui::muted() }))
-        .cursor_pointer()
-        .child(label)
-}
-
 pub(super) fn section(title: &'static str, line: &'static str) -> Div {
     div()
         .flex()
@@ -219,12 +200,6 @@ impl Shell {
             .collect();
         let default_i = engine::index_of(&st, "");
 
-        let sel = self
-            .engine_sel
-            .filter(|i| *i < agent::PROVIDERS.len())
-            .unwrap_or(default_i);
-        let list = self.engine_list(&ready, default_i, sel, cx);
-        let detail = self.engine_detail(&st, &ready, default_i, sel, cx);
         let brains = self.bot_brains(&st, &ready, default_i, cx);
 
         // Squad Code's own thinking: shaping jobs, and a second opinion.
@@ -301,7 +276,6 @@ impl Shell {
             .flex()
             .flex_col()
             .gap(px(space::M))
-            .child(section("Squad Code's own thinking", "The model calls Squad Code makes itself, apart from the coding agents doing the work."))
             .child(
                 div()
                     .flex()
@@ -339,9 +313,35 @@ impl Shell {
             );
 
         let none_ready = ready.is_empty();
-        let brains_tab = self.engine_brains;
-        let add = self.add_engine(&ready, cx);
         let setup = self.setup_runs(cx);
+        let engines = self.engine_rows(&st, &ready, default_i, cx);
+        let all = self.engines_all;
+        let label = |text: &'static str, right: Option<Stateful<Div>>| {
+            div()
+                .flex()
+                .items_center()
+                .mb(px(-8.))
+                .child(
+                    div()
+                        .font_family(ui::MONO)
+                        .text_size(px(10.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(c(ui::faint()))
+                        .child(text),
+                )
+                .child(div().flex_1())
+                .children(right)
+        };
+        let link = |id: &'static str, text: &'static str| {
+            div()
+                .id(id)
+                .font_family(ui::MONO)
+                .text_size(px(10.5))
+                .text_color(c(ui::body()))
+                .cursor_pointer()
+                .hover(|s| s.text_color(c(ui::ink())))
+                .child(text)
+        };
         div()
             .id("engines")
             .size_full()
@@ -349,137 +349,211 @@ impl Shell {
             .child(
                 div()
                     .w_full()
-                    .max_w(px(1160.))
-                    .px(px(28.))
-                    .pt(px(24.))
+                    .max_w(px(820.))
+                    .px(px(36.))
+                    .pt(px(26.))
                     .pb(px(space::XL + super::DOCK_ROOM))
                     .flex()
                     .flex_col()
-                    .gap(px(space::L))
+                    .gap(px(20.))
                     .child(
                         div()
-                            .child(div().text_size(px(24.)).font_weight(FontWeight::SEMIBOLD).child("Engines"))
                             .child(
                                 div()
-                                    .mt(px(6.))
-                                    .text_size(px(13.5))
-                                    .text_color(c(ui::muted()))
+                                    .text_size(px(22.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Engines"),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(4.))
+                                    .text_size(px(13.))
+                                    .text_color(c(ui::body()))
                                     .child("Every bot works through an agent on this computer. Add and update engines, or pick each bot's brain."),
                             ),
                     )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(20.))
-                            .border_b_1()
-                            .border_color(c(ui::line()))
-                            .child(tab("eng-tab-engines", "Engines", !brains_tab).on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    this.engine_brains = false;
-                                    cx.notify();
-                                }),
-                            ))
-                            .child(tab("eng-tab-brains", "Bot brains", brains_tab).on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    this.engine_brains = true;
-                                    cx.notify();
-                                }),
-                            )),
-                    )
-                    .when(brains_tab, |d| d.child(brains))
-                    .when(!brains_tab, |d| {
-                        d.child(section(
-                            "Engines on this computer",
-                            "Install a new one, update one, or pick the default for new jobs.",
-                        ))
-                        .children(setup)
-                    })
-                    .when(none_ready && !brains_tab, |d| {
+                    .child(label(
+                        "ENGINES ON THIS COMPUTER",
+                        Some(
+                            link(
+                                "eng-add",
+                                if all { "Show fewer" } else { "Add an engine +" },
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.engines_all = !all;
+                                cx.notify();
+                            })),
+                        ),
+                    ))
+                    .children(setup)
+                    .when(none_ready, |d| {
                         d.child(
                             div()
                                 .text_size(px(13.))
                                 .text_color(c(ui::t_amber()))
-                                .child("None of the agents' command-line tools were found. Install one (for example Claude Code or Codex) and it shows up here."),
+                                .child("None of the agents' command-line tools were found. Install one (for example Claude Code, Codex or OpenCode) and it shows up here."),
                         )
                     })
-                    .when(!brains_tab, |d| {
-                        d.child(
-                            div()
-                                .flex()
-                                .gap(px(space::M))
-                                .items_start()
-                                .child(list)
-                                .child(detail),
-                        )
-                        // The engines you have come first; the ones you could add follow.
-                        .children(add)
-                        .child(brain)
-                    }),
+                    .child(engines)
+                    .child(label(
+                        "BOT BRAINS",
+                        Some(link("eng-brains-note", "applies to the next job")),
+                    ))
+                    .child(brains)
+                    .child(label("SQUAD CODE'S OWN THINKING", None))
+                    .child(brain),
             )
             .into_any_element()
     }
 
-    /// Engines you could add: each one not on this computer, with its
-    /// one-click Install.
-    fn add_engine(&mut self, ready: &[usize], cx: &mut Context<Self>) -> Option<Div> {
-        let missing: Vec<usize> = (0..agent::PROVIDERS.len())
-            .filter(|i| !ready.contains(i))
-            .filter(|&i| install_cmd(agent::PROVIDERS[i].id).is_some())
-            .collect();
-        if missing.is_empty() {
-            return None;
+    /// The engines card: each installed engine with its default mark, what it
+    /// is and Update; the common ones not installed (Claude Code, Codex,
+    /// OpenCode, Antigravity, Gemini), greyed with Install; every other one
+    /// after "Add an engine". A click on an installed one opens its detail.
+    fn engine_rows(
+        &mut self,
+        st: &AppSettings,
+        ready: &[usize],
+        default_i: usize,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        const COMMON: [&str; 5] = ["claude", "codex", "opencode", "antigravity", "gemini"];
+        let mut order: Vec<usize> = ready.to_vec();
+        for (i, p) in agent::PROVIDERS.iter().enumerate() {
+            if !order.contains(&i) && (self.engines_all || COMMON.contains(&p.id)) {
+                order.push(i);
+            }
         }
-        let mut row = div().flex().flex_wrap().gap(px(8.));
-        for i in missing {
+        let open = self.engine_sel;
+        let mut card = div()
+            .rounded(px(6.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(ui::line()))
+            .px(px(14.))
+            .flex()
+            .flex_col();
+        for (n, i) in order.into_iter().enumerate() {
             let p = &agent::PROVIDERS[i];
-            let cmd = install_cmd(p.id).unwrap_or_default();
-            row = row.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .pl(px(6.))
-                    .pr(px(4.))
-                    .py(px(4.))
-                    .rounded(px(10.))
-                    .border_1()
-                    .border_color(c(ui::line()))
-                    .bg(c(ui::panel()))
-                    .child(
-                        div()
-                            .size(px(24.))
-                            .rounded(px(7.))
-                            .bg(ca(p.color, 0.18))
-                            .text_color(c(p.color))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::BOLD)
-                            .child(p.mark),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(p.name),
-                    )
-                    .child(ui::ghost(("engine-add", i), "Install").h(px(26.)).on_click(
-                        cx.listener(move |this, _, _, cx| {
+            let id = p.id;
+            let ok = ready.contains(&i);
+            if ok && open == Some(i) {
+                let detail = self.engine_detail(st, ready, default_i, i, cx);
+                card = card.child(
+                    div()
+                        .py(px(10.))
+                        .when(n > 0, |d| d.border_t_1().border_color(c(ui::line())))
+                        .child(detail),
+                );
+                continue;
+            }
+            let models: Vec<String> = AgentPick::models(i)
+                .into_iter()
+                .filter(|m| !m.value.is_empty())
+                .map(|m| m.label)
+                .take(3)
+                .collect();
+            let meta = if ok {
+                let mut bits = vec![vendor(id).to_string()];
+                if !models.is_empty() {
+                    bits.push(models.join(", "));
+                }
+                bits.join(" \u{b7} ")
+            } else {
+                "Not on this computer".to_string()
+            };
+            let mut row = div()
+                .id(("eng-row", i))
+                .py(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .when(n > 0, |d| d.border_t_1().border_color(c(ui::line())))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .child(
+                                    div()
+                                        .text_size(px(13.5))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(c(if ok { ui::ink() } else { ui::body() }))
+                                        .child(p.name),
+                                )
+                                .when(ok && i == default_i, |d| {
+                                    d.child(
+                                        div()
+                                            .px(px(6.))
+                                            .rounded(px(3.))
+                                            .bg(c(ui::pick_fill()))
+                                            .text_color(c(ui::pick_on()))
+                                            .font_family(ui::MONO)
+                                            .text_size(px(10.))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .line_height(px(17.))
+                                            .child("DEFAULT"),
+                                    )
+                                }),
+                        )
+                        .child(
+                            div()
+                                .mt(px(2.))
+                                .truncate()
+                                .text_size(px(12.))
+                                .text_color(c(ui::faint()))
+                                .child(meta),
+                        ),
+                );
+            if ok {
+                row = row
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.engine_sel = Some(i);
+                        cx.notify();
+                    }));
+                if i != default_i {
+                    row = row.child(
+                        ui::dbtn(("eng-default", i), "Make default", ui::Btn::Ghost).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                save(cx, |st| st.default_provider = id.to_string());
+                                this.say(format!(
+                                    "New jobs now run on {} unless a bot has its own engine.",
+                                    agent::provider(id).name
+                                ));
+                                cx.notify();
+                            }),
+                        ),
+                    );
+                }
+                if let Some(cmd) = update_cmd(id) {
+                    row = row.child(
+                        ui::dbtn(("eng-update", i), "Update", ui::Btn::Plain).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.run_setup(&cmd, cx)
+                            }),
+                        ),
+                    );
+                }
+            } else if let Some(cmd) = install_cmd(id) {
+                row = row.child(
+                    ui::dbtn(("eng-install", i), "Install", ui::Btn::Plain).on_click(cx.listener(
+                        move |this, _, _, cx| {
                             this.engine_sel = Some(i);
                             this.run_setup(&cmd, cx)
-                        }),
+                        },
                     )),
-            );
+                );
+            }
+            card = card.child(row);
         }
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .child(ui::caption("ADD AN ENGINE"))
-                .child(row),
-        )
+        card
     }
 
     /// Bot brains: every bot on one row with the engine and model it thinks
@@ -698,10 +772,6 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .gap(px(10.))
-                    .child(section(
-                        "Bot brains",
-                        "The engine and model each bot thinks with. Click to switch; it applies to the next job.",
-                    ))
                     .child(
                         div()
                             .flex()
@@ -718,117 +788,6 @@ impl Shell {
                     ),
             )
             .child(rows)
-    }
-
-    /// Every agent Squad Code knows: the ones on this computer first.
-    fn engine_list(
-        &mut self,
-        ready: &[usize],
-        default_i: usize,
-        sel: usize,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let mut list = ui::card()
-            .w(px(300.))
-            .flex_none()
-            .overflow_hidden()
-            .flex()
-            .flex_col();
-        for (title, group) in [("On this computer", ready.to_vec())] {
-            if group.is_empty() {
-                continue;
-            }
-            list = list.child(
-                div()
-                    .h(px(32.))
-                    .px(px(14.))
-                    .flex()
-                    .items_center()
-                    .bg(c(ui::raised()))
-                    .border_b_1()
-                    .border_color(c(ui::line2()))
-                    .text_size(px(11.5))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(c(ui::muted()))
-                    .child(title),
-            );
-            for i in group {
-                let p = &agent::PROVIDERS[i];
-                let ok = ready.contains(&i);
-                list = list.child(
-                    div()
-                        .id(("engine-row", i))
-                        .h(px(48.))
-                        .px(px(14.))
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .border_b_1()
-                        .border_color(c(ui::line2()))
-                        .cursor_pointer()
-                        .map(|d| {
-                            if i == sel {
-                                d.bg(c(ui::hover()))
-                            } else {
-                                d.hover(|s| s.bg(c(ui::hover())))
-                            }
-                        })
-                        .child(
-                            div()
-                                .size(px(26.))
-                                .flex_none()
-                                .rounded(px(8.))
-                                .bg(ca(p.color, if ok { 0.18 } else { 0.08 }))
-                                .text_color(c(if ok { p.color } else { ui::muted() }))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_size(px(12.5))
-                                .font_weight(FontWeight::BOLD)
-                                .child(p.mark),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .child(
-                                    div()
-                                        .text_size(px(13.))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(c(if ok { ui::ink() } else { ui::body() }))
-                                        .truncate()
-                                        .child(p.name),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(11.5))
-                                        .text_color(c(ui::muted()))
-                                        .child(vendor(p.id)),
-                                ),
-                        )
-                        .child(if i == default_i && ok {
-                            div()
-                                .px(px(7.))
-                                .py(px(1.))
-                                .rounded_full()
-                                .border_1()
-                                .border_color(c(ui::line_hi()))
-                                .text_size(px(10.5))
-                                .text_color(c(ui::ink()))
-                                .child("Default")
-                        } else if ok {
-                            div().size(px(7.)).rounded_full().bg(c(ui::GREEN))
-                        } else {
-                            div()
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.engine_sel = Some(i);
-                            cx.notify();
-                        })),
-                );
-            }
-        }
-        list
     }
 
     /// One agent: whether it's here, how to get it, and the bots on it.
@@ -918,10 +877,18 @@ impl Shell {
                     .on_click(cx.listener(move |this, _, _, cx| this.run_setup(&cmd, cx))),
             );
         }
-        let mut body = ui::card()
+        let head = head.child(
+            ui::icon_btn("engine-close", gpui_kit::assets::IconName::X).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.engine_sel = None;
+                    cx.notify();
+                },
+            )),
+        );
+        let mut body = div()
             .flex_1()
             .min_w_0()
-            .p(px(space::L))
+            .py(px(6.))
             .flex()
             .flex_col()
             .gap(px(space::M))
