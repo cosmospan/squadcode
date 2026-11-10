@@ -487,6 +487,317 @@ impl Shell {
 }
 
 impl Shell {
+    /// The workspace's Changes tab, as the design draws it: the size of the
+    /// change and the branch with the buttons to decide, the files, and the
+    /// open file's diff, where a click on a line comments on it. A job on its
+    /// way out, or out, shows its pull request or where it went instead.
+    pub(super) fn changes_pane(&mut self, job: &Job, cx: &mut Context<Self>) -> Option<Div> {
+        if matches!(job.status, Status::Shipping | Status::Shipped) {
+            return self.review_body(job, cx);
+        }
+        if job.changes.is_empty() {
+            return None;
+        }
+        let id = job.id;
+        // The open file: the one you picked, else the first.
+        let picked = self
+            .diff_open
+            .as_ref()
+            .filter(|(j, p)| *j == id && job.changes.iter().any(|f| &f.path == p))
+            .map(|(_, p)| p.clone());
+        let path = match picked {
+            Some(p) => p,
+            None => {
+                let first = job.changes[0].path.clone();
+                self.diff_text = work::diff(job, &first);
+                self.diff_open = Some((id, first.clone()));
+                first
+            }
+        };
+        let (added, removed) = job.lines();
+        let files = job.changes.len();
+        let review = job.status == Status::Review;
+        let held = review && !job.held.is_empty() && !job.belt_ok;
+        let blocked = held || !job.conflict.is_empty();
+        let failing = !job.checking && work::verdict(&job.checks, false).1 == Verdict::Fail;
+        let notes = self.line_notes.iter().filter(|n| n.job == id).count();
+        let full = self.approve_label(job);
+        let way = self.way(job);
+        let github = ship::remote_url(&job.folder.path).is_some_and(|u| ship::is_github(&u));
+        let switch = match way {
+            ship::Way::PullRequest => Some(("Merge here instead", ship::Way::Merge)),
+            ship::Way::Merge if github => Some(("Open a PR instead", ship::Way::PullRequest)),
+            ship::Way::Merge => None,
+        };
+        let mono = |t: String, col: u32| {
+            div()
+                .flex_none()
+                .font_family(ui::MONO)
+                .text_size(px(12.))
+                .text_color(c(col))
+                .child(t)
+        };
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .text_size(px(12.5))
+            .text_color(c(ui::body()))
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(13.5))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(c(ui::ink()))
+                    .child(format!(
+                        "{files} {}",
+                        if files == 1 { "file" } else { "files" }
+                    )),
+            )
+            .child(mono(format!("+{added}"), ui::t_green()))
+            .child(mono(format!("\u{2212}{removed}"), ui::t_red()))
+            .when(!job.branch.is_empty(), |d| {
+                d.child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .font_family(ui::MONO)
+                        .text_size(px(12.))
+                        .child(format!("{} \u{2192} {}", job.branch, job.base)),
+                )
+            })
+            .child(div().flex_1())
+            .when(review, |d| {
+                let approve_words = if failing { "Approve anyway" } else { "Approve" };
+                d.child(
+                    ui::dbtn("ws-discard", "Discard", ui::Btn::Ghost)
+                        .on_click(cx.listener(move |this, _, _, cx| this.discard_job(id, cx))),
+                )
+                .child(
+                    ui::dbtn(
+                        "ws-send-back",
+                        if notes > 0 {
+                            format!("Send back \u{b7} {notes}")
+                        } else {
+                            "Send back".to_string()
+                        },
+                        ui::Btn::Plain,
+                    )
+                    .tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(if notes > 0 {
+                            "Send your comments on its lines back"
+                        } else {
+                            "Say what to change in the box on the left"
+                        })
+                        .build(window, cx)
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if this.line_notes.iter().any(|n| n.job == id) {
+                            this.send_line_notes(id, cx);
+                        } else {
+                            this.live_ask = false;
+                            this.live_input.read(cx).focus_handle(cx).focus(window, cx);
+                        }
+                    })),
+                )
+                .when(blocked, |d| {
+                    d.child(
+                        div()
+                            .flex_none()
+                            .font_family(ui::MONO)
+                            .text_size(px(10.5))
+                            .text_color(c(ui::faint()))
+                            .child(if held { "HELD" } else { "CLASH" }),
+                    )
+                })
+                .child(
+                    ui::dbtn("ws-approve", approve_words, ui::Btn::Primary)
+                        .tooltip(move |window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new(full.clone())
+                                .build(window, cx)
+                        })
+                        .when(blocked, |d| d.opacity(0.35).cursor_default())
+                        .when(!blocked, |d| {
+                            d.on_click(cx.listener(move |this, _, _, cx| this.approve(id, cx)))
+                        }),
+                )
+            });
+
+        // The files; the open one is shaded.
+        let mut list = div().flex().flex_col();
+        for (i, f) in job.changes.iter().enumerate() {
+            let on = f.path == path;
+            let p = f.path.clone();
+            list = list.child(
+                div()
+                    .id(("ws-file", i))
+                    .h(px(23.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(10.))
+                    .border_b_1()
+                    .border_color(c(ui::line()))
+                    .cursor_pointer()
+                    .when(on, |d| d.bg(c(ui::hover())).rounded_t(px(4.)))
+                    .when(!on, |d| d.hover(|s| s.bg(c(ui::hover()))))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_family(ui::MONO)
+                            .text_size(px(12.))
+                            .text_color(c(ui::ink()))
+                            .child(f.path.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .gap(px(6.))
+                            .font_family(ui::MONO)
+                            .text_size(px(12.))
+                            .when(f.added > 0, |d| {
+                                d.child(
+                                    div()
+                                        .text_color(c(ui::t_green()))
+                                        .child(format!("+{}", f.added)),
+                                )
+                            })
+                            .when(f.removed > 0, |d| {
+                                d.child(
+                                    div()
+                                        .text_color(c(ui::t_red()))
+                                        .child(format!("\u{2212}{}", f.removed)),
+                                )
+                            }),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.diff_text = this
+                            .crew
+                            .store
+                            .job(id)
+                            .map(|j| work::diff(j, &p))
+                            .unwrap_or_default();
+                        this.diff_open = Some((id, p.clone()));
+                        this.line_at = None;
+                        cx.notify();
+                    })),
+            );
+        }
+
+        // The open file's diff in a box: its name and first hunk on top.
+        let text = self.diff_text.clone();
+        let hunk = text
+            .lines()
+            .find(|l| l.starts_with("@@"))
+            .map(|l| {
+                l.splitn(4, ' ')
+                    .take(4)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .split(" @@")
+                    .next()
+                    .map(|h| format!("{h} @@"))
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        let lines = self.diff_lines(id, &path, &text, cx);
+        let hint = (self.line_at.as_ref().is_none_or(|(j, _, _)| *j != id) && review).then(|| {
+            div()
+                .mx(px(12.))
+                .mb(px(12.))
+                .ml(px(62.))
+                .px(px(10.))
+                .py(px(8.))
+                .rounded(px(5.))
+                .bg(c(ui::bg()))
+                .border_1()
+                .border_color(c(ui::line()))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .text_size(px(12.5))
+                .child(
+                    div()
+                        .size(px(18.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(4.))
+                        .bg(c(ui::pick_fill()))
+                        .text_color(c(ui::pick_on()))
+                        .font_family(ui::MONO)
+                        .text_size(px(10.))
+                        .child(super::channel::you_letter()),
+                )
+                .child(div().text_color(c(ui::faint())).child(format!(
+                    "Click a line to comment on it, and it goes back to {}\u{2026}",
+                    job.bot.name()
+                )))
+        });
+        let diff = div()
+            .rounded(px(6.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(ui::line()))
+            .overflow_hidden()
+            .child(
+                div()
+                    .px(px(12.))
+                    .py(px(8.))
+                    .flex()
+                    .gap(px(10.))
+                    .bg(c(ui::hover()))
+                    .border_b_1()
+                    .border_color(c(ui::line()))
+                    .font_family(ui::MONO)
+                    .text_size(px(12.))
+                    .text_color(c(ui::ink()))
+                    .child(div().min_w_0().truncate().child(path.clone()))
+                    .child(div().flex_1())
+                    .child(div().flex_none().text_color(c(ui::faint())).child(hunk)),
+            )
+            .child(lines)
+            .children(hint);
+
+        let way_line = switch.filter(|_| review).map(|(words, to)| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(12.))
+                .text_color(c(ui::faint()))
+                .child(match way {
+                    ship::Way::PullRequest => "Approve opens a pull request.".to_string(),
+                    ship::Way::Merge => format!("Approve merges into {} here.", job.base),
+                })
+                .child(
+                    div()
+                        .id("ws-way")
+                        .text_color(c(ui::accent_text()))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .cursor_pointer()
+                        .child(words)
+                        .on_click(cx.listener(move |this, _, _, cx| this.set_way(id, to, cx))),
+                )
+        });
+
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .child(head)
+                .children(way_line)
+                .child(list)
+                .child(diff),
+        )
+    }
+}
+
+impl Shell {
     /// The pull request Shipper opened: its checks, auto-merge, and the buttons
     /// to merge now or close it.
     fn pr_card(&mut self, job: &Job, cx: &mut Context<Self>) -> Div {
@@ -726,12 +1037,9 @@ impl Shell {
     fn diff_lines(&mut self, job: u64, path: &str, diff: &str, cx: &mut Context<Self>) -> Div {
         let mut body = div()
             .py(px(6.))
-            .bg(c(ui::well()))
-            .border_t_1()
-            .border_color(c(ui::line2()))
             .font_family(ui::MONO)
-            .text_size(px(11.5))
-            .line_height(px(18.));
+            .text_size(px(12.))
+            .line_height(px(20.));
         let lines = numbered(diff);
         if lines.is_empty() {
             return body.child(
@@ -743,29 +1051,41 @@ impl Shell {
         let total = lines.len();
         for (at, (num, l)) in lines.into_iter().take(DIFF_LINES).enumerate() {
             let hunk = l.starts_with("@@");
-            let (fg, bg) = if l.starts_with('+') {
-                (ui::add(), Some(ca(ui::GREEN, 0.08)))
+            let (mark, bg) = if l.starts_with('+') {
+                ("+", Some(ca(ui::t_green(), 0.08)))
             } else if l.starts_with('-') {
-                (ui::del(), Some(ca(ui::RED, 0.08)))
-            } else if hunk {
-                (ui::faint(), None)
+                ("\u{2212}", Some(ca(ui::t_red(), 0.07)))
             } else {
-                (ui::body(), None)
+                (" ", None)
+            };
+            let mark_col = if l.starts_with('+') {
+                ui::t_green()
+            } else {
+                ui::t_red()
             };
             let picked = self
                 .line_at
                 .as_ref()
                 .is_some_and(|(j, p, a)| *j == job && p == path && *a == at);
             let p = path.to_string();
+            let shown_num = if l.starts_with('+') || hunk {
+                String::new()
+            } else {
+                num.split(',').next().unwrap_or("").to_string()
+            };
+            let code = if hunk {
+                l.to_string()
+            } else {
+                l.get(1..).unwrap_or("").to_string()
+            };
             body = body.child(
                 div()
                     .id(SharedString::from(format!("dl-{job}-{path}-{at}")))
-                    .px(px(16.))
+                    .pr(px(10.))
                     .flex()
-                    .gap(px(10.))
                     .whitespace_nowrap()
                     .overflow_hidden()
-                    .text_color(c(fg))
+                    .text_color(c(if hunk { ui::faint() } else { ui::ink() }))
                     .when_some(bg, |d, bg| d.bg(bg))
                     .when(picked, |d| d.bg(ca(ui::AMBER, 0.16)))
                     .when(!hunk, |d| {
@@ -784,15 +1104,25 @@ impl Shell {
                     })
                     .child(
                         div()
-                            .w(px(34.))
+                            .w(px(38.))
                             .flex_none()
+                            .pr(px(10.))
+                            .flex()
+                            .justify_end()
                             .text_color(c(ui::faint()))
-                            .child(num.split(',').next().unwrap_or("").to_string()),
+                            .child(shown_num),
                     )
-                    .child(if l.is_empty() {
+                    .child(
+                        div()
+                            .w(px(14.))
+                            .flex_none()
+                            .text_color(c(mark_col))
+                            .child(mark),
+                    )
+                    .child(if code.is_empty() {
                         " ".to_string()
                     } else {
-                        l.to_string()
+                        code
                     }),
             );
             // Comments already on this line.

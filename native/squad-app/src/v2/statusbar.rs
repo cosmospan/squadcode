@@ -150,13 +150,20 @@ impl Shell {
             }
             missing |= !d.ready;
             let dot = if !d.ready {
-                ui::RED
+                ui::t_red()
             } else if head.as_ref().is_some_and(|w| w.used >= 80.) {
-                ui::AMBER
+                ui::t_amber()
             } else {
-                ui::GREEN
+                ui::t_green()
             };
-            dots = dots.child(div().size(px(7.)).rounded_full().bg(c(dot)));
+            // The design's way: a square in the engine's state, then its name.
+            dots = dots
+                .child(div().size(px(6.)).flex_none().rounded(px(1.)).bg(c(dot)))
+                .child(
+                    div()
+                        .mr(px(6.))
+                        .child(crate::agent::PROVIDERS[d.i].name.to_string()),
+                );
         }
         let names: Vec<String> = days
             .iter()
@@ -170,19 +177,17 @@ impl Shell {
                 }
             })
             .collect();
-        let tip = format!("{}\nClick for usage details", names.join(" \u{b7} "));
+        let tip = format!(
+            "{}\n{} tokens today\nClick for usage details",
+            names.join(" \u{b7} "),
+            crate::health::token_count(tokens)
+        );
         let single = (days.len() == 1).then(|| crate::agent::PROVIDERS[days[0].i].name);
         let engines = div()
             .flex()
             .items_center()
-            .gap(px(7.))
-            .child(
-                Icon::new(IconName::Gauge)
-                    .size(px(13.))
-                    .text_color(c(ui::muted())),
-            )
+            .gap(px(6.))
             .child(dots)
-            .when_some(single, |d, name| d.child(name))
             .when(days.len() > BAR_ENGINES, |d| {
                 d.child(
                     div()
@@ -190,32 +195,43 @@ impl Shell {
                         .child(format!("+{}", days.len() - BAR_ENGINES)),
                 )
             })
-            .map(|el| match tight {
-                Some(used) => el.child(meter(used, 32., 4.)).child(
-                    div()
-                        .font_family(ui::MONO)
-                        .text_size(px(10.5))
-                        .text_color(c(if used >= 80. {
-                            ui::t_amber()
-                        } else {
-                            ui::faint()
-                        }))
-                        .child(format!("{used:.0}%")),
-                ),
-                None if missing && single.is_some() => {
-                    el.child(div().text_color(c(ui::t_red())).child("not found"))
-                }
-                None => el,
+            .when(missing && single.is_some() && tight.is_none(), |el| {
+                el.child(div().text_color(c(ui::t_red())).child("not found"))
             });
-
+        // The plan window closest to its limit: "Plan ▬▬▬ 62%".
+        let plan = tight.map(|used| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(7.))
+                .child("Plan")
+                .child(
+                    div()
+                        .w(px(56.))
+                        .h(px(5.))
+                        .flex_none()
+                        .bg(c(ui::line_hi()))
+                        .child(
+                            div()
+                                .h_full()
+                                .bg(c(if used >= 100. {
+                                    ui::t_red()
+                                } else {
+                                    ui::t_amber()
+                                }))
+                                .w(relative((used / 100.).clamp(0.02, 1.))),
+                        ),
+                )
+                .child(format!("{used:.0}%"))
+        });
         let right = div()
             .id("status-today")
             .h(px(22.))
             .px(px(9.))
             .flex()
             .items_center()
-            .gap(px(9.))
-            .rounded(px(6.))
+            .gap(px(16.))
+            .rounded(px(4.))
             .cursor_pointer()
             .map(|d| {
                 // Lit while its popover is open, so it reads as the anchor.
@@ -233,26 +249,18 @@ impl Shell {
                 })
             })
             .child(engines)
-            .child(rule())
-            .child(segment(
-                IconName::CircleDollarSign,
-                format!("${spend:.2}"),
-                "today",
-            ))
-            .child(rule())
-            .child(segment(
-                IconName::Zap,
-                crate::health::token_count(tokens),
-                "tokens",
-            ))
+            .children(plan)
             .child(
-                Icon::new(if open {
-                    IconName::ChevronDown
-                } else {
-                    IconName::ChevronUp
-                })
-                .size(px(12.))
-                .text_color(c(ui::faint())),
+                div()
+                    .flex()
+                    .gap(px(5.))
+                    .child(
+                        div()
+                            .text_color(c(ui::ink()))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(format!("${spend:.2}")),
+                    )
+                    .child("today"),
             )
             .on_click(cx.listener(|this, _, _, cx| this.toggle_usage(cx)));
 
@@ -275,9 +283,14 @@ impl Shell {
             .rounded(px(6.))
             .cursor_pointer()
             .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
-            .child(Icon::new(IconName::Laptop).size(px(13.)))
+            .child(Icon::new(IconName::Server).size(px(13.)))
             .child("Runs on")
-            .child(div().text_color(c(ui::ink())).child(here))
+            .child(
+                div()
+                    .text_color(c(ui::ink()))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(here),
+            )
             .when_some(server, |d, up| {
                 d.child(div().size(px(6.)).rounded_full().bg(c(if up {
                     ui::t_green()
@@ -312,15 +325,8 @@ impl Shell {
                     d.hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
                 }
             })
-            .child(Icon::new(IconName::SquareTerminal).size(px(13.)))
             .child("Terminal")
-            .child(
-                div()
-                    .font_family(ui::MONO)
-                    .text_size(px(10.))
-                    .opacity(0.6)
-                    .child(super::term::KEY),
-            )
+            .child(div().text_color(c(ui::faint())).child(super::term::KEY))
             .tooltip(|window, cx| {
                 gpui_kit::component::tooltip::Tooltip::new("A shell in this project")
                     .build(window, cx)
@@ -336,7 +342,9 @@ impl Shell {
             .gap(px(4.))
             .px(px(10.))
             .border_t_1()
-            .border_color(c(ui::line2()))
+            .border_color(c(ui::line()))
+            .bg(c(ui::ground()))
+            .font_family(ui::MONO)
             .text_size(px(11.5))
             .text_color(c(ui::muted()))
             .child(machine)
@@ -798,22 +806,6 @@ impl Shell {
     }
 }
 
-/// One of the status item's figures: an icon, the value, and a quiet word.
-fn segment(icon: IconName, value: String, word: &'static str) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(5.))
-        .child(Icon::new(icon).size(px(12.)).text_color(c(ui::faint())))
-        .child(
-            div()
-                .text_color(c(ui::ink()))
-                .font_weight(FontWeight::MEDIUM)
-                .child(value),
-        )
-        .child(div().text_color(c(ui::faint())).child(word))
-}
-
 /// A square tile holding an icon, tinted with `tone`: the popover's header
 /// and each engine lead with one.
 fn tile(icon: IconName, tone: u32, size: f32) -> Div {
@@ -826,11 +818,6 @@ fn tile(icon: IconName, tone: u32, size: f32) -> Div {
         .rounded(px(7.))
         .bg(ca(tone, 0.12))
         .child(Icon::new(icon).size(px(size * 0.55)).text_color(c(tone)))
-}
-
-/// A hairline between the status item's parts.
-fn rule() -> Div {
-    div().w(px(1.)).h(px(11.)).flex_none().bg(c(ui::line_hi()))
 }
 
 /// A quiet line under an engine.

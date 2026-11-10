@@ -442,6 +442,8 @@ pub struct Shell {
     /// The request whose Deny is open for a reason.
     denying: Option<String>,
     live_input: Entity<InputState>,
+    /// The job box's Ask chip: the next follow-up only asks.
+    live_ask: bool,
     /// Live's feed scrolls itself to the newest line while the job runs.
     live_scroll: ScrollHandle,
     live_len: usize,
@@ -522,6 +524,8 @@ pub struct Shell {
     maker_found: crate::settings::Discovered,
     /// The walkthrough's step and the crew picked in it.
     setup_step: usize,
+    /// The walkthrough's engine step lists every agent, not just the common ones.
+    setup_more: bool,
     /// The bot maker is open on Crew.
     maker_open: bool,
     /// The engines popover over the status bar is open.
@@ -565,8 +569,6 @@ pub struct Shell {
     viewer: Option<viewer::Viewer>,
     /// A project waiting for you to confirm removing it, or deleting its folder.
     gone: Option<menu::Gone>,
-    /// Running job cards showing their raw commands.
-    raw_open: std::collections::HashSet<u64>,
     /// The thread's "About this thread" panel is open.
     about_open: bool,
     /// A risky ask Peek wants you to OK first: its message in the thread, the
@@ -1168,29 +1170,9 @@ impl Shell {
                     }
                 }
             }),
-            cx.subscribe_in(&live_input, window, |this, input, event, window, cx| {
+            cx.subscribe_in(&live_input, window, |this, _input, event, window, cx| {
                 if let InputEvent::PressEnter { .. } = event {
-                    let text = input.read(cx).value().trim().to_string();
-                    // The job on its own page, or open beside its thread.
-                    let job = match this.place {
-                        Place::Live(id) => Some(id),
-                        Place::Today => this.reply_open,
-                        _ => None,
-                    };
-                    if let (false, Some(id)) = (text.is_empty(), job) {
-                        input.update(cx, |i, cx| i.set_value("", window, cx));
-                        // To a finished job, Peek's engine reads it first:
-                        // "run the app" runs it, "stop" stops it, and the
-                        // rest goes to the bot.
-                        let idle = this
-                            .crew
-                            .store
-                            .job(id)
-                            .is_some_and(|j| j.status != Status::Running);
-                        if !(idle && this.read_follow_up(id, text.clone(), cx)) {
-                            this.follow_up(id, text, cx);
-                        }
-                    }
+                    this.send_live(window, cx);
                 }
             }),
         ];
@@ -1327,7 +1309,7 @@ impl Shell {
                 .last()
                 .map(|j| Place::Live(j.id))
                 .unwrap_or(Place::Today),
-            Ok("welcome") => Place::Welcome,
+            Ok(p) if p == "welcome" || p.starts_with("welcome:") => Place::Welcome,
             Ok("maker" | "maker-review" | "setup") => Place::Crew,
             _ if !store.set_up => Place::Welcome,
             _ => Place::Today,
@@ -1352,6 +1334,7 @@ impl Shell {
             deny_input,
             denying: None,
             live_input,
+            live_ask: false,
             line_input: line_input.clone(),
             line_notes: Vec::new(),
             line_at: None,
@@ -1384,6 +1367,7 @@ impl Shell {
             moods: HashMap::new(),
             target: None,
             setup_step: 0,
+            setup_more: false,
             maker_open: false,
             usage_open: false,
             engine_sel: None,
@@ -1406,7 +1390,6 @@ impl Shell {
             menu_hot: None,
             viewer: None,
             gone: None,
-            raw_open: Default::default(),
             about_open: false,
             confirming: None,
             reading: None,
@@ -1556,6 +1539,10 @@ impl Shell {
             }
             // The status bar's usage popover, open.
             Ok("usage-open") => shell.usage_open = true,
+            // "welcome:3" opens the walkthrough on its fourth step.
+            Ok(p) if p.starts_with("welcome:") => {
+                shell.setup_step = p[8..].parse().unwrap_or(0);
+            }
             // A job's peek open beside its thread.
             Ok("peek") => {
                 let pick = shell
@@ -2923,6 +2910,37 @@ impl Shell {
             self.live_input
                 .update(cx, |i, cx| i.set_value(text, window, cx));
             self.live_input.read(cx).focus_handle(cx).focus(window, cx);
+        }
+    }
+
+    /// Sends what's typed in a job's own box: to the job on its own page,
+    /// or open beside its thread.
+    pub(super) fn send_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = self.live_input.clone();
+        let text = input.read(cx).value().trim().to_string();
+        let job = match self.place {
+            Place::Live(id) => Some(id),
+            Place::Today => self.reply_open,
+            _ => None,
+        };
+        if let (false, Some(id)) = (text.is_empty(), job) {
+            input.update(cx, |i, cx| i.set_value("", window, cx));
+            // To a finished job, Peek's engine reads it first: "run the app"
+            // runs it, "stop" stops it, and the rest goes to the bot.
+            let idle = self
+                .crew
+                .store
+                .job(id)
+                .is_some_and(|j| j.status != Status::Running);
+            if !(idle && self.read_follow_up(id, text.clone(), cx)) {
+                // Ask: it answers, and leaves the files as they are.
+                let text = if self.live_ask {
+                    format!("Only answer this; don't change any files. {text}")
+                } else {
+                    text
+                };
+                self.follow_up(id, text, cx);
+            }
         }
     }
 

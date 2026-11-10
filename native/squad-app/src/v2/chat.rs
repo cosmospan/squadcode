@@ -203,9 +203,7 @@ impl Shell {
             let at = if at > 0 { at } else { super::store::now() };
             (
                 self.face(who, mood, 34.).into_any_element(),
-                channel::byline(who.name(), at)
-                    .child(channel::role_tag(who.role(), who.accent()))
-                    .children(via.clone().map(channel::engine_note)),
+                channel::byline(who.name(), at).children(via.clone().map(channel::engine_note)),
             )
         });
         // A line that carries on a run has no byline: its engine goes under it.

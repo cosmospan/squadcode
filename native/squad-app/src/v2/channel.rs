@@ -586,14 +586,14 @@ fn when(at: u64) -> String {
     }
 }
 
-/// The time of day a message was sent, like 12:41 PM. The day is on the line
+/// The time of day a message was sent, like 08:12. The day is on the line
 /// between days, and a clock time doesn't go stale the way "15m" does.
 pub(super) fn clock(at: u64) -> String {
     use chrono::{Local, TimeZone};
     Local
         .timestamp_opt(at as i64, 0)
         .single()
-        .map(|t| t.format("%-I:%M %p").to_string())
+        .map(|t| t.format("%H:%M").to_string())
         .unwrap_or_default()
 }
 
@@ -605,14 +605,15 @@ pub(super) fn byline(name: &str, at: u64) -> Div {
         .gap(px(8.))
         .child(
             div()
-                .text_size(px(14.))
+                .text_size(px(13.5))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(c(ui::ink()))
                 .child(name.to_string()),
         )
         .child(
             div()
-                .text_size(px(11.5))
+                .font_family(ui::MONO)
+                .text_size(px(11.))
                 .text_color(c(ui::faint()))
                 .child(clock(at)),
         )
@@ -656,13 +657,13 @@ pub(super) fn line(head: Option<(AnyElement, Div)>, words: impl IntoElement) -> 
         })
         .child(
             div()
-                .w(px(34.))
+                .w(px(32.))
                 .flex_none()
                 .flex()
                 .justify_center()
                 .children(face.map(|f| {
                     div()
-                        .size(px(34.))
+                        .size(px(30.))
                         .flex()
                         .items_center()
                         .justify_center()
@@ -681,41 +682,66 @@ pub(super) fn line(head: Option<(AnyElement, Div)>, words: impl IntoElement) -> 
         )
 }
 
-/// A card under a message: white, a hairline edge, a soft shadow.
+/// The design's dashed progress bar: 6px dashes with 2px gaps in `col`,
+/// `frac` of the way along a hairline track.
+fn dashed_bar(frac: f32, col: u32) -> Div {
+    let mut dashes = div().h_full().flex().gap(px(2.)).overflow_hidden();
+    for _ in 0..80 {
+        dashes = dashes.child(div().w(px(6.)).h_full().flex_none().bg(c(col)));
+    }
+    div()
+        .h(px(3.))
+        .w_full()
+        .bg(c(ui::line()))
+        .overflow_hidden()
+        .child(
+            div()
+                .h_full()
+                .w(relative(frac.clamp(0.04, 1.)))
+                .overflow_hidden()
+                .child(dashes),
+        )
+}
+
+/// A card under a message: white with a hairline edge.
 fn card() -> Div {
     div()
         .mt(px(8.))
         .w_full()
         .flex()
         .flex_col()
-        .rounded(px(7.))
+        .rounded(px(6.))
         .bg(c(ui::raised()))
         .border_1()
         .border_color(c(ui::line()))
         .overflow_hidden()
-        .shadow(vec![BoxShadow {
-            color: hsla(0., 0., 0., 0.04),
-            offset: point(px(0.), px(1.)),
-            blur_radius: px(2.),
-            spread_radius: px(0.),
-            inset: false,
-        }])
+}
+
+/// The first letter of the person's name, for their square in the chat.
+pub(super) fn you_letter() -> String {
+    std::env::var("USER")
+        .ok()
+        .and_then(|u| u.chars().next())
+        .filter(|ch| ch.is_alphabetic())
+        .map(|ch| ch.to_uppercase().to_string())
+        .unwrap_or_else(|| "Y".into())
 }
 
 /// The person's own message: with their face and name when it starts a run,
 /// the words alone when it carries one on.
 pub(super) fn mine(text: String, at: u64, lead: bool) -> Div {
     let face = div()
-        .size(px(34.))
+        .size(px(30.))
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(10.))
-        .bg(c(super::theme::mix(ui::raised(), ui::VIOLET, 0.14)))
-        .text_color(c(ui::t_violet()))
+        .rounded(px(6.))
+        .bg(c(ui::pick_fill()))
+        .text_color(c(ui::pick_on()))
+        .font_family(ui::MONO)
         .text_size(px(13.))
-        .font_weight(FontWeight::BOLD)
-        .child("Y")
+        .font_weight(FontWeight::MEDIUM)
+        .child(you_letter())
         .into_any_element();
     line(
         lead.then(|| (face, byline("You", at))),
@@ -740,9 +766,9 @@ fn tagged(text: String) -> StyledText {
             runs.push((
                 at..end,
                 HighlightStyle {
-                    color: Some(c(ui::t_violet())),
+                    color: Some(c(ui::accent_text())),
                     font_weight: Some(FontWeight::SEMIBOLD),
-                    background_color: Some(ca(ui::VIOLET, 0.1)),
+                    background_color: Some(ca(ui::pick_fill(), 0.25)),
                     ..Default::default()
                 },
             ));
@@ -968,7 +994,17 @@ impl Shell {
             .child(head)
             .children(self.about_thread(&folder.path, thread, cx))
             .children(catch_up.map(|bar| self.catch_up_line(bar, cx)))
-            .child(chat)
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .children(ui::feed_grid())
+                    .child(chat),
+            )
             .child(
                 div()
                     .w_full()
@@ -1105,63 +1141,10 @@ impl Shell {
                 super::brain::summary::EVERY
             )
         };
-        let bar = div()
-            .id("about-thread")
-            .w_full()
-            .h(px(34.))
-            .px(px(28.))
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .border_b_1()
-            .border_color(c(ui::line()))
-            .cursor_pointer()
-            .hover(|s| s.bg(c(ui::hover())))
-            .child(
-                Icon::new(if open {
-                    IconName::ChevronDown
-                } else {
-                    IconName::ChevronRight
-                })
-                .size(px(14.))
-                .text_color(c(ui::faint())),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c(ui::muted()))
-                    .child("About this thread"),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(12.5))
-                    .text_color(c(ui::body()))
-                    .child(line),
-            )
-            .when(!sum.notes.is_empty(), |d| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .text_size(px(11.5))
-                        .text_color(c(ui::faint()))
-                        .child(match sum.notes.len() {
-                            1 => "1 note".to_string(),
-                            n => format!("{n} notes"),
-                        }),
-                )
-            })
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.about_open = !this.about_open;
-                cx.notify();
-            }));
         if !open {
-            return Some(div().w_full().child(bar));
+            return None;
         }
+        let _ = line;
         let mut body = div()
             .w_full()
             .max_w(px(COLUMN))
@@ -1287,7 +1270,7 @@ impl Shell {
                 ),
         );
         Some(
-            div().w_full().flex().flex_col().child(bar).child(
+            div().w_full().flex().flex_col().child(
                 div()
                     .w_full()
                     .bg(c(ui::well()))
@@ -1319,23 +1302,34 @@ impl Shell {
                 div()
                     .id(("channel-face", i))
                     .hoverable_tooltip(move |_, cx| cx.new(|_| card.clone()).into())
-                    .when(i > 0, |d| d.ml(px(-5.)))
-                    .size(px(24.))
+                    .when(i > 0, |d| d.ml(px(2.)))
                     .flex()
                     .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .bg(c(ui::bg()))
                     .child(f),
             );
         }
-        let about = if busy > 0 {
-            format!("{} \u{b7} {busy} working", bots.len())
+        let _ = busy;
+        // What the thread is about, in one quiet line: Peek's summary, else
+        // the first pinned note. Clicking it opens the summary and notes.
+        let sum = self
+            .crew
+            .store
+            .summary(&here, thread)
+            .cloned()
+            .unwrap_or_default();
+        let headline = super::brain::summary::headline(&sum.text);
+        let about = if !headline.is_empty() {
+            headline
         } else {
-            bots.len().to_string()
+            sum.notes.first().cloned().unwrap_or_default()
+        };
+        let pinned = sum.notes.len();
+        let toggle = |this: &mut Self, cx: &mut Context<Self>| {
+            this.about_open = !this.about_open;
+            cx.notify();
         };
         div()
-            .h(px(46.))
+            .h(px(50.))
             .flex_none()
             .w_full()
             .px(px(20.))
@@ -1343,41 +1337,61 @@ impl Shell {
             .items_center()
             .gap(px(10.))
             .border_b_1()
-            .border_color(c(ui::line2()))
+            .border_color(c(ui::line()))
             .child(
                 div()
                     .flex_none()
+                    .font_family(ui::MONO)
                     .text_size(px(15.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(c(ui::ink()))
-                    .child(format!("#{name}")),
+                    .text_color(c(ui::accent_text()))
+                    .child("#"),
             )
-            .child(div().flex_1())
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(16.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(ui::ink()))
+                    .child(name.to_string()),
+            )
+            .child(
+                div()
+                    .id("channel-about")
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(13.))
+                    .text_color(c(ui::faint()))
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(c(ui::muted())))
+                    .child(if about.is_empty() {
+                        "What this thread is about".to_string()
+                    } else {
+                        about
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| toggle(this, cx))),
+            )
             .child(
                 div()
                     .id("channel-members")
-                    .h(px(30.))
-                    .pl(px(4.))
-                    .pr(px(10.))
+                    .ml(px(4.))
                     .flex()
                     .flex_none()
                     .items_center()
-                    .gap(px(8.))
-                    .rounded(px(8.))
-                    .border_1()
-                    .border_color(c(ui::line()))
-                    .text_size(px(12.))
-                    .text_color(c(ui::muted()))
+                    .gap(px(2.))
                     .cursor_pointer()
-                    .hover(|s| s.border_color(c(ui::line_hi())).text_color(c(ui::ink())))
                     .child(faces)
-                    .child(about)
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new("The bots in this thread")
+                            .build(window, cx)
+                    })
                     .on_click(cx.listener(|this, _, _, cx| this.go(Place::Crew, cx))),
             )
             .child(
-                ui::ghost_i("channel-add-bot", IconName::Plus, "Add a bot")
-                    .h(px(30.))
-                    .flex_none()
+                ui::icon_btn("channel-add-bot", IconName::Plus)
+                    .size(px(24.))
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new("Add a bot").build(window, cx)
+                    })
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.composer.update(cx, |i, cx| {
                             let text = i.value().to_string();
@@ -1392,6 +1406,21 @@ impl Shell {
                         cx.notify();
                     })),
             )
+            .child(div().flex_1())
+            .when(pinned > 0, |d| {
+                d.child(
+                    ui::ghost_i(
+                        "channel-pinned",
+                        IconName::Bookmark,
+                        format!("{pinned} pinned"),
+                    )
+                    .h(px(28.))
+                    .flex_none()
+                    .border_color(transparent_black())
+                    .text_color(c(ui::muted()))
+                    .on_click(cx.listener(move |this, _, _, cx| toggle(this, cx))),
+                )
+            })
     }
 
     /// What a face in the bar shows on hover: who the bot is, what it's on,
@@ -1432,13 +1461,12 @@ impl Shell {
     /// A question asked in the thread, and the bot's answer under it.
     fn talk_entry(&mut self, t: &store::Talk, cx: &mut Context<Self>) -> Div {
         let face = match t.answer.as_ref().filter(|a| !a.note) {
-            Some(a) => self.face(t.bot, super::text_mood(&a.text), 34.),
-            None => self.avatar(t.bot, 34.),
+            Some(a) => self.face(t.bot, super::text_mood(&a.text), 30.),
+            None => self.avatar(t.bot, 30.),
         };
         // Peek reading a message with its engine shows as thinking too.
         let reading = self.reading_talk() == Some(t.id);
         let waiting = t.answer.is_none() && (self.crew.asking_talk == Some(t.id) || reading);
-        let accent = t.bot.accent();
         let offer = t
             .answer
             .as_ref()
@@ -1526,16 +1554,9 @@ impl Shell {
             .filter(|a| !a.note)
             .and_then(|a| a.via.clone());
         let head = lead.then(|| {
-            let tag = if t.bot == Member::Fin {
-                "Lead".to_string()
-            } else {
-                t.bot.role().to_string()
-            };
             (
                 face.into_any_element(),
-                byline(t.bot.name(), t.at)
-                    .child(role_tag(tag, accent))
-                    .children(via.map(engine_note)),
+                byline(t.bot.name(), t.at).children(via.map(engine_note)),
             )
         });
         let runs = self.talk_runs(t.id, cx);
@@ -1629,15 +1650,14 @@ impl Shell {
     pub(super) fn job_entry(&mut self, j: &Job, cx: &mut Context<Self>) -> Div {
         let running = j.status == Status::Running;
         let face = if running {
-            self.bot(j.bot, Mood::Working, 34., Framing::Bust)
+            self.bot(j.bot, Mood::Working, 30., Framing::Bust)
         } else {
             // The face matches the job's news: pleased at good news,
             // concerned only when something's wrong.
-            self.face(j.bot, super::job_mood(j), 34.)
+            self.face(j.bot, super::job_mood(j), 30.)
         };
         let (word, tone) = status_of(j);
         let frac = j.progress().map(|(d, n)| d as f32 / n.max(1) as f32);
-        let accent = j.bot.accent();
         let said = match j.status {
             Status::Running => match j.progress() {
                 Some((_, n)) if n > 1 => format!("On it. {n} steps, I'll post when it's done."),
@@ -1682,8 +1702,6 @@ impl Shell {
             0
         };
         let racing = tries > 1;
-        let approve = (review && !racing).then(|| self.approve_label(j));
-        let failed_checks = j.checks.iter().filter(|c| !c.ok).count();
         let asks = self.ask_card(j, cx);
         let branch = self.branch_line(j);
         let belt = self
@@ -1711,13 +1729,9 @@ impl Shell {
                 frac,
                 tail,
                 asks,
-                branch,
                 belt,
-                clash,
-                approve,
                 racing,
                 tries,
-                failed_checks,
                 added,
                 removed,
                 said: (!running && said != word_said).then(|| said.clone()),
@@ -1759,12 +1773,7 @@ impl Shell {
                 )
         });
         let lead = !self.continues(j.bot.name(), j.started);
-        let head = lead.then(|| {
-            (
-                face.into_any_element(),
-                byline(j.bot.name(), j.started).child(role_tag(j.bot.role(), accent)),
-            )
-        });
+        let head = lead.then(|| (face.into_any_element(), byline(j.bot.name(), j.started)));
         let words = div()
             .flex()
             .flex_col()
@@ -1875,348 +1884,193 @@ impl Shell {
         )
     }
 
-    /// A job's card while there's something in it to watch or act on: its
-    /// progress while it runs, what it changed, what it asks, and its buttons.
+    /// A job's card in the thread, as the design draws it: the title, its
+    /// number and how it stands; a dashed bar while it runs; then one line
+    /// with what it's doing or did, the lines it changed and a Seatbelt mark,
+    /// with the buttons that matter now. The rest (the seatbelt's catch, a
+    /// clash, checks, Approve) is in the peek beside it. A question the bot
+    /// asks you stays right here.
     fn live_card(&mut self, j: &Job, b: JobBits, cx: &mut Context<Self>) -> Div {
         let id = j.id;
         let running = j.status == Status::Running;
-        let review = j.status == Status::Review;
-        let accent = j.bot.accent();
         let JobBits {
             word,
             tone,
             frac,
             tail,
-            approve,
             racing,
             tries,
-            failed_checks,
             added,
             removed,
             said,
             ..
         } = b;
+        let held = b.belt.is_some();
+        let (state, col) = if running {
+            let what = match j.progress() {
+                Some((d, n)) => format!("Working \u{b7} {}/{n}", (d + 1).min(n)),
+                None => "Working".to_string(),
+            };
+            (what, ui::t_blue())
+        } else {
+            (word, tone)
+        };
         let head = div()
             .px(px(14.))
-            .py(px(11.))
+            .pt(px(11.))
+            .pb(px(4.))
             .flex()
             .items_center()
-            .gap(px(10.))
+            .gap(px(9.))
             .child(
                 div()
-                    .size(px(7.))
-                    .flex_none()
-                    .rounded_full()
-                    .bg(c(if running { accent } else { tone })),
-            )
-            .child(
-                div()
-                    .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_size(px(13.5))
+                    .text_size(px(14.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c(ui::ink()))
                     .child(card_title(j)),
             )
-            .child(if running {
-                // Working: a pill in the bot's own colour, with how long so far.
-                let k = 0.4 + 0.6 * super::motion::breath();
-                let what = match j.progress() {
-                    Some((d, n)) => format!("Step {} of {n}", (d + 1).min(n)),
-                    None => "Working".to_string(),
-                };
+            .child(
                 div()
                     .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .h(px(22.))
-                    .px(px(9.))
-                    .rounded_full()
-                    .bg(ca(accent, 0.12))
+                    .font_family(ui::MONO)
                     .text_size(px(11.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c(super::theme::mix(accent, ui::ink(), 0.3)))
-                    .child(div().size(px(6.)).rounded_full().bg(c(accent)).opacity(k))
-                    .child(format!("{what} \u{b7} {}", store::span(j.seconds())))
-            } else {
-                div()
-                    .flex_none()
-                    .text_size(px(11.5))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(c(tone))
-                    .child(word.clone())
-            });
+                    .text_color(c(ui::faint()))
+                    .child(format!("#{id}")),
+            )
+            .child(div().flex_1())
+            .child(ui::mono_status(col, &state));
 
         let peeked = self.reply_open == Some(id);
         let mut body = card()
-            .when(running, |d| {
-                d.border_color(c(super::theme::mix(ui::line(), accent, 0.45)))
-            })
-            .when(review, |d| d.border_color(c(ui::ask_tone().2)))
-            // The job open in the peek: a ring in the accent line, and a soft glow.
+            .id(("job-card", id as usize))
+            .cursor_pointer()
+            .rounded(px(6.))
             .when(peeked, |d| {
-                d.border_color(c(ui::ink())).shadow(vec![BoxShadow {
-                    color: ui::ca(ui::ink(), 0.08),
+                d.border_color(c(ui::accent_bar())).shadow(vec![BoxShadow {
+                    color: ca(ui::pick_fill(), 0.35),
                     offset: point(px(0.), px(0.)),
                     blur_radius: px(0.),
-                    spread_radius: px(4.),
+                    spread_radius: px(3.),
                     inset: false,
                 }])
             })
+            .on_click(cx.listener(move |this, _, _, cx| this.peek_job(id, cx)))
             .child(head);
-        if let Some(f) = frac.filter(|_| running) {
-            body = body.child(div().px(px(14.)).child(ui::bar(f, accent).h(px(3.))));
-        }
         if running {
-            // What it's doing now, in plain words, then its last few steps.
-            let now_doing = match tail.last() {
+            body = body.child(
+                div()
+                    .mx(px(14.))
+                    .mt(px(2.))
+                    .child(dashed_bar(frac.unwrap_or(0.), ui::t_blue())),
+            );
+        }
+        let line = if running {
+            match tail.last() {
                 Some((0, label, _)) => store::plain_step(label, true),
                 _ if !j.plan.is_empty() => j.doing(),
                 _ => "Thinking it through".to_string(),
-            };
-            let open = self.raw_open.contains(&id);
-            let mut steps = div()
-                .mx(px(14.))
-                .mt(px(8.))
-                .mb(px(10.))
-                .flex()
-                .flex_col()
-                .gap(px(6.));
-            steps = steps.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .mx(px(-6.))
-                    .px(px(6.))
-                    .py(px(5.))
-                    .rounded(px(8.))
-                    .bg(ca(accent, 0.06))
-                    .text_size(px(13.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(c(ui::ink()))
-                    .child({
-                        let k = 0.35 + 0.65 * super::motion::breath();
-                        div()
-                            .size(px(8.))
-                            .mx(px(3.))
-                            .flex_none()
-                            .rounded_full()
-                            .bg(c(accent))
-                            .opacity(k)
-                    })
-                    .child(div().min_w_0().truncate().child(now_doing)),
-            );
-            let done: Vec<&(u8, String, String)> =
-                tail.iter().filter(|(st, _, _)| *st != 0).collect();
-            for (n, (state, label, kind)) in done.into_iter().enumerate() {
-                let (icon, color, text) = match state {
-                    1 => (
-                        IconName::Check,
-                        ui::t_green(),
-                        store::plain_step(label, false),
-                    ),
-                    _ => (
-                        IconName::RotateCcw,
-                        ui::muted(),
-                        format!(
-                            "{} didn't work, trying another way",
-                            store::plain_step(label, false)
-                        ),
-                    ),
-                };
-                let raw = if kind.is_empty() {
-                    label.clone()
-                } else {
-                    format!("{kind}: {label}")
-                };
-                steps = steps.child(
-                    div()
-                        .id(("job-step", (id as usize) * 8 + n))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .text_size(px(12.5))
-                        .text_color(c(ui::muted()))
-                        .child(Icon::new(icon).size(px(12.)).text_color(c(color)))
-                        .child(div().min_w_0().truncate().child(text))
-                        .tooltip(move |window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new(raw.clone())
-                                .build(window, cx)
-                        }),
-                );
             }
-            body = body.child(steps);
-            if open && !tail.is_empty() {
-                let mut raw = div()
-                    .mx(px(14.))
-                    .mb(px(10.))
-                    .px(px(10.))
-                    .py(px(8.))
-                    .rounded(px(8.))
-                    .bg(c(ui::well()))
-                    .border_1()
-                    .border_color(c(ui::line2()))
-                    .flex()
-                    .flex_col()
-                    .gap(px(3.))
-                    .font_family(ui::MONO)
-                    .text_size(px(11.5))
-                    .text_color(c(ui::muted()));
-                for (_, label, _) in &tail {
-                    raw = raw.child(div().min_w_0().truncate().child(label.clone()));
-                }
-                body = body.child(raw);
-            }
-        }
-        // What the bot needs your yes for, right here in the chat, then its
-        // branch and git news about it: the seatbelt, a clash ahead.
-        body = body
-            .children(b.asks)
-            .children(b.branch)
-            .children(b.belt)
-            .children(b.clash);
-        if review || matches!(j.status, Status::Done | Status::Shipped) && !j.changes.is_empty() {
-            body = body.child(
-                div()
-                    .px(px(14.))
-                    .pt(px(2.))
-                    .pb(px(10.))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .text_size(px(12.))
-                    .child(ui::badge(ui::ok_tone(), format!("+{added}")))
-                    .child(ui::badge(ui::bad_tone(), format!("\u{2212}{removed}")))
-                    .child(div().text_color(c(ui::muted())).child(format!(
-                        "{} {}",
-                        j.changes.len(),
-                        if j.changes.len() == 1 {
-                            "file"
-                        } else {
-                            "files"
-                        }
-                    )))
-                    .child(div().flex_1())
-                    .when(!j.checks.is_empty(), |d| {
-                        d.child(
-                            div()
-                                .text_color(c(if failed_checks == 0 {
-                                    ui::t_green()
-                                } else {
-                                    ui::t_red()
-                                }))
-                                .child(if failed_checks == 0 {
-                                    format!("{} checks passed", j.checks.len())
-                                } else {
-                                    format!("{failed_checks} of {} checks failed", j.checks.len())
-                                }),
-                        )
-                    }),
-            );
-        }
-        // What you can do about it, right here.
-        let mut actions = div()
+        } else if racing {
+            format!("Race of {tries} engines")
+        } else {
+            said.map(|w| w.lines().next().unwrap_or("").to_string())
+                .unwrap_or_else(|| format!("{} \u{b7} {}", j.bot.name(), j.engine))
+        };
+        let mut foot = div()
             .px(px(14.))
-            .py(px(9.))
+            .pt(px(if running { 8. } else { 4. }))
+            .pb(px(12.))
             .flex()
             .items_center()
-            .gap(px(8.))
-            .bg(c(ui::well()))
-            .border_t_1()
-            .border_color(c(ui::line2()))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(12.5))
-                    .map(|d| match (&said, racing) {
-                        (_, true) => d
-                            .text_color(c(ui::faint()))
-                            .child(format!("Race of {tries} engines")),
-                        (Some(words), false) => d
-                            .text_color(c(ui::body()))
-                            .child(words.lines().next().unwrap_or("").to_string()),
-                        (None, false) => d
-                            .text_color(c(ui::faint()))
-                            .child(format!("#{id} \u{b7} {}", j.engine)),
-                    }),
-            )
-            .map(|d| {
-                if racing {
-                    let race = j.race;
-                    d.child(
-                        ui::solid(
-                            ("thread-compare", id as usize),
-                            format!("Compare {tries} tries"),
-                        )
-                        .h(px(28.))
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.go(Place::Race(race), cx)),
-                        ),
-                    )
-                } else {
-                    d.child(
-                        ui::ghost(("thread-open", id as usize), "Peek")
-                            .h(px(28.))
-                            .on_click(cx.listener(move |this, _, _, cx| this.peek_job(id, cx))),
-                    )
-                }
-            });
-        if running && !tail.is_empty() {
-            let open = self.raw_open.contains(&id);
-            actions = actions.child(
-                div()
-                    .id(("job-raw", id as usize))
-                    .px(px(6.))
-                    .text_size(px(12.))
-                    .text_color(c(ui::muted()))
-                    .cursor_pointer()
-                    .hover(|s| s.text_color(c(ui::ink())))
-                    .child(if open { "Hide commands" } else { "Commands" })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if !this.raw_open.remove(&id) {
-                            this.raw_open.insert(id);
-                        }
-                        cx.notify();
-                    })),
-            );
-        }
-        if running {
-            actions = actions.child(
-                ui::ghost(("thread-stop", id as usize), "Stop")
-                    .h(px(28.))
-                    .on_click(cx.listener(move |this, _, _, cx| this.stop_job(id, cx))),
-            );
-        }
-        if let Some(label) = approve {
-            actions = actions
-                .child(
-                    ui::ghost(("thread-discard", id as usize), "Discard")
-                        .h(px(28.))
-                        .on_click(cx.listener(move |this, _, _, cx| this.discard_job(id, cx))),
+            .gap(px(10.))
+            .text_size(px(12.5))
+            .text_color(c(ui::muted()))
+            .child(div().min_w_0().truncate().child(line))
+            .when(added + removed > 0, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .font_family(ui::MONO)
+                        .text_size(px(12.))
+                        .text_color(c(ui::t_green()))
+                        .child(format!("+{added}")),
                 )
                 .child(
-                    ui::solid(("thread-approve", id as usize), label)
-                        .h(px(28.))
-                        .on_click(cx.listener(move |this, _, _, cx| this.approve(id, cx))),
-                );
+                    div()
+                        .flex_none()
+                        .font_family(ui::MONO)
+                        .text_size(px(12.))
+                        .text_color(c(ui::t_red()))
+                        .child(format!("\u{2212}{removed}")),
+                )
+            })
+            .when(held, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .font_family(ui::MONO)
+                        .text_size(px(10.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(c(ui::t_red()))
+                        .child(Icon::new(IconName::Shield).size(px(13.)))
+                        .child("SEATBELT"),
+                )
+            })
+            .child(div().flex_1());
+        let btn = |id: (&'static str, usize), label: &'static str| {
+            ui::ghost(id, label).h(px(28.)).text_size(px(12.5))
+        };
+        if racing {
+            let race = j.race;
+            foot = foot.child(
+                ui::solid(
+                    ("thread-compare", id as usize),
+                    format!("Compare {tries} tries"),
+                )
+                .h(px(28.))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.go(Place::Race(race), cx)
+                })),
+            );
+        }
+        if running && !j.remote_on.is_empty() {
+            foot = foot.child(btn(("thread-browser", id as usize), "Browser").on_click(
+                cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.go(Place::Browser(id), cx)
+                }),
+            ));
+        }
+        if running {
+            foot = foot.child(
+                btn(("thread-stop", id as usize), "Stop").on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.stop_job(id, cx)
+                    },
+                )),
+            );
         }
         if matches!(
             j.status,
             Status::Failed | Status::Interrupted | Status::Stopped
         ) {
-            actions = actions.child(
-                ui::ghost(("thread-retry", id as usize), "Try again")
-                    .h(px(28.))
-                    .on_click(cx.listener(move |this, _, _, cx| this.retry_job(id, cx))),
-            );
+            foot = foot.child(btn(("thread-retry", id as usize), "Try again").on_click(
+                cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.retry_job(id, cx)
+                }),
+            ));
         }
-        body = body.child(actions);
-        body
+        body = body.child(foot);
+        // A question for you is answered here, in the thread.
+        div().w_full().child(body.children(b.asks))
     }
 
     /// A plan: your goal, then Peek's plan card with a step per job.
@@ -2232,7 +2086,7 @@ impl Shell {
         // Drawn still: an eased face here shared its slot with Peek on the
         // rail, which is the same size, so the two moods swapped every frame
         // and the face flickered.
-        let face = self.face(Member::Fin, mood, 34.);
+        let face = self.face(Member::Fin, mood, 30.);
         let said = match g.state {
             State::Planning => "Reading the code to plan this.".to_string(),
             State::Ready => "Here's my plan. Start it when it looks right.".to_string(),
@@ -2437,12 +2291,7 @@ impl Shell {
         }
         let you_lead = !self.continues("You", g.started);
         let lead = !self.continues("Peek", g.started);
-        let head = lead.then(|| {
-            (
-                face.into_any_element(),
-                byline("Peek", g.started).child(role_tag("Lead", Member::Fin.accent())),
-            )
-        });
+        let head = lead.then(|| (face.into_any_element(), byline("Peek", g.started)));
         let words = div()
             .flex()
             .flex_col()
@@ -2819,7 +2668,7 @@ impl Shell {
             self.doer()
         };
         let ready = !value.trim().is_empty();
-        let face = self.avatar(target, 20.);
+        let face = self.avatar(target, 15.);
         let plan_first = cx.global::<crate::settings::AppSettings>().v2_plan_first;
         let goes = if let Some(m) = named.filter(|_| !value.starts_with('/')) {
             match self.open_here(m) {
@@ -2895,8 +2744,8 @@ impl Shell {
                     .px(px(9.))
                     .flex()
                     .items_center()
-                    .rounded(px(5.))
-                    .text_size(px(12.5))
+                    .rounded(px(3.))
+                    .text_size(px(12.))
                     .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
                     .map(|d| {
@@ -2913,35 +2762,48 @@ impl Shell {
                     })),
             );
         }
-        let sep = || div().w(px(1.)).h(px(16.)).mx(px(4.)).bg(c(ui::line()));
+        let sep = || div().w(px(1.)).h(px(16.)).mx(px(2.)).bg(c(ui::line()));
+        // The chip says who gets it; what that means in full is its tip.
+        let chip = if value.starts_with('/') {
+            goes.clone()
+        } else {
+            format!("To {}", target.name())
+        };
+        let goes_tip =
+            format!("{goes}\n/ for commands \u{b7} @ to bring in a bot \u{b7} # for a thread");
+        // Where it runs: the server switch once there is one, else this Mac.
+        let run_on = self
+            .run_on_pill(cx)
+            .map(|p| p.into_any_element())
+            .unwrap_or_else(|| {
+                div()
+                    .h(px(26.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .text_size(px(12.))
+                    .text_color(c(ui::muted()))
+                    .child(Icon::new(IconName::Server).size(px(13.)))
+                    .child(super::machines::here_name())
+                    .into_any_element()
+            });
         div()
             .w_full()
             .flex()
             .flex_col()
-            .gap(px(8.))
-            .px(px(14.))
-            .pt(px(12.))
-            .pb(px(10.))
-            .rounded(px(14.))
+            .rounded(px(7.))
             .bg(c(ui::raised()))
             .border_1()
-            .border_color(c(if ready {
-                super::theme::mix(ui::raised(), ui::pick_fill(), ui::pick_k(0.55).min(0.9))
-            } else {
-                ui::line_hi()
-            }))
-            .shadow(vec![BoxShadow {
-                color: hsla(0., 0., 0., 0.05),
-                offset: point(px(0.), px(2.)),
-                blur_radius: px(6.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
+            .border_color(c(ui::line_hi()))
             .children(self.at_strip(cx))
             .child(
                 div()
+                    .px(px(16.))
+                    .pt(px(13.))
+                    .pb(px(6.))
                     .min_h(px(44.))
-                    .text_size(px(14.5))
+                    .text_size(px(14.))
                     .line_height(px(21.))
                     .child(
                         Textarea::new(&self.composer)
@@ -2951,66 +2813,101 @@ impl Shell {
             )
             .child(
                 div()
+                    .pl(px(10.))
+                    .pr(px(8.))
+                    .pt(px(6.))
+                    .pb(px(8.))
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    .gap(px(6.))
                     .child(
                         div()
                             .id("thread-goes-to")
                             .h(px(26.))
-                            .pl(px(5.))
-                            .pr(px(9.))
+                            .px(px(9.))
                             .flex()
                             .flex_none()
                             .items_center()
-                            .gap(px(6.))
-                            .rounded(px(5.))
-                            .bg(c(ui::well()))
-                            .text_size(px(12.5))
+                            .gap(px(5.))
+                            .rounded(px(3.))
+                            .bg(c(ui::hover()))
+                            .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(c(ui::ink()))
                             .child(face)
-                            .child(goes)
-                            .tooltip(|window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new(
-                                    "/ for commands \u{b7} @ to bring in a bot \u{b7} # for a thread",
-                                )
-                                .build(window, cx)
+                            .child(chip)
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(goes_tip.clone())
+                                    .build(window, cx)
                             }),
                     )
                     .child(sep())
                     .child(hows)
-                    // Where a job from here runs, once there's a server.
+                    // Where a job from here runs.
                     .when(how != "Ask" && !value.starts_with('/'), |d| {
-                        d.children(self.run_on_pill(cx).map(|p| div().flex().items_center().child(sep()).child(p)))
+                        d.child(sep()).child(run_on)
                     })
                     .child(div().flex_1())
                     .child(self.later_button(cx))
+                    // Send, split like the design: the arrow sends now, the
+                    // chevron runs it later.
                     .child(
                         div()
-                            .id("thread-send")
-                            .size(px(32.))
-                            .rounded(px(9.))
+                            .h(px(30.))
                             .flex()
-                            .items_center()
-                            .justify_center()
-                            .map(|d| {
-                                if ready {
-                                    d.bg(c(ui::pick_fill()))
-                                        .cursor_pointer()
-                                        .hover(|s| s.opacity(0.9))
-                                } else {
-                                    d.bg(c(ui::pick_fill())).opacity(0.45)
-                                }
-                            })
+                            .flex_none()
+                            .rounded(px(4.))
+                            .overflow_hidden()
+                            .bg(c(ui::pick_fill()))
                             .child(
-                                Icon::new(IconName::ArrowUp)
-                                    .size(px(16.))
-                                    .text_color(c(ui::pick_on())),
+                                div()
+                                    .id("thread-send")
+                                    .w(px(32.))
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .map(|d| {
+                                        if ready {
+                                            d.cursor_pointer().hover(|s| s.bg(c(ui::fill_hover())))
+                                        } else {
+                                            d.opacity(0.5)
+                                        }
+                                    })
+                                    .child(
+                                        Icon::new(IconName::ArrowUp)
+                                            .size(px(15.))
+                                            .text_color(c(ui::pick_on())),
+                                    )
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.send_from_composer(window, cx);
+                                    })),
                             )
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.send_from_composer(window, cx);
-                            })),
+                            .child(div().w(px(1.)).h_full().bg(ca(ui::pick_on(), 0.2)))
+                            .child(
+                                div()
+                                    .id("thread-later")
+                                    .w(px(20.))
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(c(ui::fill_hover())))
+                                    .child(
+                                        Icon::new(IconName::ChevronDown)
+                                            .size(px(11.))
+                                            .text_color(c(ui::pick_on())),
+                                    )
+                                    .tooltip(|window, cx| {
+                                        gpui_kit::component::tooltip::Tooltip::new("Run it later")
+                                            .build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.later_menu = !this.later_menu;
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
             )
     }
@@ -3172,43 +3069,33 @@ impl Shell {
         });
         div()
             .relative()
-            .child(
-                div()
-                    .id("thread-later")
-                    .h(px(28.))
-                    .px(px(if label.is_some() { 9. } else { 0. }))
-                    .when(label.is_none(), |d| d.w(px(28.)))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(5.))
-                    .rounded_full()
-                    .cursor_pointer()
-                    .map(|d| {
-                        if label.is_some() {
-                            d.bg(c(super::theme::mix(
-                                ui::raised(),
-                                ui::pick_fill(),
-                                ui::pick_k(0.18),
-                            )))
-                            .text_color(c(ui::pick_text()))
-                        } else {
-                            d.text_color(c(ui::muted()))
-                                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
-                        }
-                    })
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(Icon::new(IconName::Moon).size(px(14.)))
-                    .children(label)
-                    .tooltip(|window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new("Run it later").build(window, cx)
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.later_menu = !open;
-                        cx.notify();
-                    })),
-            )
+            .flex()
+            .items_center()
+            .h_full()
+            .when_some(label, |d, label| {
+                d.child(
+                    div()
+                        .id("thread-later-pick")
+                        .h(px(26.))
+                        .mr(px(6.))
+                        .px(px(9.))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .rounded(px(3.))
+                        .bg(c(ui::hover()))
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(c(ui::ink()))
+                        .cursor_pointer()
+                        .child(Icon::new(IconName::Moon).size(px(13.)))
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.later_menu = !open;
+                            cx.notify();
+                        })),
+                )
+            })
             .when(open, |d| d.child(deferred(menu).with_priority(2)))
     }
 
@@ -3267,13 +3154,9 @@ struct JobBits {
     frac: Option<f32>,
     tail: Vec<(u8, String, String)>,
     asks: Option<Div>,
-    branch: Option<Div>,
     belt: Option<Div>,
-    clash: Option<Div>,
-    approve: Option<String>,
     racing: bool,
     tries: usize,
-    failed_checks: usize,
     added: usize,
     removed: usize,
     /// What the bot said about it, carried in the card's foot: the card is

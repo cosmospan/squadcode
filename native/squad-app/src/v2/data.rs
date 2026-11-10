@@ -78,11 +78,11 @@ pub fn set_removed(removed: &[Member]) {
     *REMOVED.write().unwrap_or_else(|e| e.into_inner()) = removed.to_vec();
 }
 
-/// The bots a new person starts with besides Fin: none. Fin leads every crew,
-/// answers questions itself, and when a job needs a kind of work nobody on the
-/// crew does, offers the bot for it (see [`Member::needed_for`]). Bots can be
-/// added or made on Crew any time too.
-pub const STARTER_CREW: [Member; 0] = [];
+/// The bots the walkthrough's Crew step has ticked to start with, besides
+/// Peek: one to build, one to fix and one to keep the rules. Peek leads every
+/// crew and offers a bot the crew is missing when a job needs one (see
+/// [`Member::needed_for`]); more can be added or made on Crew any time.
+pub const STARTER_CREW: [Member; 3] = [Member::Builder, Member::Fixer, Member::Guard];
 
 /// Makes `made` the bots the app knows about (on load, and after a change).
 pub fn set_made(made: &[Made]) {

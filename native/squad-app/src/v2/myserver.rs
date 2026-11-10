@@ -228,7 +228,7 @@ impl Shell {
                 format!("Runs on your server, {label}, and keeps going with this computer closed. Click to run it here instead."),
             ),
             "here" => (
-                IconName::Laptop,
+                IconName::Server,
                 super::machines::here_name().to_string(),
                 "Runs on this computer. Click to let Squad pick.".to_string(),
             ),
@@ -239,7 +239,20 @@ impl Shell {
             ),
         };
         Some(
-            ui::pill_i("run-on", icon, text, run == "server")
+            div()
+                .id("run-on")
+                .h(px(26.))
+                .px(px(9.))
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .rounded(px(3.))
+                .text_size(px(12.))
+                .text_color(c(ui::muted()))
+                .cursor_pointer()
+                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                .child(gpui_kit::component::Icon::new(icon).size(px(13.)))
+                .child(text)
                 .tooltip(move |window, cx| {
                     gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
                 })

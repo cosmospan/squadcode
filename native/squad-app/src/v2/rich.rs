@@ -601,6 +601,29 @@ fn same(a: &Act, b: &Act, dir: &str) -> bool {
     }
 }
 
+/// The bot narrating its own tools ("I'll create the files with the Write
+/// tool instead."): noise in a chat, so it isn't shown.
+pub fn tool_chatter(text: &str) -> bool {
+    let t = text.trim();
+    if t.len() > 180 {
+        return false;
+    }
+    let tools = [
+        "Write tool",
+        "Bash tool",
+        "Edit tool",
+        "Read tool",
+        "Grep tool",
+        "Glob tool",
+        "MultiEdit",
+        "TodoWrite",
+        "the tool",
+        "a tool",
+        "tool instead",
+    ];
+    tools.iter().any(|w| t.contains(w))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{classify, parse, same, Act};
@@ -665,113 +688,4 @@ mod tests {
             Some(Act::Link("http://localhost:5173".into()))
         );
     }
-}
-
-/// The bot narrating its own tools ("I'll create the files with the Write
-/// tool instead."): noise in a chat, so it isn't shown.
-pub fn tool_chatter(text: &str) -> bool {
-    let t = text.trim();
-    if t.len() > 180 {
-        return false;
-    }
-    let tools = [
-        "Write tool",
-        "Bash tool",
-        "Edit tool",
-        "Read tool",
-        "Grep tool",
-        "Glob tool",
-        "MultiEdit",
-        "TodoWrite",
-        "the tool",
-        "a tool",
-        "tool instead",
-    ];
-    tools.iter().any(|w| t.contains(w))
-}
-
-/// What a bot's last word is, so it reads at a glance.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Kind {
-    Done,
-    NeedsYou,
-    Question,
-    Warning,
-}
-
-impl Kind {
-    pub fn of(text: &str, status: super::store::Status) -> Kind {
-        use super::store::Status;
-        let low = text.to_lowercase();
-        if matches!(status, Status::Failed | Status::Interrupted) {
-            return Kind::Warning;
-        }
-        let stuck = [
-            "couldn't",
-            "could not",
-            "can't",
-            "cannot",
-            "needed an approval",
-            "need your",
-            "blocked",
-            "permission",
-            "untested",
-            "wasn't able",
-            "was not able",
-        ];
-        if stuck.iter().any(|w| low.contains(w)) {
-            return Kind::NeedsYou;
-        }
-        if text.trim_end().ends_with('?') {
-            return Kind::Question;
-        }
-        Kind::Done
-    }
-
-    fn look(self) -> (IconName, &'static str, ui::Tone) {
-        match self {
-            Kind::Done => (IconName::CircleCheck, "Done", ui::ok_tone()),
-            Kind::NeedsYou => (IconName::Hand, "Needs you", ui::ask_tone()),
-            Kind::Question => (IconName::MessageCircle, "Question for you", ui::run_tone()),
-            Kind::Warning => (IconName::TriangleAlert, "Didn't finish", ui::bad_tone()),
-        }
-    }
-}
-
-/// A bot's speech bubble; its last word gets a header saying what kind it is,
-/// in the kind's colour.
-pub fn bubble(kind: Option<Kind>, body: impl IntoElement) -> Div {
-    let base = div()
-        .rounded(px(16.))
-        .bg(ca(ui::panel(), 0.85))
-        .border_1()
-        .border_color(c(ui::line()))
-        .overflow_hidden()
-        .flex()
-        .flex_col();
-    let Some(kind) = kind else {
-        return base.px(px(18.)).py(px(13.)).child(body);
-    };
-    let (icon, label, tone) = kind.look();
-    base.border_color(c(tone.2))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(7.))
-                .px(px(16.))
-                .py(px(7.))
-                // Its own top corners: the bubble's clip is square, so the
-                // colour would show past the bubble's rounded corner.
-                .rounded_t(px(15.))
-                .bg(c(tone.1))
-                .border_b_1()
-                .border_color(c(tone.2))
-                .text_size(px(12.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(c(tone.0))
-                .child(Icon::new(icon).size(px(13.)).text_color(c(tone.0)))
-                .child(label),
-        )
-        .child(div().px(px(18.)).py(px(12.)).child(body))
 }

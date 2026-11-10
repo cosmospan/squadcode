@@ -1463,7 +1463,7 @@ impl Shell {
     }
 
     /// The three looks, each light and dark, and whether to match the system.
-    fn looks_card(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn looks_card(&mut self, cx: &mut Context<Self>) -> Div {
         let current = ui::theme();
         let family = theme::family_of(current.id);
         let follow = theme::following();

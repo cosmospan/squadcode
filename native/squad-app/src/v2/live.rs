@@ -179,7 +179,7 @@ impl Shell {
                     && matches!(job.status, Status::Running | Status::Review)
                 {
                     d.child(
-                        ui::ghost_i("race-it", IconName::Swords, "Race it")
+                        ui::dbtn("race-it", "Race it", ui::Btn::Ghost)
                             .tooltip(|window, cx| {
                                 gpui_kit::component::tooltip::Tooltip::new(
                                     "Try the same job on other engines and keep the best",
@@ -268,7 +268,7 @@ impl Shell {
                             .flex_shrink(1.)
                             .min_w_0()
                             .truncate()
-                            .text_size(px(16.))
+                            .text_size(px(15.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(c(ui::ink()))
                             .child(job.label().to_string())
@@ -288,7 +288,10 @@ impl Shell {
                             .text_color(c(ui::faint()))
                             .child(format!("#{}", job.id)),
                     )
-                    .child(ui::badge(tone, word))
+                    .child(ui::mono_status(
+                        if running { ui::t_blue() } else { tone.0 },
+                        &word,
+                    ))
                     .child(div().flex_1())
                     .child(div().flex_none().child(actions)),
             )
@@ -302,7 +305,15 @@ impl Shell {
             });
 
         // The feed: what the bot said, the steps it took, and what you added.
-        let mut feed = div().flex().flex_col().gap(px(10.)).px(px(30.)).py(px(20.));
+        let mut feed = div()
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .px(px(18.))
+            .pt(px(14.))
+            .pb(px(8.));
+        // Who spoke last, so a run of one speaker's lines shows its name once.
+        let mut last_by: Option<Option<super::Member>> = None;
         let mut tools: Vec<(String, String, u8)> = Vec::new();
         // A step in progress shows a dot that breathes.
         let breathe = 0.35 + 0.65 * super::motion::breath();
@@ -312,11 +323,11 @@ impl Shell {
             }
             let rows: Vec<_> = std::mem::take(tools);
             let mut list = div()
-                .ml(px(40.))
-                .px(px(14.))
-                .py(px(8.))
-                .rounded(px(14.))
-                .bg(ca(ui::panel(), 0.6))
+                .ml(px(44.))
+                .px(px(12.))
+                .py(px(7.))
+                .rounded(px(6.))
+                .bg(c(ui::raised()))
                 .border_1()
                 .border_color(c(ui::line()))
                 .flex()
@@ -435,57 +446,54 @@ impl Shell {
                     if t.is_empty() {
                         feed
                     } else {
-                        let face = self.avatar(who, 32.);
-                        let kind = (Some(at) == last_text && job.status != Status::Running)
-                            .then(|| super::rich::Kind::of(&t, job.status));
+                        let lead = last_by != Some(Some(who));
+                        last_by = Some(Some(who));
+                        let face = self.avatar(who, 30.).into_any_element();
                         // Still on the server: its links and commands are there.
                         self.rich_there = (!job.remote_on.is_empty() && !job.remote_dir.is_empty())
                             .then(|| job.remote_dir.clone());
                         let text = self.rich(format!("feed-{}-{at}", job.id), &t, &dir, cx);
                         self.rich_there = None;
-                        feed.child(
-                            div().flex().gap(px(12.)).child(face).child(
-                                super::rich::bubble(kind, text)
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_size(px(14.))
-                                    .line_height(px(21.))
-                                    .text_color(c(ui::body())),
-                            ),
-                        )
+                        let when = if Some(at) == last_text {
+                            job.ended.unwrap_or(job.started)
+                        } else {
+                            job.started
+                        };
+                        feed.child(super::channel::line(
+                            lead.then(|| (face, super::channel::byline(who.name(), when))),
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(14.))
+                                .line_height(px(21.))
+                                .text_color(c(ui::ink()))
+                                .child(text),
+                        ))
                     }
                 }
-                Item::You(t) => feed.child(
-                    div().flex().justify_end().child(
-                        div()
-                            .max_w(px(620.))
-                            .px(px(16.))
-                            .py(px(10.))
-                            .rounded(px(16.))
-                            .bg(c(ui::fill()))
-                            .text_color(c(ui::on_fill()))
-                            .text_size(px(14.))
-                            .line_height(px(20.))
-                            .child(t.clone()),
-                    ),
-                ),
+                Item::You(t) => {
+                    let lead = last_by != Some(None);
+                    last_by = Some(None);
+                    feed.child(super::channel::mine(t.clone(), job.started, lead))
+                }
                 Item::Note(t) => feed.child(note_line(t)),
                 Item::By(by, t) => {
-                    let face = self.avatar(*by, 18.);
+                    last_by = Some(Some(*by));
+                    let face = self.avatar(*by, 16.);
                     feed.child(
                         div()
-                            .ml(px(40.))
+                            .pl(px(44.))
                             .flex()
                             .items_start()
                             .gap(px(8.))
                             .text_size(px(12.5))
-                            .line_height(px(18.))
-                            .child(face)
+                            .line_height(px(19.))
+                            .child(div().pt(px(1.5)).flex_none().child(face))
                             .child(
                                 div()
                                     .flex_none()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(c(by.accent()))
+                                    .text_color(c(ui::ink()))
                                     .child(by.name()),
                             )
                             .child(
@@ -499,10 +507,10 @@ impl Shell {
                 }
                 Item::Error(t) => feed.child(
                     div()
-                        .ml(px(40.))
-                        .px(px(16.))
+                        .ml(px(44.))
+                        .px(px(14.))
                         .py(px(12.))
-                        .rounded(px(14.))
+                        .rounded(px(5.))
                         .bg(ca(ui::RED, 0.07))
                         .border_1()
                         .border_color(ca(ui::RED, 0.25))
@@ -518,14 +526,15 @@ impl Shell {
         if let Some(card) = self.trouble_card(job, cx) {
             feed = feed.child(card);
         }
-        if let Some(card) = self.belt_card(job, cx) {
-            feed = feed.child(card.ml(px(40.)).mr_0());
+        if job.status == Status::Review && !job.held.is_empty() && !job.belt_ok {
+            let card = self.belt_box(job, cx);
+            feed = feed.child(div().pl(px(44.)).child(card));
         }
         if let Some(card) = self.in_the_way_card(job, cx) {
             feed = feed.child(card.ml(px(40.)).mr_0());
         }
-        if let Some(card) = self.clash_card(job, cx) {
-            feed = feed.child(card.ml(px(40.)).mr_0());
+        if let Some(card) = self.clash_box(job, cx) {
+            feed = feed.child(div().pl(px(44.)).child(card));
         }
         if let Some(card) = self.lesson_card(job, cx) {
             feed = feed.child(card.ml(px(40.)).mr_0());
@@ -566,13 +575,7 @@ impl Shell {
             self.live_len = len;
             self.live_scroll.scroll_to_bottom();
         }
-        let input_hint = if running {
-            "It's working. What you add now goes to it when this turn ends."
-        } else if job.status == Status::Review {
-            "Send it back: say what to change…"
-        } else {
-            "Ask a follow-up or ask for a change…"
-        };
+        let composer = self.live_composer(job, cx);
         div()
             .flex_1()
             .min_w_0()
@@ -582,40 +585,156 @@ impl Shell {
             .child(header)
             .child(
                 div()
-                    .id("feed")
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.live_scroll)
-                    .child(feed),
+                    .relative()
+                    .children(ui::feed_grid())
+                    .child(
+                        div()
+                            .id("feed")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.live_scroll)
+                            .child(feed),
+                    ),
             )
             .child(
                 div()
                     .flex_none()
-                    .px(px(30.))
-                    .pb(px(super::DOCK_ROOM))
+                    .px(px(18.))
+                    .pb(px(16.))
                     .pt(px(6.))
                     .children(self.queued_strip(job, cx))
+                    .child(composer),
+            )
+    }
+
+    /// The job's own box, the design's composer: who it goes to, Ask or Do,
+    /// where it runs, and the send button.
+    fn live_composer(&mut self, job: &Job, cx: &mut Context<Self>) -> Div {
+        let who = job.bot;
+        let face = self.avatar(who, 15.);
+        let ask = self.live_ask;
+        let sep = || div().w(px(1.)).h(px(16.)).mx(px(2.)).bg(c(ui::line()));
+        let mut hows = div().flex().items_center().gap(px(2.));
+        for (i, (name, on)) in [("Ask", ask), ("Do", !ask)].into_iter().enumerate() {
+            hows = hows.child(
+                div()
+                    .id(("live-how", i))
+                    .h(px(26.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(3.))
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .cursor_pointer()
+                    .map(|d| {
+                        if on {
+                            d.bg(c(ui::pick_fill())).text_color(c(ui::pick_on()))
+                        } else {
+                            d.text_color(c(ui::muted()))
+                                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                        }
+                    })
+                    .child(name)
+                    .tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(if i == 0 {
+                            "Ask: it answers without changing files"
+                        } else {
+                            "Do: it carries on and changes what you say"
+                        })
+                        .build(window, cx)
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.live_ask = i == 0;
+                        cx.notify();
+                    })),
+            );
+        }
+        let place = if job.remote_on.is_empty() {
+            super::machines::here_name().to_string()
+        } else {
+            job.remote_on.clone()
+        };
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .rounded(px(7.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(ui::line_hi()))
+            .child(
+                div()
+                    .px(px(16.))
+                    .pt(px(13.))
+                    .pb(px(6.))
+                    .text_size(px(14.))
+                    .child(Input::new(&self.live_input).appearance(false)),
+            )
+            .child(
+                div()
+                    .pl(px(10.))
+                    .pr(px(8.))
+                    .pt(px(6.))
+                    .pb(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
                     .child(
-                        ui::card()
-                            .rounded(px(18.))
-                            .px(px(16.))
-                            .py(px(8.))
+                        div()
+                            .h(px(26.))
+                            .px(px(9.))
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .gap(px(5.))
+                            .rounded(px(3.))
+                            .bg(c(ui::hover()))
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c(ui::ink()))
+                            .child(face)
+                            .child(format!("To {}", who.name())),
+                    )
+                    .child(sep())
+                    .child(hows)
+                    .child(sep())
+                    .child(
+                        div()
+                            .h(px(26.))
+                            .px(px(9.))
                             .flex()
                             .items_center()
-                            .gap(px(10.))
+                            .gap(px(5.))
+                            .text_size(px(12.))
+                            .text_color(c(ui::muted()))
+                            .child(Icon::new(IconName::Server).size(px(13.)))
+                            .child(place),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .id("live-send")
+                            .h(px(30.))
+                            .w(px(32.))
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(4.))
+                            .bg(c(ui::pick_fill()))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(c(ui::fill_hover())))
                             .child(
-                                div()
-                                    .flex_1()
-                                    .text_size(px(14.))
-                                    .child(Input::new(&self.live_input).appearance(false)),
+                                Icon::new(IconName::ArrowUp)
+                                    .size(px(15.))
+                                    .text_color(c(ui::pick_on())),
                             )
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(c(ui::faint()))
-                                    .child(input_hint),
-                            ),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.send_live(window, cx);
+                            })),
                     ),
             )
     }

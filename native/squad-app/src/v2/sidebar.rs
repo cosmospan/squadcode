@@ -34,25 +34,25 @@ fn ground() -> u32 {
 fn row(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
     div()
         .id(id)
-        .h(px(32.))
-        .px(px(10.))
+        .h(px(30.))
+        .px(px(9.))
         .flex()
         .items_center()
-        .gap(px(10.))
-        .rounded(px(8.))
+        .gap(px(9.))
+        .rounded(px(4.))
         .text_size(px(13.5))
-        .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
         .map(|d| {
             if on {
+                // Picked: white, a hairline round it and the accent bar
+                // down its left edge.
                 d.relative()
+                    .overflow_hidden()
                     .bg(c(ui::raised()))
                     .border_1()
                     .border_color(c(ui::line()))
                     .text_color(c(ui::ink()))
                     .font_weight(FontWeight::SEMIBOLD)
-                    // The picked row's mark: a 4px bar in the accent down its
-                    // left edge.
                     .child(
                         div()
                             .absolute()
@@ -60,16 +60,8 @@ fn row(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
                             .top(px(-1.))
                             .bottom(px(-1.))
                             .w(px(4.))
-                            .rounded_l(px(8.))
                             .bg(c(ui::pick_fill())),
                     )
-                    .shadow(vec![BoxShadow {
-                        color: hsla(0., 0., 0., 0.05),
-                        offset: point(px(0.), px(1.)),
-                        blur_radius: px(2.),
-                        spread_radius: px(0.),
-                        inset: false,
-                    }])
             } else {
                 d.border_1()
                     .border_color(transparent_black())
@@ -79,24 +71,42 @@ fn row(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
         })
 }
 
-/// A small count on the right of a row.
-fn count(n: usize, tone: Option<ui::Tone>) -> Div {
-    let d = div()
+/// The quiet mono words on a row's right, with a square in `col` before
+/// them when there is one.
+fn row_note(text: impl Into<SharedString>, col: Option<u32>) -> Div {
+    div()
         .ml_auto()
-        .min_w(px(18.))
-        .h(px(18.))
-        .px(px(5.))
+        .flex_none()
         .flex()
         .items_center()
-        .justify_center()
-        .rounded(px(6.))
+        .gap(px(5.))
+        .font_family(ui::MONO)
         .text_size(px(11.))
-        .font_weight(FontWeight::SEMIBOLD);
-    match tone {
-        Some((text, fill, _)) => d.bg(c(fill)).text_color(c(text)),
-        None => d.text_color(c(ui::faint())),
-    }
-    .child(n.min(99).to_string())
+        .font_weight(FontWeight::NORMAL)
+        .text_color(c(ui::faint()))
+        .when_some(col, |d, col| {
+            d.child(div().size(px(6.)).flex_none().rounded(px(1.)).bg(c(col)))
+        })
+        .child(text.into())
+}
+
+/// A count on the right of a row: mono on the accent, like the design's
+/// badge.
+fn count(n: usize) -> Div {
+    div()
+        .ml_auto()
+        .flex_none()
+        .h(px(17.))
+        .px(px(6.))
+        .flex()
+        .items_center()
+        .rounded(px(3.))
+        .bg(c(ui::pick_fill()))
+        .font_family(ui::MONO)
+        .text_size(px(10.5))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(c(ui::pick_on()))
+        .child(n.min(99).to_string())
 }
 
 /// A square button on the rail, lit like a row when you're on its place.
@@ -109,25 +119,13 @@ fn rail_btn(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .relative()
-        .rounded(px(7.))
+        .rounded(px(6.))
         .cursor_pointer()
         .map(|d| {
             if on {
-                d.bg(c(ui::raised()))
-                    .border_1()
-                    .border_color(c(ui::line()))
-                    .text_color(c(ui::ink()))
-                    .shadow(vec![BoxShadow {
-                        color: hsla(0., 0., 0., 0.06),
-                        offset: point(px(0.), px(1.)),
-                        blur_radius: px(2.),
-                        spread_radius: px(0.),
-                        inset: false,
-                    }])
+                d.bg(c(ui::hover())).text_color(c(ui::ink()))
             } else {
-                d.border_1()
-                    .border_color(transparent_black())
-                    .text_color(c(ui::muted()))
+                d.text_color(c(ui::muted()))
                     .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
             }
         })
@@ -155,17 +153,9 @@ fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyVi
     move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
 }
 
-/// How many jobs are running, as a blue dot and a number.
+/// How many jobs are running: a blue square and "2 working".
 fn running(n: usize) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(5.))
-        .text_size(px(11.5))
-        .text_color(c(ui::t_blue()))
-        .child(div().size(px(6.)).rounded_full().bg(c(ui::t_blue())))
-        .child(n.to_string())
+    row_note(format!("{n} working"), Some(ui::t_blue()))
 }
 
 /// The colours projects and threads take in turn, so each is easy to spot.
@@ -231,8 +221,8 @@ fn initials(name: &str) -> String {
     }
 }
 
-/// A project's tile: its letters on a soft wash of its colour, filled in
-/// solid for the project you're in.
+/// A project's tile: its letters in mono on a soft wash of its colour. The
+/// project you're in is ringed in the accent.
 fn monogram(name: &str, tint: u32, on: bool) -> Div {
     div()
         .size(px(32.))
@@ -240,49 +230,53 @@ fn monogram(name: &str, tint: u32, on: bool) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(7.))
-        .text_size(px(12.))
-        .font_weight(FontWeight::BOLD)
-        .map(|d| {
-            if on {
-                d.bg(c(tint))
-                    .text_color(c(0xFFFFFF))
-                    .shadow(vec![BoxShadow {
-                        color: hsla(0., 0., 0., 0.18),
-                        offset: point(px(0.), px(2.)),
-                        blur_radius: px(6.),
-                        spread_radius: px(0.),
-                        inset: false,
-                    }])
-            } else {
-                d.bg(c(super::theme::mix(ui::raised(), tint, 0.16)))
-                    .border_1()
-                    .border_color(c(super::theme::mix(ui::raised(), tint, 0.32)))
-                    .text_color(c(super::theme::mix(tint, ui::ink(), 0.3)))
-            }
+        .rounded(px(6.))
+        .font_family(ui::MONO)
+        .text_size(px(11.))
+        .font_weight(FontWeight::MEDIUM)
+        .bg(c(super::theme::mix(ui::raised(), tint, 0.2)))
+        .text_color(c(super::theme::mix(tint, ui::ink(), 0.55)))
+        .when(on, |d| {
+            d.shadow(vec![
+                BoxShadow {
+                    color: c(ground()),
+                    offset: point(px(0.), px(0.)),
+                    blur_radius: px(0.),
+                    spread_radius: px(2.),
+                    inset: false,
+                },
+                BoxShadow {
+                    color: c(ui::accent_bar()),
+                    offset: point(px(0.), px(0.)),
+                    blur_radius: px(0.),
+                    spread_radius: px(3.5),
+                    inset: false,
+                },
+            ])
         })
         .child(initials(name))
 }
 
-/// How many things in a project wait on you, on the tile's corner.
+/// How many things wait on you, on the Inbox's corner: mono on the accent.
 fn count_badge(n: usize) -> Div {
     div()
         .absolute()
-        .top(px(-5.))
-        .right(px(-6.))
-        .min_w(px(18.))
-        .h(px(18.))
-        .px(px(4.))
+        .top(px(-4.))
+        .right(px(-5.))
+        .min_w(px(16.))
+        .h(px(16.))
+        .px(px(3.))
         .flex()
         .items_center()
         .justify_center()
-        .rounded_full()
-        .bg(c(ui::RED))
+        .rounded(px(4.))
+        .bg(c(ui::pick_fill()))
         .border_2()
-        .border_color(c(ui::ground()))
-        .text_size(px(10.))
-        .font_weight(FontWeight::BOLD)
-        .text_color(c(0xFFFFFF))
+        .border_color(c(ground()))
+        .font_family(ui::MONO)
+        .text_size(px(9.5))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(c(ui::pick_on()))
         .child(if n > 9 {
             "9+".to_string()
         } else {
@@ -290,30 +284,27 @@ fn count_badge(n: usize) -> Div {
         })
 }
 
-/// A dot on the tile's corner when something in the project waits on you.
+/// A small square in the accent on a tile's corner: something in the
+/// project is new or needs you.
 fn ask_dot() -> Div {
     div()
         .absolute()
-        .top(px(-3.))
-        .right(px(-3.))
-        .size(px(10.))
-        .rounded_full()
-        .bg(c(ui::RED))
-        .border_2()
-        .border_color(c(ui::ground()))
+        .top(px(3.))
+        .right(px(3.))
+        .size(px(7.))
+        .rounded(px(2.))
+        .bg(c(ui::accent_bar()))
 }
 
-/// A blue dot on the tile's foot while the crew works in the project.
+/// A blue square on a tile's foot while the crew works in the project.
 fn busy_dot() -> Div {
     div()
         .absolute()
-        .bottom(px(-3.))
-        .right(px(-3.))
-        .size(px(11.))
-        .rounded_full()
-        .bg(c(ui::BLUE))
-        .border_2()
-        .border_color(c(ui::ground()))
+        .bottom(px(3.))
+        .right(px(3.))
+        .size(px(7.))
+        .rounded(px(2.))
+        .bg(c(ui::t_blue()))
 }
 
 /// What a section's + does.
@@ -327,7 +318,7 @@ fn hash(on: bool) -> Div {
         .flex_none()
         .font_family(ui::MONO)
         .text_size(px(13.))
-        .text_color(c(if on { ui::ink() } else { ui::faint() }))
+        .text_color(c(if on { ui::accent_text() } else { ui::faint() }))
         .child("#")
 }
 
@@ -375,17 +366,6 @@ impl Shell {
     /// Settings at the foot.
     fn rail(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let place = self.place;
-
-        // Peek, the lead, as the app's mark: a click opens Peek's chat.
-        let peek_mood = self.side_mood(Member::Fin);
-        let peek = self.bot(Member::Fin, peek_mood, 32., squad_holo::Framing::Bust);
-        let logo = rail_btn("rail-peek", place == Place::Chat(Member::Fin))
-            .size(px(38.))
-            .mb(px(4.))
-            .child(peek)
-            .tooltip(tip("Peek, your lead"))
-            .on_hover(cx.listener(|this, on: &bool, _, cx| this.hover_bot(Member::Fin, *on, cx)))
-            .on_click(cx.listener(|this, _, _, cx| this.go(Place::Chat(Member::Fin), cx)));
 
         // The Inbox: everything waiting on you, in every project.
         let waiting = self.inbox_count();
@@ -439,24 +419,6 @@ impl Shell {
             }
             let group: SharedString = format!("rail-p-{i}").into();
             let tint = path_tint(&path);
-            // A pill on the rail's edge: tall for the project you're in,
-            // short for one with something new, a nub on hover.
-            let pill = div()
-                .absolute()
-                .left(px(0.))
-                .top_0()
-                .bottom_0()
-                .flex()
-                .items_center()
-                .child(div().w(px(4.)).rounded_r(px(3.)).bg(c(ui::ink())).map(|d| {
-                    if on {
-                        d.h(px(28.))
-                    } else if unread {
-                        d.h(px(8.)).group_hover(group.clone(), |s| s.h(px(16.)))
-                    } else {
-                        d.h(px(0.)).group_hover(group.clone(), |s| s.h(px(14.)))
-                    }
-                }));
             list = list.child(
                 div()
                     .id(("rail-project", i))
@@ -467,15 +429,13 @@ impl Shell {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .relative()
                     .cursor_pointer()
-                    .child(pill)
                     .child(
                         div()
                             .relative()
                             .child(monogram(&name, tint, on))
                             // A dot, not a number: the count lives on the Inbox.
-                            .when(asks > 0, |d| d.child(ask_dot()))
+                            .when(asks > 0 || unread, |d| d.child(ask_dot()))
                             .when(busy > 0, |d| d.child(busy_dot())),
                     )
                     // No name card over its own right-click menu.
@@ -507,17 +467,12 @@ impl Shell {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .rounded(px(7.))
+                        .rounded(px(6.))
                         .border_1()
-                        .border_dashed()
                         .border_color(c(ui::line_hi()))
                         .text_color(c(ui::muted()))
                         .cursor_pointer()
-                        .hover(|s| {
-                            s.border_color(ui::ca(ui::VIOLET, 0.6))
-                                .bg(ui::ca(ui::VIOLET, 0.08))
-                                .text_color(c(ui::t_violet()))
-                        })
+                        .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
                         .child(Icon::new(IconName::Plus).size(px(14.)))
                         .tooltip(tip("Add a project folder"))
                         .on_click(cx.listener(|this, _, _, cx| this.pick_folder(cx))),
@@ -588,11 +543,9 @@ impl Shell {
             .gap(px(4.))
             .pt(px(10.))
             .pb(px(12.))
-            .bg(ui::ca(ui::ink(), 0.03))
-            .when(!slim, |d| d.border_r_1().border_color(c(ui::line2())))
-            .child(logo)
+            .when(!slim, |d| d.border_r_1().border_color(c(ui::line())))
             .child(inbox)
-            .child(div().w(px(22.)).h(px(1.)).my(px(6.)).bg(c(ui::line())))
+            .child(div().w(px(20.)).h(px(1.)).my(px(2.)).bg(c(ui::line_hi())))
             .child(list)
             .child(foot)
     }
@@ -621,7 +574,7 @@ impl Shell {
                 row("side-history", place == Place::History)
                     .child(Icon::new(IconName::LayoutDashboard).size(px(16.)))
                     .child("Jobs")
-                    .when(working > 0, |d| d.child(running(working).ml_auto()))
+                    .when(working > 0, |d| d.child(running(working)))
                     .on_click(cx.listener(|this, _, _, cx| this.go(Place::History, cx))),
             );
 
@@ -635,10 +588,24 @@ impl Shell {
             .as_ref()
             .map(|f| f.name.clone())
             .unwrap_or_else(|| "Squad Code".into());
-        let where_ = folder
-            .as_ref()
-            .map(|f| short_path(&f.path))
-            .unwrap_or_else(|| "No project yet".into());
+        // Where it lives, its branch and how clean it is, as the design's
+        // mono line.
+        let where_ = match folder.as_ref() {
+            Some(f) => {
+                let mut bits = vec![short_path(&f.path)];
+                if let Some(r) = self.crew.repos.get(&f.path).filter(|r| r.is_repo) {
+                    if !r.state.branch.is_empty() {
+                        bits.push(r.state.branch.clone());
+                    }
+                    bits.push(match r.changed {
+                        0 => "clean".into(),
+                        n => format!("{n} changed"),
+                    });
+                }
+                bits.join(" \u{b7} ")
+            }
+            None => "No project yet".into(),
+        };
         let head = div()
             .px(px(4.))
             .pb(px(10.))
@@ -647,11 +614,18 @@ impl Shell {
             .gap(px(1.))
             .child(
                 div()
-                    .truncate()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
                     .text_size(px(15.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c(ui::ink()))
-                    .child(project),
+                    .child(div().truncate().child(project))
+                    .child(
+                        Icon::new(IconName::ChevronDown)
+                            .size(px(13.))
+                            .text_color(c(ui::faint())),
+                    ),
             )
             .child(
                 div()
@@ -718,7 +692,7 @@ impl Shell {
                         div()
                             .flex_none()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c(ui::ink()))
+                            .text_color(c(ui::accent_text()))
                             .child("Open \u{2197}"),
                     )
                     .tooltip(tip("Open the running app in your browser"))
@@ -915,31 +889,16 @@ impl Shell {
                             })
                             .child(name),
                     )
-                    .when(unread && asks == 0 && busy == 0, |d| {
-                        d.child(div().size(px(7.)).rounded_full().bg(c(ui::VIOLET)))
-                    })
-                    .when(asks > 0, |d| d.child(count(asks, Some(ui::ask_tone()))))
-                    .when(busy > 0, |d| d.child(running(busy)))
-                    // The thread you're in can be deleted from its row.
-                    .when(on && id != 0, |d| {
-                        d.child(
-                            div()
-                                .id(("thread-trash", id as usize))
-                                .size(px(20.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(5.))
-                                .text_color(c(ui::faint()))
-                                .hover(|s| s.text_color(c(ui::t_red())).bg(c(ui::hover())))
-                                .child(Icon::new(IconName::Trash).size(px(13.)))
-                                .tooltip(tip("Delete thread"))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.deleting = Some(id);
-                                    cx.notify();
-                                })),
-                        )
+                    .map(|d| {
+                        if asks > 0 {
+                            d.child(count(asks))
+                        } else if busy > 0 {
+                            d.child(running(busy))
+                        } else if unread {
+                            d.child(row_note("new", None))
+                        } else {
+                            d
+                        }
                     })
                     .on_mouse_down(
                         MouseButton::Right,
@@ -1010,16 +969,8 @@ impl Shell {
             let review = mine().any(|j| j.status == Status::Review);
             let stopped = mine()
                 .any(|j| j.needs_you() && matches!(j.status, Status::Failed | Status::Interrupted));
-            let asks = asking || (!busy && (review || stopped));
-            let dot = if asking || review {
-                ui::AMBER
-            } else if asks {
-                ui::RED
-            } else {
-                ui::BLUE
-            };
             let mood = self.side_mood(who);
-            let face = self.bot(who, mood, 24., squad_holo::Framing::Bust);
+            let face = self.bot(who, mood, 18., squad_holo::Framing::Bust);
             let on = place == Place::Chat(who);
             let (word, tint) = if asking {
                 ("asks you".to_string(), ui::t_amber())
@@ -1036,44 +987,11 @@ impl Shell {
             };
             list = list.child(
                 row(("side-bot", who.key() as usize), on)
-                    .when(busy || asks, |d| d.text_color(c(ui::ink())))
-                    .child(
-                        div()
-                            .relative()
-                            .flex_none()
-                            .child(face)
-                            .when(busy || asks, |d| {
-                                d.child(
-                                    div()
-                                        .absolute()
-                                        .right(px(-2.))
-                                        .bottom(px(-2.))
-                                        .size(px(9.))
-                                        .rounded_full()
-                                        .bg(c(dot))
-                                        .border_2()
-                                        .border_color(c(ground())),
-                                )
-                            }),
-                    )
+                    .child(div().flex_none().child(face))
                     .child(div().flex_1().min_w_0().truncate().child(who.name()))
                     .when(!word.is_empty(), |d| {
                         let lead = tint == ui::faint();
-                        d.child(
-                            div()
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .gap(px(5.))
-                                .font_family(ui::MONO)
-                                .text_size(px(11.))
-                                .font_weight(FontWeight::NORMAL)
-                                .text_color(c(ui::faint()))
-                                .when(!lead, |d| {
-                                    d.child(div().size(px(6.)).flex_none().bg(c(tint)))
-                                })
-                                .child(word),
-                        )
+                        d.child(row_note(word, (!lead).then_some(tint)))
                     })
                     .on_hover(
                         cx.listener(move |this, on: &bool, _, cx| this.hover_bot(who, *on, cx)),
@@ -1237,13 +1155,13 @@ impl Shell {
                 self.crew.store.thread_label(self.crew.store.thread_here())
             ),
             Place::Inbox => "Inbox".into(),
-            Place::History => "All jobs".into(),
+            Place::History => "Jobs".into(),
             Place::Overview => "Overview".into(),
-            Place::Chat(m) => format!("Crew / {}", m.name()),
+            Place::Chat(m) => m.name().to_string(),
             Place::Crew => "Crew".into(),
             // A job sits in its thread, so the path goes through it.
             Place::Live(id) => match self.crew.store.job(id) {
-                Some(j) => format!("{} / #{id} {}", self.thread_crumb(j.thread), j.label()),
+                Some(j) => format!("{} / job #{id}", self.thread_crumb(j.thread)),
                 None => format!("Jobs / #{id}"),
             },
             Place::Race(id) => match self.crew.store.job(id) {
@@ -1302,10 +1220,10 @@ impl Shell {
             .iter()
             .enumerate()
             .flat_map(|(i, part)| {
-                let chev = Icon::new(IconName::ChevronRight)
-                    .size(px(12.))
+                let chev = div()
                     .flex_none()
                     .text_color(c(ui::faint()))
+                    .child("/")
                     .into_any_element();
                 let text = div()
                     .truncate()
@@ -1313,9 +1231,9 @@ impl Shell {
                         if i == last {
                             d.min_w_0()
                                 .text_color(c(ui::ink()))
-                                .font_weight(FontWeight::SEMIBOLD)
+                                .font_weight(FontWeight::MEDIUM)
                         } else {
-                            d.flex_none().text_color(c(ui::muted()))
+                            d.flex_none().text_color(c(ui::faint()))
                         }
                     })
                     .child(part.to_string());
@@ -1426,8 +1344,10 @@ impl Shell {
                     .items_center()
                     .gap(px(6.))
                     .min_w_0()
+                    .font_family(ui::MONO)
+                    .text_size(px(12.))
                     .when(!global, |d| {
-                        d.child(div().flex_none().text_color(c(ui::muted())).child(folder))
+                        d.child(div().flex_none().text_color(c(ui::faint())).child(folder))
                     })
                     .children(crumbs),
             )
@@ -1458,7 +1378,7 @@ impl Shell {
                                 if right_open {
                                     d.flex_1().min_w_0()
                                 } else {
-                                    d.w(px(220.))
+                                    d.w(px(240.))
                                 }
                             })
                             .h(px(26.))
@@ -1470,17 +1390,17 @@ impl Shell {
                             .bg(c(ui::raised()))
                             .border_1()
                             .border_color(c(ui::line()))
-                            .text_size(px(12.5))
+                            .text_size(px(12.))
                             .text_color(c(ui::faint()))
                             .cursor_pointer()
                             .hover(|s| s.border_color(c(ui::line_hi())).text_color(c(ui::muted())))
-                            .child(Icon::new(IconName::Search).size(px(14.)))
+                            .child(Icon::new(IconName::Search).size(px(13.)))
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .child("Search jobs, bots…"),
+                                    .child("Search or jump to"),
                             )
                             .child(ui::kbd(if cfg!(target_os = "macos") {
                                 "⌘K"

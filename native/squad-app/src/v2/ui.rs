@@ -30,6 +30,34 @@ fn lime() -> bool {
     super::theme::family_of(theme().id).is_some()
 }
 
+/// The look's accent as text and marks on the page (the design's `--vtx`):
+/// a deep lime, violet or plum that reads on the ground. Violet elsewhere.
+pub fn accent_text() -> u32 {
+    match theme().id {
+        "graphite-lime" => 0x4E6A00,
+        "graphite-lime-dark" => 0xC8F04B,
+        "harbour" => 0x4B3DC2,
+        "harbour-dark" => 0xB8B2FF,
+        "orchid" => 0x8E2479,
+        "orchid-dark" => 0xF4B8EC,
+        _ => t_violet(),
+    }
+}
+
+/// The look's accent as a solid mark (the design's `--vbar`): rings, dots
+/// and the picked tile's edge.
+pub fn accent_bar() -> u32 {
+    match theme().id {
+        "graphite-lime" => 0x8DB516,
+        "graphite-lime-dark" => 0xA8D12F,
+        "harbour" => 0x6C5CE7,
+        "harbour-dark" => 0x8B7FF0,
+        "orchid" => 0xB8399F,
+        "orchid-dark" => 0xD45BBE,
+        _ => VIOLET,
+    }
+}
+
 /// A picked option's edge, like the chosen card in Settings.
 pub fn pick() -> u32 {
     if lime() {
@@ -162,6 +190,45 @@ pub fn pattern(area: crate::pattern::Area) -> Option<AnyElement> {
                     crate::pattern::page_origin().unwrap_or(point(b.right(), b.top()))
                 };
                 crate::pattern::paint_in(p, b, None, Some(anchor), 1., colors, window)
+            },
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element(),
+    )
+}
+
+/// The design's faint 24px grid under a conversation, unless a pattern of
+/// the person's own already covers the page.
+pub fn feed_grid() -> Option<AnyElement> {
+    if crate::pattern::current() != crate::pattern::Pattern::Off {
+        return None;
+    }
+    let t = theme();
+    let col = ca(t.ink, if t.light { 0.035 } else { 0.05 });
+    Some(
+        canvas(
+            |_, _, _| (),
+            move |b, _, window, _| {
+                let step = px(24.);
+                let mut x = b.origin.x;
+                while x < b.right() {
+                    window.paint_quad(gpui_kit::fill(
+                        Bounds::new(point(x, b.origin.y), size(px(1.), b.size.height)),
+                        col,
+                    ));
+                    x += step;
+                }
+                let mut y = b.origin.y;
+                while y < b.bottom() {
+                    window.paint_quad(gpui_kit::fill(
+                        Bounds::new(point(b.origin.x, y), size(b.size.width, px(1.))),
+                        col,
+                    ));
+                    y += step;
+                }
             },
         )
         .absolute()
@@ -406,16 +473,15 @@ pub fn badge(tone: Tone, label: impl Into<SharedString>) -> Div {
 /// A keyboard hint, like "⌘K".
 pub fn kbd(text: impl Into<SharedString>) -> Div {
     div()
-        .h(px(18.))
+        .h(px(17.))
         .px(px(5.))
         .flex()
         .items_center()
-        .rounded(px(4.))
-        .border_1()
-        .border_color(c(line()))
+        .rounded(px(3.))
+        .bg(c(hover()))
         .text_size(px(10.5))
         .font_family(MONO)
-        .text_color(c(faint()))
+        .text_color(c(muted()))
         .child(text.into())
 }
 
@@ -598,4 +664,55 @@ pub(super) fn put_text(
         window,
         cx,
     );
+}
+
+/// The redesign's three button weights.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Btn {
+    /// A white button with a hairline, like "Send back".
+    Plain,
+    /// The look's fill, like "Approve".
+    Primary,
+    /// Words only, like "Discard".
+    Ghost,
+}
+
+/// The design's small button (`.btn`): 28 tall, radius 4, 12.5px.
+pub fn dbtn(id: impl Into<ElementId>, label: impl Into<SharedString>, kind: Btn) -> Stateful<Div> {
+    let d = div()
+        .id(id)
+        .h(px(28.))
+        .px(px(11.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .gap(px(6.))
+        .rounded(px(4.))
+        .text_size(px(12.5))
+        .font_weight(FontWeight::MEDIUM)
+        .cursor_pointer()
+        .whitespace_nowrap();
+    match kind {
+        Btn::Plain => d
+            .bg(c(raised()))
+            .border_1()
+            .border_color(c(line_hi()))
+            .text_color(c(ink()))
+            .hover(|s| s.bg(c(hover())))
+            .active(|s| s.bg(c(press()))),
+        Btn::Primary => d
+            .bg(c(fill()))
+            .border_1()
+            .border_color(ca(0x000000, 0.12))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(c(on_fill()))
+            .hover(|s| s.bg(c(fill_hover())))
+            .active(|s| s.bg(c(fill_press()))),
+        Btn::Ghost => d
+            .text_color(c(body()))
+            .hover(|s| s.bg(c(hover())).text_color(c(ink())))
+            .active(|s| s.bg(c(press()))),
+    }
+    .child(label.into())
 }
