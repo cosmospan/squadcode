@@ -105,55 +105,6 @@ fn total_ram() -> Option<u64> {
     None
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn hw(cores: usize, ram_gb: u64) -> Hardware {
-        Hardware { cores, ram_gb }
-    }
-
-    #[test]
-    fn crew_threads_scale_from_two_to_eight() {
-        assert_eq!(crew_auto(hw(8, 8)), 2);
-        assert_eq!(crew_auto(hw(8, 16)), 2);
-        assert_eq!(crew_auto(hw(10, 16)), 3);
-        assert_eq!(crew_auto(hw(12, 32)), 4);
-        assert_eq!(crew_auto(hw(16, 64)), 5);
-        assert_eq!(crew_auto(hw(32, 128)), 8);
-        assert_eq!(crew_auto(hw(64, 16)), 4);
-        assert_eq!(crew_auto(hw(2, 4)), 2);
-        assert_eq!(crew_auto(hw(16, 0)), 2);
-    }
-
-    #[test]
-    fn choices_resolve_to_a_number() {
-        assert_eq!(resolve("auto", 3), 3);
-        assert_eq!(resolve("4", 3), 4);
-        assert_eq!(resolve("0", 3), 0);
-        assert_eq!(resolve("", 3), 3);
-        assert_eq!(resolve("lots", 3), 3);
-    }
-
-    #[test]
-    fn meminfo_gives_total_memory() {
-        let text = "MemTotal:       16303428 kB\nMemFree:         1234 kB\n";
-        let bytes = meminfo_total(text).unwrap();
-        assert_eq!((bytes + GB / 2) / GB, 16);
-        assert_eq!(meminfo_total("MemFree: 12 kB\n"), None);
-        assert_eq!(meminfo_total("MemTotal: lots\n"), None);
-    }
-
-    #[test]
-    fn this_computer_reads() {
-        let hw = here();
-        assert!(hw.cores >= 1);
-        if cfg!(any(target_os = "macos", target_os = "linux", windows)) {
-            assert!(hw.ram_gb > 0, "{hw:?}");
-        }
-    }
-}
-
 /// How busy the processor is, as a share of all its cores over the last
 /// minute (the load average over the core count), 0 to 100.
 pub fn busy_pct() -> Option<f32> {
@@ -249,4 +200,53 @@ pub fn os_version() -> String {
         }
     })
     .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hw(cores: usize, ram_gb: u64) -> Hardware {
+        Hardware { cores, ram_gb }
+    }
+
+    #[test]
+    fn crew_threads_scale_from_two_to_eight() {
+        assert_eq!(crew_auto(hw(8, 8)), 2);
+        assert_eq!(crew_auto(hw(8, 16)), 2);
+        assert_eq!(crew_auto(hw(10, 16)), 3);
+        assert_eq!(crew_auto(hw(12, 32)), 4);
+        assert_eq!(crew_auto(hw(16, 64)), 5);
+        assert_eq!(crew_auto(hw(32, 128)), 8);
+        assert_eq!(crew_auto(hw(64, 16)), 4);
+        assert_eq!(crew_auto(hw(2, 4)), 2);
+        assert_eq!(crew_auto(hw(16, 0)), 2);
+    }
+
+    #[test]
+    fn choices_resolve_to_a_number() {
+        assert_eq!(resolve("auto", 3), 3);
+        assert_eq!(resolve("4", 3), 4);
+        assert_eq!(resolve("0", 3), 0);
+        assert_eq!(resolve("", 3), 3);
+        assert_eq!(resolve("lots", 3), 3);
+    }
+
+    #[test]
+    fn meminfo_gives_total_memory() {
+        let text = "MemTotal:       16303428 kB\nMemFree:         1234 kB\n";
+        let bytes = meminfo_total(text).unwrap();
+        assert_eq!((bytes + GB / 2) / GB, 16);
+        assert_eq!(meminfo_total("MemFree: 12 kB\n"), None);
+        assert_eq!(meminfo_total("MemTotal: lots\n"), None);
+    }
+
+    #[test]
+    fn this_computer_reads() {
+        let hw = here();
+        assert!(hw.cores >= 1);
+        if cfg!(any(target_os = "macos", target_os = "linux", windows)) {
+            assert!(hw.ram_gb > 0, "{hw:?}");
+        }
+    }
 }
