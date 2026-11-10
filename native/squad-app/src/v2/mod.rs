@@ -650,6 +650,8 @@ pub struct Shell {
     /// the files the job changed.
     file_pick: Option<String>,
     files_changed_only: bool,
+    /// How many days Settings > Usage looks back: 7, 14 or 30.
+    usage_days: u64,
     /// The Settings drop-down that is open, by its id.
     select_open: Option<&'static str>,
     /// Job folders whose changed files' folders were opened once already.
@@ -1459,6 +1461,7 @@ impl Shell {
             files_seen: None,
             file_pick: None,
             files_changed_only: false,
+            usage_days: 7,
             select_open: None,
             files_seeded: Default::default(),
             job_view: None,
