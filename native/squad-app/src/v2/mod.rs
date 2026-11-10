@@ -1303,6 +1303,7 @@ impl Shell {
                 .map(|g| Place::Goal(g.id))
                 .unwrap_or(Place::Today),
             Ok("jobs" | "files") => Place::Today,
+            Ok(p) if p.starts_with("thread:") => Place::Today,
             Ok("race") => store
                 .jobs
                 .iter()
@@ -1587,6 +1588,12 @@ impl Shell {
                             shell.toggle_term(id, window, cx);
                         }
                     }
+                }
+            }
+            // "thread:1" opens thread #1.
+            Ok(p) if p.starts_with("thread:") => {
+                if let Ok(id) = p[7..].parse() {
+                    shell.crew.store.thread_now = id;
                 }
             }
             // "crew:fixer:memory" opens Fixer's profile on its Memory tab.

@@ -1720,7 +1720,9 @@ impl Shell {
             && belt.is_none()
             && clash.is_none();
         let word_said = word.clone();
-        let body = if quiet {
+        let body = if racing {
+            self.race_card(j.race, cx)
+        } else if quiet {
             self.job_line(j, &word, tone.0, cx)
         } else {
             let bits = JobBits {
@@ -1772,13 +1774,27 @@ impl Shell {
                         .child(j.handoff.clone()),
                 )
         });
-        let lead = !self.continues(j.bot.name(), j.started);
-        let head = lead.then(|| (face.into_any_element(), byline(j.bot.name(), j.started)));
+        // A race is Peek's to run: it speaks for the tries.
+        let speaker = if racing { Member::Fin } else { j.bot };
+        let face = if racing {
+            self.avatar(Member::Fin, 30.).into_any_element()
+        } else {
+            face.into_any_element()
+        };
+        let said = if racing {
+            format!(
+                "{tries} tries are on it, each on its own branch. I'll point out the one I'd pick when they finish."
+            )
+        } else {
+            said
+        };
+        let lead = !self.continues(speaker.name(), j.started);
+        let head = lead.then(|| (face, byline(speaker.name(), j.started)));
         let words = div()
             .flex()
             .flex_col()
             // A card carries the bot's words in its foot; a slim line has none.
-            .when(quiet && said != word_said, |d| {
+            .when((quiet || racing) && said != word_said, |d| {
                 d.child(
                     div()
                         .text_size(px(14.))

@@ -2,6 +2,8 @@
 //! branch, then shown side by side. You keep the try you like best; Shipper
 //! takes it from there and the others are thrown away.
 
+use gpui_kit::assets::IconName;
+use gpui_kit::component::Icon;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
@@ -393,6 +395,329 @@ impl Shell {
             .child(div().h(px(1.)).bg(c(ui::line2())))
             .child(body)
             .child(foot)
+    }
+}
+
+/// The try Peek would keep once at least two have finished: checks passing
+/// first, then the smallest change, then the cheapest, then the fastest.
+/// None while there's nothing to compare or two tie.
+pub fn pick(m: &[Marks]) -> Option<usize> {
+    let score = |m: &Marks| {
+        u8::from(m.passes) * 8
+            + u8::from(m.smallest) * 4
+            + u8::from(m.cheapest) * 2
+            + u8::from(m.fastest)
+    };
+    let best = m.iter().map(score).max()?;
+    if best < 2 {
+        return None;
+    }
+    let mut at = m.iter().enumerate().filter(|(_, m)| score(m) == best);
+    let first = at.next()?.0;
+    at.next().is_none().then_some(first)
+}
+
+/// Why Peek would keep a try, in a few words.
+fn why(m: &Marks) -> String {
+    let mut bits = Vec::new();
+    if m.smallest {
+        bits.push("smallest change");
+    }
+    if m.passes {
+        bits.push("checks pass");
+    }
+    if m.cheapest {
+        bits.push("cheapest");
+    }
+    if m.fastest {
+        bits.push("fastest");
+    }
+    bits.join(", ")
+}
+
+impl Shell {
+    /// A race in its thread: one column per try, side by side, with what each
+    /// changed, its checks and its cost, and the one Peek would keep.
+    pub(super) fn race_card(&mut self, race: u64, cx: &mut Context<Self>) -> Div {
+        let tries = self.tries(race);
+        let Some(first) = tries.first().cloned() else {
+            return div();
+        };
+        let marks = marks(&tries);
+        let decided = tries
+            .iter()
+            .any(|j| matches!(j.status, Status::Shipping | Status::Shipped));
+        let pick = (!decided).then(|| pick(&marks)).flatten();
+        let running: Vec<u64> = tries
+            .iter()
+            .filter(|j| j.status == Status::Running)
+            .map(|j| j.id)
+            .collect();
+        let longest = tries.iter().map(|j| j.seconds()).max().unwrap_or(0);
+        let head = div()
+            .px(px(14.))
+            .py(px(11.))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .border_b_1()
+            .border_color(c(ui::line()))
+            .child(
+                Icon::new(IconName::Flag)
+                    .size(px(14.))
+                    .text_color(c(ui::ink())),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(ui::ink()))
+                    .child(first.label().to_string()),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .font_family(ui::MONO)
+                    .text_size(px(11.))
+                    .text_color(c(ui::faint()))
+                    .child(format!(
+                        "race \u{b7} {} tries \u{b7} {}",
+                        tries.len(),
+                        short(longest)
+                    )),
+            )
+            .child(div().flex_1())
+            .map(|d| {
+                if running.is_empty() {
+                    d.child(
+                        ui::dbtn(("race-side", race as usize), "Side by side", ui::Btn::Ghost)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.go(Place::Race(race), cx)),
+                            ),
+                    )
+                } else {
+                    let ids = running.clone();
+                    d.child(
+                        ui::dbtn(("race-stop-all", race as usize), "Stop all", ui::Btn::Ghost)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                for id in &ids {
+                                    this.stop_job(*id, cx);
+                                }
+                            })),
+                    )
+                }
+            });
+        let mut cols = div().flex();
+        for (i, j) in tries.iter().enumerate() {
+            let col = self.race_column(
+                j,
+                &marks[i],
+                pick == Some(i),
+                pick.is_none() && !decided,
+                i > 0,
+                cx,
+            );
+            cols = cols.child(col);
+        }
+        div()
+            .w_full()
+            .rounded(px(6.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(ui::line()))
+            .overflow_hidden()
+            .child(head)
+            .child(cols)
+    }
+
+    /// One try in the thread's race card.
+    fn race_column(
+        &mut self,
+        j: &Job,
+        m: &Marks,
+        picked: bool,
+        open_pick: bool,
+        divided: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let id = j.id;
+        let face = self.avatar(j.bot, 18.);
+        let (word, _) = home::status_of(j);
+        let (state, col) = match j.status {
+            Status::Running => (
+                match j.progress() {
+                    Some((d, n)) => format!("step {} of {n}", (d + 1).min(n)),
+                    None => "working".into(),
+                },
+                ui::t_blue(),
+            ),
+            Status::Review | Status::Done => ("done".into(), ui::t_green()),
+            Status::Shipping | Status::Shipped => ("kept".into(), ui::t_green()),
+            Status::Failed => ("failed".into(), ui::t_red()),
+            _ => (word.to_lowercase(), ui::faint()),
+        };
+        let (added, removed) = j.lines();
+        let row = |label: &'static str, value: AnyElement| {
+            div()
+                .py(px(6.))
+                .flex()
+                .items_center()
+                .justify_between()
+                .border_b_1()
+                .border_color(c(ui::line()))
+                .border_dashed()
+                .text_size(px(12.5))
+                .child(div().text_color(c(ui::body())).child(label))
+                .child(value)
+        };
+        let mono = |s: String, col: u32| {
+            div()
+                .font_family(ui::MONO)
+                .text_size(px(12.))
+                .text_color(c(col))
+                .child(s)
+        };
+        let changes = if j.changes.is_empty() {
+            mono("\u{2014}".into(), ui::faint()).into_any_element()
+        } else {
+            div()
+                .flex()
+                .gap(px(5.))
+                .child(mono(format!("+{added}"), ui::t_green()))
+                .child(mono(format!("\u{2212}{removed}"), ui::t_red()))
+                .into_any_element()
+        };
+        let ok = j.checks.iter().filter(|c| c.ok).count();
+        let n = j.checks.len();
+        let checks = if j.status == Status::Running {
+            mono("waiting".into(), ui::faint())
+        } else if j.checking {
+            mono("running".into(), ui::t_blue())
+        } else if n == 0 {
+            mono("none".into(), ui::faint())
+        } else if ok == n {
+            mono(format!("\u{2713} {ok} of {n}"), ui::t_green())
+        } else {
+            mono(format!("\u{2717} {ok} of {n}"), ui::t_red())
+        };
+        let cost = mono(
+            home::cost(&j.summary).map_or("\u{2014}".into(), |v| format!("${v:.2}")),
+            ui::ink(),
+        );
+        let finished = matches!(j.status, Status::Review | Status::Done);
+        let mut out = div()
+            .flex_1()
+            .min_w_0()
+            .px(px(14.))
+            .py(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .when(divided && !picked, |d| {
+                d.border_l_1().border_color(c(ui::line()))
+            })
+            .when(picked, |d| {
+                d.bg(c(super::theme::mix(
+                    ui::raised(),
+                    ui::pick_fill(),
+                    ui::pick_k(0.035),
+                )))
+                .border(px(1.5))
+                .border_color(c(ui::accent_bar()))
+            })
+            .child(
+                div()
+                    .pb(px(4.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(face)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(13.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child(j.engine.clone()),
+                    )
+                    .child(ui::mono_status(col, &state)),
+            );
+        if j.status == Status::Running {
+            let frac = j
+                .progress()
+                .map(|(d, n)| d as f32 / n.max(1) as f32)
+                .unwrap_or(0.1);
+            out = out.child(
+                div()
+                    .h(px(4.))
+                    .child(super::channel::dashed_bar(frac, ui::t_blue())),
+            );
+        }
+        out = out
+            .child(row("changes", changes))
+            .child(row("checks", checks.into_any_element()))
+            .child(row("cost", cost.into_any_element()));
+        if picked {
+            let peek = self.avatar(super::data::Member::Fin, 14.);
+            out = out.child(
+                div()
+                    .pt(px(6.))
+                    .flex()
+                    .items_start()
+                    .gap(px(6.))
+                    .text_size(px(12.))
+                    .text_color(c(ui::accent_text()))
+                    .child(div().flex_none().child(peek))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(format!("Peek picks this: {}.", why(m))),
+                    ),
+            );
+        }
+        if finished {
+            out = out.child(
+                div()
+                    .pt(px(8.))
+                    .flex()
+                    .gap(px(6.))
+                    .child(
+                        ui::dbtn(("race-see", id as usize), "See changes", ui::Btn::Plain)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.go(Place::Live(id), cx)),
+                            ),
+                    )
+                    .when(picked || open_pick, |d| {
+                        d.child(
+                            ui::dbtn(
+                                ("race-pick", id as usize),
+                                "Pick this one",
+                                if picked {
+                                    ui::Btn::Primary
+                                } else {
+                                    ui::Btn::Plain
+                                },
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| this.keep_try(id, cx))),
+                        )
+                    }),
+            );
+        }
+        out
+    }
+}
+
+/// "6m", "1h 5m", "40s".
+fn short(secs: u64) -> String {
+    match secs {
+        0..=59 => format!("{secs}s"),
+        60..=3599 => format!("{}m", secs / 60),
+        _ => format!("{}h {}m", secs / 3600, (secs % 3600) / 60),
     }
 }
 
