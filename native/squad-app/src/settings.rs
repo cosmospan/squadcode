@@ -126,6 +126,15 @@ pub struct AppSettings {
     pub v2_plan_first: bool,
     /// A pull request Shipper opens merges on its own once its checks pass.
     pub v2_auto_merge: bool,
+    /// The seatbelt, on in every project: hold a change that adds keys or
+    /// tokens before it's pushed or merged.
+    pub v2_belt_secrets: bool,
+    /// Bots keep out of real .env files; .env.example is fine.
+    pub v2_belt_env: bool,
+    /// The project's checks run before a job comes to you for review.
+    pub v2_belt_checks: bool,
+    /// Bots may install packages (npm, pip, cargo) without asking.
+    pub v2_belt_installs: bool,
     /// Background pattern, by id from `pattern::Pattern`: "off", "dots", "grid"…
     pub pattern: String,
     /// Where the pattern lies: on the page and the terminal, on the side panels, and on
@@ -314,6 +323,10 @@ impl Default for AppSettings {
             v2_ask: "balanced".into(),
             v2_plan_first: false,
             v2_auto_merge: false,
+            v2_belt_secrets: true,
+            v2_belt_env: true,
+            v2_belt_checks: true,
+            v2_belt_installs: false,
             font: "bundled".into(),
             font_smoothing: false,
             memory_server: true,

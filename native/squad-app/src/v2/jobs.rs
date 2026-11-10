@@ -66,6 +66,26 @@ fn run_rule(checks: &[String]) -> String {
 }
 
 /// Adds `more` to a comma-separated rule list, each once.
+/// The seatbelt's rules for every bot, from Settings > How work runs: keep
+/// out of real .env files, and no package installs unless allowed.
+pub(super) fn belt_rules(st: &AppSettings) -> Vec<String> {
+    let mut deny = Vec::new();
+    if st.v2_belt_env {
+        for t in ["Read", "Edit", "Write"] {
+            deny.push(format!("{t}(./.env)"));
+            deny.push(format!("{t}(./**/.env)"));
+        }
+    }
+    if !st.v2_belt_installs {
+        deny.extend(
+            super::setup::INSTALLS
+                .iter()
+                .map(|c| format!("Bash({c}:*)")),
+        );
+    }
+    deny
+}
+
 fn add_rules(list: &str, more: &[String]) -> String {
     let mut rules: Vec<String> = list
         .split(',')
@@ -191,6 +211,7 @@ pub fn start(
         .map(|s| (s.name.clone(), s.spec()))
         .collect();
     opts.disallowed_tools = add_rules(&opts.disallowed_tools, &setup.tool_rules());
+    opts.disallowed_tools = add_rules(&opts.disallowed_tools, &belt_rules(st));
     // Unmerged threads it was pointed at live in other worktrees: it may read them.
     if !job.reads.is_empty() {
         opts.add_dirs = add_rules(&opts.add_dirs, &job.reads);

@@ -1278,6 +1278,7 @@ impl Shell {
             Ok("overview") => Place::Overview,
             Ok("engines") => Place::Settings(Pane::Engines),
             Ok("server") => Place::Settings(Pane::Server),
+            Ok("work") => Place::Settings(Pane::Work),
             Ok("settings") => Place::Settings(Pane::Work),
             Ok("general") => Place::Settings(Pane::General),
             Ok("mascot") => Place::Settings(Pane::Mascot),
@@ -4162,6 +4163,7 @@ pub fn open_window(cx: &mut App) {
     let st = cx.global::<crate::settings::AppSettings>();
     theme::set_pref(&st.v2_theme, system_dark(cx.window_appearance()));
     issues::set_close_on_merge(st.v2_close_issues);
+    work::set_belt(st.v2_belt_secrets, st.v2_belt_checks);
     theme::set_see_through(st.v2_see_through, st.v2_clear);
     theme::set_glass_popovers(st.v2_glass_popovers, st.v2_pop_clear);
     theme::set_image(!st.v2_bg_image.trim().is_empty(), st.v2_bg_show);

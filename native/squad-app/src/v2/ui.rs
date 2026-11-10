@@ -85,15 +85,6 @@ pub fn pick_on() -> u32 {
     }
 }
 
-/// Words that say a thing is picked.
-pub fn pick_text() -> u32 {
-    if lime() {
-        ink()
-    } else {
-        t_violet()
-    }
-}
-
 /// How strongly to tint toward [`pick_fill`]: lime is pale, so it needs more.
 pub fn pick_k(k: f32) -> f32 {
     if lime() {

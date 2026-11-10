@@ -118,7 +118,7 @@ impl Default for Perms {
 }
 
 /// Package commands "install" covers, Claude Code style.
-const INSTALLS: &[&str] = &[
+pub(super) const INSTALLS: &[&str] = &[
     "npm install",
     "npm i",
     "npm add",

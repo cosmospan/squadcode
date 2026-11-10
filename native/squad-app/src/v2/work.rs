@@ -16,6 +16,29 @@ use crate::seatbelt::{self, Snag};
 
 use super::store::{Changed, Job};
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// The seatbelt's switches from Settings > How work runs.
+static BELT_SECRETS: AtomicBool = AtomicBool::new(true);
+static BELT_CHECKS: AtomicBool = AtomicBool::new(true);
+
+/// Sets whether changes are searched for secrets before they leave, and
+/// whether the checks run before a job comes to you.
+pub fn set_belt(secrets: bool, checks: bool) {
+    BELT_SECRETS.store(secrets, Ordering::Relaxed);
+    BELT_CHECKS.store(checks, Ordering::Relaxed);
+}
+
+/// Whether the seatbelt looks for secrets.
+pub fn belt_secrets() -> bool {
+    BELT_SECRETS.load(Ordering::Relaxed)
+}
+
+/// Whether the checks run before review.
+pub fn belt_checks() -> bool {
+    BELT_CHECKS.load(Ordering::Relaxed)
+}
+
 /// A job's own branch and worktree.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Isolated {

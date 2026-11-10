@@ -147,71 +147,6 @@ fn row(title: &'static str, line: impl Into<SharedString>, control: impl IntoEle
         .child(control)
 }
 
-/// A card with a title row, and an optional note on the right.
-fn card_head(title: &'static str, note: Option<SharedString>) -> Div {
-    ui::card().overflow_hidden().flex().flex_col().child(
-        div()
-            .px(px(18.))
-            .py(px(14.))
-            .flex()
-            .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .text_size(px(15.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c(ui::ink()))
-                    .child(title),
-            )
-            .children(note.map(|n| {
-                div()
-                    .text_size(px(11.5))
-                    .text_color(c(ui::faint()))
-                    .child(n)
-            })),
-    )
-}
-
-/// A settings row led by the bot it's about.
-fn face_row(
-    face: AnyElement,
-    title: &'static str,
-    line: &'static str,
-    control: impl IntoElement,
-) -> Div {
-    div()
-        .px(px(18.))
-        .py(px(13.))
-        .flex()
-        .items_center()
-        .gap(px(14.))
-        .border_t_1()
-        .border_color(c(ui::line2()))
-        .child(div().flex_none().child(face))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(
-                    div()
-                        .text_size(px(13.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c(ui::ink()))
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.5))
-                        .text_color(c(ui::muted()))
-                        .child(line),
-                ),
-        )
-        .child(control)
-}
-
 /// A card of settings rows under a mono heading.
 fn group(title: &'static str, rows: Vec<Div>) -> Div {
     let mut card = div()
@@ -679,8 +614,8 @@ impl Shell {
         d
     }
 
-    /// How work runs: one choice for how often the crew checks with you, the
-    /// switches it sets, and a preview of what an ask looks like.
+    /// How work runs: how much bots do on their own, and the seatbelt that's
+    /// on in every project.
     fn settings_work(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let st = cx.global::<AppSettings>().clone();
         let level = match (st.v2_plan_first, st.v2_auto_merge) {
@@ -689,75 +624,68 @@ impl Shell {
             (false, true) => "hands_off",
             _ => "",
         };
-        let levels: [(&'static str, &'static str, &'static str, usize); 3] = [
+        let levels: [(&'static str, &'static str, &'static str, bool); 3] = [
             (
                 "a_lot",
-                "Ask a lot",
-                "Peek's plan, the changes and the merge wait for you.",
-                3,
+                "Ask before anything",
+                "Bots show a plan and wait for you before they change a file.",
+                false,
             ),
             (
                 "balanced",
-                "Balanced",
-                "You approve changes and press merge.",
-                2,
+                "Ask before merging",
+                "Bots work on their own branch. Nothing reaches main until you approve.",
+                true,
             ),
             (
                 "hands_off",
-                "Hands off",
-                "Approved PRs merge once checks pass.",
-                1,
+                "Merge when checks pass",
+                "Bots merge their own work when every check passes. You can still undo.",
+                false,
             ),
         ];
-        let mut cards = div().flex().gap(px(10.)).px(px(18.)).pb(px(16.));
-        for (i, (key, name, line, bars)) in levels.into_iter().enumerate() {
+        let mut opts = div().flex().flex_col().gap(px(8.));
+        for (i, (key, name, line, best)) in levels.into_iter().enumerate() {
             let on = level == key;
-            let mut meter = div().flex().gap(px(3.));
-            for b in 0..3 {
-                meter = meter.child(div().w(px(16.)).h(px(5.)).rounded(px(2.)).bg(c(
-                    if b < bars {
-                        ui::pick_fill()
-                    } else {
-                        ui::press()
-                    },
-                )));
-            }
-            cards = cards.child(
+            opts = opts.child(
                 div()
                     .id(("work-level", i))
-                    .flex_1()
-                    .min_w_0()
-                    .p(px(12.))
                     .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .rounded(px(12.))
-                    .border_1()
+                    .items_start()
+                    .gap(px(12.))
+                    .px(px(14.))
+                    .py(px(12.))
+                    .rounded(px(6.))
+                    .bg(c(ui::raised()))
                     .cursor_pointer()
                     .map(|d| {
                         if on {
-                            d.border_color(c(ui::pick())).bg(c(super::theme::mix(
-                                ui::raised(),
-                                ui::pick_fill(),
-                                ui::pick_k(0.05),
-                            )))
+                            d.border(px(1.5)).border_color(c(ui::ink()))
                         } else {
-                            d.border_color(c(ui::line()))
+                            d.border_1()
+                                .border_color(c(ui::line()))
                                 .hover(|s| s.border_color(c(ui::line_hi())))
                         }
                     })
                     .child(
                         div()
+                            .mt(px(2.))
+                            .size(px(15.))
+                            .flex_none()
+                            .rounded_full()
+                            .border(px(1.5))
+                            .border_color(c(if on { ui::ink() } else { ui::line_hi() }))
                             .flex()
                             .items_center()
-                            .gap(px(8.))
-                            .child(
-                                div()
-                                    .size(px(16.))
-                                    .rounded_full()
-                                    .border_color(c(if on { ui::pick() } else { ui::line_hi() }))
-                                    .map(|d| if on { d.border(px(5.)) } else { d.border_1() }),
-                            )
+                            .justify_center()
+                            .when(on, |d| {
+                                d.child(div().size(px(6.)).rounded_full().bg(c(ui::ink())))
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
                             .child(
                                 div()
                                     .text_size(px(13.5))
@@ -765,32 +693,25 @@ impl Shell {
                                     .text_color(c(ui::ink()))
                                     .child(name),
                             )
-                            .when(on, |d| {
+                            .when(best, |d| {
                                 d.child(
                                     div()
-                                        .px(px(6.))
-                                        .py(px(1.))
-                                        .rounded(px(5.))
-                                        .bg(c(super::theme::mix(
-                                            ui::bg(),
-                                            ui::pick_fill(),
-                                            ui::pick_k(0.12),
-                                        )))
+                                        .mt(px(2.))
                                         .font_family(ui::MONO)
-                                        .text_size(px(10.5))
-                                        .text_color(c(ui::pick_text()))
-                                        .child("Picked"),
+                                        .text_size(px(10.))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(c(ui::accent_text()))
+                                        .child("RECOMMENDED"),
                                 )
-                            }),
+                            })
+                            .child(
+                                div()
+                                    .mt(px(1.))
+                                    .text_size(px(12.5))
+                                    .text_color(c(ui::body()))
+                                    .child(line),
+                            ),
                     )
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .line_height(px(17.))
-                            .text_color(c(ui::muted()))
-                            .child(line),
-                    )
-                    .child(meter)
                     .on_click(cx.listener(move |_, _, _, cx| {
                         save(cx, |st| {
                             st.v2_ask = key.to_string();
@@ -801,20 +722,31 @@ impl Shell {
                     })),
             );
         }
-        let ask = card_head("When should the crew ask you?", None).child(cards);
+        let label = |left: &'static str, right: Option<&'static str>| {
+            div()
+                .flex()
+                .justify_between()
+                .font_family(ui::MONO)
+                .text_size(px(10.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c(ui::faint()))
+                .child(left.to_uppercase())
+                .children(right.map(|r| div().child(r)))
+        };
+        let how = div()
+            .flex()
+            .flex_col()
+            .gap(px(7.))
+            .child(label("How much bots do on their own", None))
+            .child(opts);
 
-        let peek = self.avatar(Member::Fin, 24.).into_any_element();
-        let builder = self.avatar(Member::Builder, 24.).into_any_element();
-        let shipper = self.avatar(Member::Shipper, 24.).into_any_element();
         let toggle = |id: &'static str,
-                      face: AnyElement,
                       title: &'static str,
                       line: &'static str,
                       on: bool,
                       set: fn(&mut AppSettings, bool),
                       cx: &mut Context<Self>| {
-            face_row(
-                face,
+            row(
                 title,
                 line,
                 div()
@@ -824,294 +756,76 @@ impl Shell {
                     .on_click(cx.listener(move |_, _, _, cx| {
                         save(cx, |st| {
                             set(st, !on);
-                            st.v2_ask = match (st.v2_plan_first, st.v2_auto_merge) {
-                                (true, false) => "a_lot",
-                                (false, false) => "balanced",
-                                (false, true) => "hands_off",
-                                _ => "custom",
-                            }
-                            .into();
+                            super::work::set_belt(st.v2_belt_secrets, st.v2_belt_checks);
                         });
                         cx.notify();
                     })),
             )
         };
-        let set_by = match level {
-            "a_lot" => "Set by Ask a lot \u{00b7} change any",
-            "balanced" => "Set by Balanced \u{00b7} change any",
-            "hands_off" => "Set by Hands off \u{00b7} change any",
-            _ => "Your own mix",
-        };
-        let checkpoints = card_head("Checkpoints", Some(set_by.into()))
-            .child(toggle(
-                "work-plan-first",
-                peek,
-                "Approve Peek's plan first",
-                "Peek posts a plan card. Nothing starts until you press Start.",
-                st.v2_plan_first,
-                |st, on| st.v2_plan_first = on,
+        let rows = vec![
+            toggle(
+                "belt-secrets",
+                "Stop before pushing secrets",
+                "Look for keys and tokens in every change.",
+                st.v2_belt_secrets,
+                |st, on| st.v2_belt_secrets = on,
                 cx,
-            ))
-            .child(face_row(
-                builder,
-                "Changes wait for you",
-                "Every job that changes files stops in Review until you approve it.",
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(
-                        div()
-                            .px(px(7.))
-                            .py(px(2.))
-                            .rounded(px(5.))
-                            .bg(c(ui::well()))
-                            .font_family(ui::MONO)
-                            .text_size(px(11.))
-                            .text_color(c(ui::muted()))
-                            .child("Always on"),
-                    )
-                    .child(div().opacity(0.45).child(switch(true))),
-            ))
-            .child(toggle(
-                "work-auto-merge",
-                shipper,
-                "Merge on its own",
-                "A pull request Shipper opens merges once its checks pass.",
-                st.v2_auto_merge,
-                |st, on| st.v2_auto_merge = on,
+            ),
+            toggle(
+                "belt-env",
+                "Keep bots out of .env files",
+                "They can read .env.example, not the real one.",
+                st.v2_belt_env,
+                |st, on| st.v2_belt_env = on,
                 cx,
-            ));
-
-        let main = Self::page(
-            "settings-work",
-            "How work runs",
-            "Decide how much the crew checks with you. It applies to every project.",
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(space::M))
-                .child(ask)
-                .child(checkpoints),
-        );
-        let rail = self.work_preview(&st, cx);
-        div()
-            .size_full()
-            .flex()
-            .child(div().flex_1().min_w_0().h_full().child(main))
-            .child(rail)
-            .into_any_element()
-    }
-
-    /// What asking for something looks like with these settings, step by step,
-    /// with the steps that wait for you marked.
-    fn work_preview(&mut self, st: &AppSettings, cx: &mut Context<Self>) -> Div {
-        use super::data::Member;
-        let mut steps: Vec<(Option<Member>, &str, &str, bool)> =
-            vec![(None, "You ask in a thread", "", false)];
-        if st.v2_plan_first {
-            steps.push((
-                Some(Member::Fin),
-                "Peek posts a plan",
-                "You press Start",
-                true,
-            ));
-        }
-        steps.push((
-            Some(Member::Builder),
-            "Builder writes it",
-            "On its own branch",
-            false,
-        ));
-        steps.push((
-            Some(Member::Builder),
-            "The changes wait",
-            "You approve them",
-            true,
-        ));
-        if st.v2_auto_merge {
-            steps.push((
-                Some(Member::Shipper),
-                "Shipper opens the PR",
-                "Merges once checks pass",
-                false,
-            ));
-        } else {
-            steps.push((
-                Some(Member::Shipper),
-                "Shipper opens the PR",
-                "You press merge",
-                true,
-            ));
-        }
-        let asks = steps.iter().filter(|s| s.3).count();
-        let steps_alone = steps.len() - 1 - asks;
-        let mut flow = div().flex().flex_col().gap(px(8.));
-        for (who, what, sub, yours) in steps {
-            let face: AnyElement = match who {
-                Some(m) => self.avatar(m, 26.).into_any_element(),
-                None => div()
-                    .size(px(26.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(8.))
-                    .bg(c(super::theme::mix(
-                        ui::raised(),
-                        ui::pick_fill(),
-                        ui::pick_k(0.14),
-                    )))
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(c(ui::pick_text()))
-                    .child("Y")
-                    .into_any_element(),
-            };
-            flow = flow.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(div().w(px(28.)).flex().justify_center().child(face))
-                    .child(
-                        div()
-                            .flex_1()
-                            .px(px(10.))
-                            .py(px(7.))
-                            .rounded(px(9.))
-                            .border_1()
-                            .map(|d| {
-                                if yours {
-                                    d.border_color(c(ui::ask_tone().2)).bg(c(ui::ask_tone().1))
-                                } else {
-                                    d.border_color(c(ui::line())).bg(c(ui::raised()))
-                                }
-                            })
-                            .child(
-                                div()
-                                    .text_size(px(12.5))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(c(ui::ink()))
-                                    .child(what),
-                            )
-                            .when(!sub.is_empty(), |d| {
-                                d.child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(c(if yours {
-                                            ui::t_amber()
-                                        } else {
-                                            ui::muted()
-                                        }))
-                                        .child(sub),
-                                )
-                            }),
-                    ),
-            );
-        }
-        let alone = steps_alone;
-        let balanced = !st.v2_plan_first && !st.v2_auto_merge;
-        let stat = |n: String, what: &'static str| {
-            div()
-                .flex_1()
-                .child(
-                    div()
-                        .text_size(px(20.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c(ui::ink()))
-                        .child(n),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.5))
-                        .text_color(c(ui::muted()))
-                        .child(what),
-                )
-        };
-        div()
-            .w(px(330.))
-            .h_full()
-            .flex_none()
-            .px(px(18.))
-            .pt(px(26.))
-            .pb(px(18.))
+            ),
+            toggle(
+                "belt-checks",
+                "Run checks before review",
+                "Run the project checks before a job comes to you.",
+                st.v2_belt_checks,
+                |st, on| st.v2_belt_checks = on,
+                cx,
+            ),
+            toggle(
+                "belt-installs",
+                "Let bots install packages",
+                "Allow npm, pip and cargo installs without asking.",
+                st.v2_belt_installs,
+                |st, on| st.v2_belt_installs = on,
+                cx,
+            ),
+        ];
+        let mut card = div()
             .flex()
             .flex_col()
-            .gap(px(16.))
-            .bg(c(ui::ground()))
-            .border_l_1()
-            .border_color(c(ui::line2()))
-            .child(
-                div()
-                    .child(
-                        div()
-                            .font_family(ui::MONO)
-                            .text_size(px(10.5))
-                            .text_color(c(ui::faint()))
-                            .child("PREVIEW"),
-                    )
-                    .child(
-                        div()
-                            .mt(px(4.))
-                            .text_size(px(15.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c(ui::ink()))
-                            .child("What \u{201c}Add gift cards\u{201d} looks like"),
-                    )
-                    .child(
-                        div()
-                            .mt(px(2.))
-                            .text_size(px(12.))
-                            .text_color(c(ui::muted()))
-                            .child("Updates as you change settings."),
-                    ),
-            )
-            .child(flow)
-            .child(
-                ui::card()
-                    .px(px(16.))
-                    .py(px(14.))
-                    .flex()
-                    .gap(px(12.))
-                    .child(stat(
-                        asks.to_string(),
-                        if asks == 1 {
-                            "time you're asked"
-                        } else {
-                            "times you're asked"
-                        },
-                    ))
-                    .child(stat(alone.to_string(), "steps the crew runs alone")),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(10.))
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(c(ui::faint()))
-                            .child("Changes save as you make them."),
-                    )
-                    .when(!balanced, |d| {
-                        d.child(
-                            ui::ghost("work-reset", "Reset to Balanced").on_click(cx.listener(
-                                |_, _, _, cx| {
-                                    save(cx, |st| {
-                                        st.v2_ask = "balanced".into();
-                                        st.v2_plan_first = false;
-                                        st.v2_auto_merge = false;
-                                    });
-                                    cx.notify();
-                                },
-                            )),
-                        )
-                    }),
-            )
+            .rounded(px(6.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(ui::line()))
+            .overflow_hidden();
+        for (i, r) in rows.into_iter().enumerate() {
+            card = card.child(if i == 0 { r.border_t(px(0.)) } else { r });
+        }
+        let belt = div()
+            .flex()
+            .flex_col()
+            .gap(px(7.))
+            .child(label("Seatbelt", Some("on in every project")))
+            .child(card);
+
+        Self::page(
+            "settings-work",
+            "How work runs",
+            "For every project, unless a project says otherwise on its Overview.",
+            div()
+                .max_w(px(760.))
+                .flex()
+                .flex_col()
+                .gap(px(18.))
+                .child(how)
+                .child(belt),
+        )
     }
 
     fn settings_general(&mut self, cx: &mut Context<Self>) -> AnyElement {

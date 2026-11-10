@@ -1474,6 +1474,9 @@ impl Runtime {
         job.status = Status::Review;
         job.seen = false;
         job.checks.clear();
+        if !work::belt_checks() {
+            return;
+        }
         job.checking = true;
         let dir = job.worktree.clone();
         self.checking.push((id, work::run_checks(dir)));
@@ -1730,7 +1733,7 @@ impl Runtime {
     /// and clash markers hold the job until the person decides; debugging
     /// leftovers are only pointed out. Whether Approve can go on.
     fn belt_lets_through(&mut self, job: &store::Job, way: ship::Way) -> bool {
-        if job.belt_ok {
+        if job.belt_ok || !work::belt_secrets() {
             return true;
         }
         let found = work::seatbelt(job);
