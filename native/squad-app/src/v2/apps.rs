@@ -100,6 +100,11 @@ impl State {
 }
 
 impl Run {
+    /// How long it has been running.
+    pub fn age(&self) -> std::time::Duration {
+        self.started.elapsed()
+    }
+
     /// The address it serves on, once it said or was expected to.
     pub fn url(&self) -> Option<&str> {
         self.url.as_deref()

@@ -153,3 +153,100 @@ mod tests {
         }
     }
 }
+
+/// How busy the processor is, as a share of all its cores over the last
+/// minute (the load average over the core count), 0 to 100.
+pub fn busy_pct() -> Option<f32> {
+    #[cfg(unix)]
+    {
+        let mut load = [0f64; 3];
+        // SAFETY: getloadavg writes at most `nelem` doubles into the buffer.
+        let n = unsafe { libc::getloadavg(load.as_mut_ptr(), 1) };
+        if n < 1 {
+            return None;
+        }
+        let cores = here().cores.max(1) as f64;
+        Some(((load[0] / cores) * 100.).clamp(0., 100.) as f32)
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+/// Free space on the disk that holds `path`, in bytes.
+pub fn disk_free(path: &std::path::Path) -> Option<u64> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+        // SAFETY: statvfs fills the struct for a valid, NUL-terminated path.
+        let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+            return None;
+        }
+        #[allow(clippy::unnecessary_cast)]
+        Some(st.f_bavail as u64 * st.f_frsize as u64)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+/// This computer's name as people see it, like "MacBook Pro", read once.
+pub fn name() -> Option<String> {
+    static NAME: OnceLock<Option<String>> = OnceLock::new();
+    NAME.get_or_init(|| {
+        #[cfg(target_os = "macos")]
+        if let Ok(out) = std::process::Command::new("scutil")
+            .args(["--get", "ComputerName"])
+            .output()
+        {
+            let n = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if out.status.success() && !n.is_empty() {
+                return Some(n);
+            }
+        }
+        #[cfg(unix)]
+        {
+            let mut buf = [0u8; 256];
+            // SAFETY: gethostname writes at most `len` bytes into the buffer.
+            if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0 {
+                let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+                let n = String::from_utf8_lossy(&buf[..end]).to_string();
+                let n = n.trim_end_matches(".local").to_string();
+                if !n.is_empty() {
+                    return Some(n);
+                }
+            }
+        }
+        None
+    })
+    .clone()
+}
+
+/// The system's version, like "macOS 15.2", read once.
+pub fn os_version() -> String {
+    static OS: OnceLock<String> = OnceLock::new();
+    OS.get_or_init(|| {
+        #[cfg(target_os = "macos")]
+        if let Ok(out) = std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+        {
+            let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !v.is_empty() {
+                return format!("macOS {v}");
+            }
+        }
+        match std::env::consts::OS {
+            "macos" => "macOS".into(),
+            "linux" => "Linux".into(),
+            "windows" => "Windows".into(),
+            other => other.into(),
+        }
+    })
+    .clone()
+}
