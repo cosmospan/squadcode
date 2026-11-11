@@ -1003,7 +1003,8 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .children(ui::feed_grid())
-                    .child(chat),
+                    .child(chat)
+                    .children(feed_fade()),
             )
             .child(
                 div()
@@ -2767,28 +2768,55 @@ impl Shell {
         } else {
             "Do"
         };
-        let mut hows = div().flex().items_center().gap(px(2.));
-        for (i, name) in ["Ask", "Do", "Plan", "Race"].into_iter().enumerate() {
+        // One segmented switch, as in the design: a sunk track, an icon per mode,
+        // and the lime pill on the one picked, so it reads as a single choice.
+        let mut hows = div()
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded(px(6.))
+            .bg(c(ui::hover()))
+            .border_1()
+            .border_color(c(ui::line()));
+        for (i, (name, icon)) in [
+            ("Ask", IconName::MessageCircle),
+            ("Do", IconName::Play),
+            ("Plan", IconName::ListTodo),
+            ("Race", IconName::Flag),
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let on = how == name;
             hows = hows.child(
                 div()
                     .id(("compose-how", i))
-                    .h(px(26.))
+                    .h(px(22.))
                     .px(px(9.))
                     .flex()
                     .items_center()
-                    .rounded(px(3.))
+                    .gap(px(5.))
+                    .rounded(px(4.))
                     .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
+                    .font_weight(if on {
+                        FontWeight::SEMIBOLD
+                    } else {
+                        FontWeight::MEDIUM
+                    })
                     .cursor_pointer()
                     .map(|d| {
                         if on {
-                            d.bg(c(ui::pick_fill())).text_color(c(ui::pick_on()))
+                            d.bg(c(ui::pick_fill()))
+                                .text_color(c(ui::pick_on()))
+                                .border_1()
+                                .border_color(ui::ca(ui::ink(), 0.12))
                         } else {
                             d.text_color(c(ui::muted()))
-                                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                                .hover(|s| s.bg(c(ui::raised())).text_color(c(ui::ink())))
                         }
                     })
+                    .child(Icon::new(icon).size(px(12.)))
                     .child(name)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.pick_how(name, window, cx);
@@ -3445,4 +3473,28 @@ impl Render for BotCard {
                 }),
         )
     }
+}
+
+/// The chat fades out over its last few lines above the composer, as in the
+/// design, so messages don't run hard into the box. Left off when the window is
+/// see-through: there's no solid page under it to fade into.
+fn feed_fade() -> Option<AnyElement> {
+    if super::theme::window_clear() {
+        return None;
+    }
+    let page = ui::bg();
+    Some(
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .h(px(56.))
+            .bg(linear_gradient(
+                180.,
+                linear_color_stop(ca(page, 0.), 0.),
+                linear_color_stop(ca(page, 1.), 1.),
+            ))
+            .into_any_element(),
+    )
 }

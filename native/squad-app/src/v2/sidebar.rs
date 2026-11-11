@@ -224,37 +224,36 @@ fn initials(name: &str) -> String {
 /// A project's tile: its letters in mono on a soft wash of its colour. The
 /// project you're in is ringed in the accent.
 fn monogram(name: &str, tint: u32, on: bool) -> Div {
+    // The ring is a frame around the tile, 2px off it and 1.5px wide, as in the
+    // design. Box shadows drew it as one thick band with no gap.
     div()
-        .size(px(32.))
+        .size(px(39.))
         .flex_none()
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(6.))
-        .font_family(ui::MONO)
-        .text_size(px(11.))
-        .font_weight(FontWeight::MEDIUM)
-        .bg(c(super::theme::mix(ui::raised(), tint, 0.2)))
-        .text_color(c(super::theme::mix(tint, ui::ink(), 0.55)))
-        .when(on, |d| {
-            d.shadow(vec![
-                BoxShadow {
-                    color: c(ground()),
-                    offset: point(px(0.), px(0.)),
-                    blur_radius: px(0.),
-                    spread_radius: px(2.),
-                    inset: false,
-                },
-                BoxShadow {
-                    color: c(ui::accent_bar()),
-                    offset: point(px(0.), px(0.)),
-                    blur_radius: px(0.),
-                    spread_radius: px(3.5),
-                    inset: false,
-                },
-            ])
+        .rounded(px(9.5))
+        .border(px(1.5))
+        .border_color(if on {
+            c(ui::accent_bar())
+        } else {
+            gpui::transparent_black()
         })
-        .child(initials(name))
+        .child(
+            div()
+                .size(px(32.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .font_family(ui::MONO)
+                .text_size(px(11.))
+                .font_weight(FontWeight::MEDIUM)
+                .bg(c(super::theme::mix(ui::raised(), tint, 0.2)))
+                .text_color(c(super::theme::mix(tint, ui::ink(), 0.55)))
+                .child(initials(name)),
+        )
 }
 
 /// How many things wait on you, on the Inbox's corner: mono on the accent.
@@ -289,8 +288,8 @@ fn count_badge(n: usize) -> Div {
 fn ask_dot() -> Div {
     div()
         .absolute()
-        .top(px(3.))
-        .right(px(3.))
+        .top(px(6.5))
+        .right(px(6.5))
         .size(px(7.))
         .rounded(px(2.))
         .bg(c(ui::accent_bar()))
@@ -300,8 +299,8 @@ fn ask_dot() -> Div {
 fn busy_dot() -> Div {
     div()
         .absolute()
-        .bottom(px(3.))
-        .right(px(3.))
+        .bottom(px(6.5))
+        .right(px(6.5))
         .size(px(7.))
         .rounded(px(2.))
         .bg(c(ui::t_blue()))
@@ -399,8 +398,9 @@ impl Shell {
             .flex()
             .flex_col()
             .items_center()
-            .gap(px(6.))
-            .pt(px(2.));
+            .gap(px(8.))
+            .pt(px(4.))
+            .pb(px(4.));
         for (i, name, path) in folders {
             let rows = self.thread_rows_in(&path);
             let busy: usize = rows.iter().map(|r| r.2).sum();
@@ -424,7 +424,7 @@ impl Shell {
                     .id(("rail-project", i))
                     .group(group.clone())
                     .w_full()
-                    .h(px(40.))
+                    .h(px(32.))
                     .flex_none()
                     .flex()
                     .items_center()
@@ -456,7 +456,7 @@ impl Shell {
         list = list.child(
             div()
                 .w_full()
-                .h(px(40.))
+                .h(px(32.))
                 .flex()
                 .items_center()
                 .justify_center()
