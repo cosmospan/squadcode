@@ -959,6 +959,26 @@ impl Runtime {
         true
     }
 
+    /// Marks direction `k` as picked on the directions card at `at` in a job's
+    /// feed, and returns what to tell the bot. None when there's no such card, or it
+    /// was already picked from.
+    pub fn pick_direction(&mut self, id: u64, at: usize, k: usize) -> Option<String> {
+        let job = self.store.job_mut(id)?;
+        let Some(store::Item::Directions {
+            options, chosen, ..
+        }) = job.feed.get_mut(at)
+        else {
+            return None;
+        };
+        if chosen.is_some() || k >= options.len() {
+            return None;
+        }
+        *chosen = Some(k);
+        let text = super::shown::pick_message(options, k);
+        self.store.save();
+        Some(text)
+    }
+
     /// More words for a job: while it runs they wait; once it's done they start a
     /// follow-up that continues the same conversation when the engine can.
     pub fn follow_up(&mut self, st: &AppSettings, id: u64, text: String) {

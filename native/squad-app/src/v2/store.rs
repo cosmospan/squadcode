@@ -248,6 +248,31 @@ pub enum Item {
     /// reporting a step.
     By(Member, String),
     Error(String),
+    /// A picture the bot showed: a screenshot, a mockup or a diagram. `file` is its
+    /// copy in Squad Code's own folder, so it stays after the job's worktree goes.
+    Picture {
+        file: String,
+        title: String,
+        caption: String,
+    },
+    /// Two to four looks for the person to pick from. `pick` is the one the bot
+    /// recommends; `chosen` the one the person picked, once they have.
+    Directions {
+        title: String,
+        options: Vec<Direction>,
+        pick: usize,
+        chosen: Option<usize>,
+    },
+}
+
+/// One look in a [`Item::Directions`] card.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Direction {
+    pub name: String,
+    /// Its picture, kept in Squad Code's own folder.
+    pub file: String,
+    #[serde(default)]
+    pub note: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

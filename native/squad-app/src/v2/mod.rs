@@ -53,6 +53,7 @@ mod serverpage;
 mod setup;
 mod shift;
 mod ship;
+pub(crate) mod shown;
 mod sidebar;
 mod start;
 mod statusbar;

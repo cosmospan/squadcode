@@ -319,6 +319,9 @@ fn unasked_tools(spec: &RunSpec) -> Vec<&'static str> {
     tools.push(crate::browse::design::THEME);
     if spec.thread != 0 {
         tools.extend(crate::memory_mcp::THREAD_TOOLS);
+    } else {
+        // A job's pictures and directions: they only show in its own feed.
+        tools.extend(crate::v2::shown::TOOLS);
     }
     tools
 }

@@ -24,7 +24,14 @@ pub struct Runner {
     /// run that started a server keeps its output open after that, so the
     /// job ends on this rather than waiting for the process.
     result: Option<(std::time::Instant, bool)>,
+    /// The job's folder, where its pictures are looked up (see [`super::shown`]).
+    dir: String,
+    /// When the job's pictures were last looked for.
+    looked: std::time::Instant,
 }
+
+/// How often a running job looks for pictures its bot showed.
+const SHOWN_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// How long after the engine's last word a run that hasn't exited counts as done.
 const LINGER: std::time::Duration = std::time::Duration::from_secs(3);
@@ -322,6 +329,8 @@ pub fn start(
         errors: Vec::new(),
         stopped: false,
         result: None,
+        dir,
+        looked: std::time::Instant::now(),
     })
 }
 
@@ -375,6 +384,11 @@ impl Runner {
                 Event::Done(ok) => ended = Some(ok),
                 Event::Output(..) => {}
             }
+        }
+        // Pictures the bot showed, looked for twice a second and once more at the end.
+        if ended.is_some() || self.looked.elapsed() >= SHOWN_EVERY {
+            self.looked = std::time::Instant::now();
+            job.feed.extend(super::shown::take(&self.dir));
         }
         // The engine finished its turn but something it started (a dev
         // server, say) still holds the output open: the job is done all the same.

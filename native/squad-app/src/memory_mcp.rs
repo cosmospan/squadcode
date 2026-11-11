@@ -40,7 +40,7 @@ pub fn handle_thread(dir: &str, thread: Option<u64>, request: &Value) -> Option<
                 "protocolVersion": params["protocolVersion"].as_str().unwrap_or("2025-06-18"),
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "squadcode", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Squad Code's tools for this job, and a browser. To try a web page (such as the app you're building on localhost), use browser_open and the other browser_ tools: they drive this job's own headless browser inside Squad Code, where the person can watch, and read pages as short text outlines; don't open an outside browser or install Playwright for it. For design work, design_theme gives a starting theme from a mood and design_check runs design checks (contrast, tap targets, overflow, values off the theme) on the page in that browser."
+                "instructions": "Squad Code's tools for this job, and a browser. To try a web page (such as the app you're building on localhost), use browser_open and the other browser_ tools: they drive this job's own headless browser inside Squad Code, where the person can watch, and read pages as short text outlines; don't open an outside browser or install Playwright for it. For design work, design_theme gives a starting theme from a mood and design_check runs design checks (contrast, tap targets, overflow, values off the theme) on the page in that browser. To show the person a screenshot, mockup or diagram, save it as a file and call show_picture; before designing new screens, show two to four directions with show_directions."
             }))
         }
         "ping" => Ok(json!({})),
@@ -51,9 +51,11 @@ pub fn handle_thread(dir: &str, thread: Option<u64>, request: &Value) -> Option<
                     list.extend(crate::designdraw::agentops::tools());
                 }
             }
-            if thread.is_some() {
-                if let Some(list) = all.as_array_mut() {
-                    list.extend(thread_tools());
+            if let Some(list) = all.as_array_mut() {
+                match thread {
+                    Some(_) => list.extend(thread_tools()),
+                    // A job shows pictures and directions in its own feed.
+                    None => list.extend(crate::v2::shown::list()),
                 }
             }
             if crate::browse::tools::offered() {
@@ -73,6 +75,9 @@ pub fn handle_thread(dir: &str, thread: Option<u64>, request: &Value) -> Option<
                     &params["arguments"],
                     &MESSAGES_SENT,
                 )),
+                None if thread.is_none() && crate::v2::shown::TOOLS.contains(&name) => {
+                    Ok(crate::v2::shown::call(dir, name, &params["arguments"]))
+                }
                 None if crate::browse::tools::TOOLS.contains(&name) => {
                     Ok(crate::browse::tools::call(dir, name, &params["arguments"]))
                 }

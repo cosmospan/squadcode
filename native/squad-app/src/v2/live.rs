@@ -520,6 +520,27 @@ impl Shell {
                         .child(t.clone()),
                 ),
                 Item::Tool { .. } => feed,
+                Item::Picture {
+                    file,
+                    title,
+                    caption,
+                } => feed.child(
+                    div()
+                        .pl(px(44.))
+                        .child(self.picture_card(job.id, at, file, title, caption, cx)),
+                ),
+                Item::Directions {
+                    title,
+                    options,
+                    pick,
+                    chosen,
+                } => feed.child(div().pl(px(44.)).child(self.directions_card(
+                    job.id,
+                    at,
+                    (title, options),
+                    (*pick, *chosen),
+                    cx,
+                ))),
             };
         }
         feed = flush(feed, &mut tools);
@@ -1320,6 +1341,240 @@ pub(super) fn section(title: &str, body: Div) -> Div {
         .gap(px(10.))
         .child(ui::heading(title, None, None))
         .child(body)
+}
+
+impl Shell {
+    /// A picture the bot showed: a screenshot, mockup or diagram, with its name and
+    /// what to notice. Clicking it opens it full size.
+    fn picture_card(
+        &self,
+        job: u64,
+        at: usize,
+        file: &str,
+        title: &str,
+        caption: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let path = std::path::PathBuf::from(file);
+        let open = path.clone();
+        ui::card()
+            .max_w(px(640.))
+            .overflow_hidden()
+            .when(!title.is_empty(), |d| {
+                d.child(
+                    div()
+                        .px(px(14.))
+                        .py(px(10.))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .border_b_1()
+                        .border_color(c(ui::line()))
+                        .child(
+                            Icon::new(IconName::Image)
+                                .size(px(14.))
+                                .text_color(c(ui::muted())),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c(ui::ink()))
+                                .child(title.to_string()),
+                        ),
+                )
+            })
+            .child(
+                div()
+                    .id(SharedString::from(format!("picture-{job}-{at}")))
+                    .p(px(10.))
+                    .bg(c(ui::ground()))
+                    .cursor_pointer()
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new("Open it full size")
+                            .build(window, cx)
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_file(open.clone(), Some(job), window, cx);
+                    }))
+                    .child(
+                        img(path)
+                            .w_full()
+                            .h(px(320.))
+                            .object_fit(ObjectFit::Contain),
+                    ),
+            )
+            .when(!caption.is_empty(), |d| {
+                d.child(
+                    div()
+                        .px(px(14.))
+                        .py(px(10.))
+                        .border_t_1()
+                        .border_color(c(ui::line()))
+                        .text_size(px(13.))
+                        .line_height(px(19.))
+                        .text_color(c(ui::body()))
+                        .child(caption.to_string()),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// Two to four looks to pick from, side by side. The bot's pick is marked, and
+    /// once the person picks, that one is marked instead and the rest are dimmed.
+    fn directions_card(
+        &self,
+        job: u64,
+        at: usize,
+        (title, options): (&str, &[store::Direction]),
+        (pick, chosen): (usize, Option<usize>),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let bot_pick = |k: usize| (k == pick).then_some("BOT'S PICK");
+        let mut row = div().p(px(12.)).flex().gap(px(10.));
+        for (k, o) in options.iter().enumerate() {
+            let letter = (b'A' + k as u8) as char;
+            let on = chosen.map_or(k == pick, |ch| ch == k);
+            let dim = chosen.is_some_and(|ch| ch != k);
+            let path = std::path::PathBuf::from(&o.file);
+            let open = path.clone();
+            let label = match chosen {
+                Some(ch) if ch == k => Some("PICKED"),
+                Some(_) => None,
+                None => bot_pick(k),
+            };
+            let tile = div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .rounded(px(4.))
+                .border_1()
+                .border_color(c(if on { ui::pick() } else { ui::line() }))
+                .when(on, |d| d.border_l_4().border_color(c(ui::accent_bar())))
+                .when(dim, |d| d.opacity(0.55))
+                .overflow_hidden()
+                .child(
+                    div()
+                        .id(SharedString::from(format!("direction-pic-{job}-{at}-{k}")))
+                        .h(px(220.))
+                        .p(px(8.))
+                        .bg(c(ui::ground()))
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.open_file(open.clone(), Some(job), window, cx);
+                        }))
+                        .child(img(path).size_full().object_fit(ObjectFit::Contain)),
+                )
+                .child(
+                    div()
+                        .p(px(10.))
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(c(ui::ink()))
+                                        .child(format!("{letter} · {}", o.name)),
+                                )
+                                .when_some(label, |d, l| {
+                                    d.child(
+                                        div()
+                                            .px(px(5.))
+                                            .rounded(px(3.))
+                                            .bg(c(ui::pick_fill()))
+                                            .text_color(c(ui::pick_on()))
+                                            .font_family(ui::MONO)
+                                            .text_size(px(10.))
+                                            .child(l),
+                                    )
+                                }),
+                        )
+                        .when(!o.note.is_empty(), |d| {
+                            d.child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .line_height(px(18.))
+                                    .text_color(c(ui::body()))
+                                    .child(o.note.clone()),
+                            )
+                        })
+                        .when(chosen.is_none(), |d| {
+                            let kind = if k == pick {
+                                ui::Btn::Primary
+                            } else {
+                                ui::Btn::Plain
+                            };
+                            d.child(
+                                ui::dbtn(
+                                    SharedString::from(format!("direction-{job}-{at}-{k}")),
+                                    format!("Use {}", o.name),
+                                    kind,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.use_direction(job, at, k, cx);
+                                    },
+                                )),
+                            )
+                        }),
+                );
+            row = row.child(tile);
+        }
+        let head = if title.is_empty() {
+            "Pick a direction".to_string()
+        } else {
+            format!("Pick a direction · {title}")
+        };
+        ui::card()
+            .max_w(px(900.))
+            .child(
+                div()
+                    .px(px(14.))
+                    .py(px(10.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .border_b_1()
+                    .border_color(c(ui::line()))
+                    .child(Icon::new(IconName::Palette).size(px(14.)).text_color(c(ui::muted())))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child(head),
+                    ),
+            )
+            .child(row)
+            .when(chosen.is_none(), |d| {
+                d.child(
+                    div()
+                        .px(px(14.))
+                        .pb(px(10.))
+                        .text_size(px(12.))
+                        .text_color(c(ui::muted()))
+                        .child("Or say what to mix in the box below, like \u{201c}A, with B's rounder cards\u{201d}."),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// The person picked direction `k` on the card at `at` in a job's feed: mark it
+    /// and tell the bot.
+    fn use_direction(&mut self, job: u64, at: usize, k: usize, cx: &mut Context<Self>) {
+        let Some(text) = self.crew.pick_direction(job, at, k) else {
+            return;
+        };
+        self.follow_up(job, text, cx);
+    }
 }
 
 pub(super) fn note_line(text: &str) -> Div {
