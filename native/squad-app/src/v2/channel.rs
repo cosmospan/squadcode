@@ -1720,8 +1720,22 @@ impl Shell {
             && belt.is_none()
             && clash.is_none();
         let word_said = word.clone();
+        let trouble = (!racing && !running && j.status != Status::Review)
+            .then(|| self.trouble_card(j, cx))
+            .flatten();
+        let troubled = trouble.is_some();
+        // The card says what went wrong; above it, only the bot's own words.
+        let said = if troubled {
+            j.last_words()
+                .map(|w| w.lines().next().unwrap_or("").chars().take(220).collect())
+                .unwrap_or_default()
+        } else {
+            said
+        };
         let body = if racing {
             self.race_card(j.race, cx)
+        } else if let Some(card) = trouble {
+            card.ml(px(0.))
         } else if quiet {
             self.job_line(j, &word, tone.0, cx)
         } else {
@@ -1794,15 +1808,18 @@ impl Shell {
             .flex()
             .flex_col()
             // A card carries the bot's words in its foot; a slim line has none.
-            .when((quiet || racing) && said != word_said, |d| {
-                d.child(
-                    div()
-                        .text_size(px(14.))
-                        .line_height(px(21.))
-                        .text_color(c(ui::body()))
-                        .child(said),
-                )
-            })
+            .when(
+                (quiet || racing || troubled) && said != word_said && !said.is_empty(),
+                |d| {
+                    d.child(
+                        div()
+                            .text_size(px(14.))
+                            .line_height(px(21.))
+                            .text_color(c(ui::body()))
+                            .child(said),
+                    )
+                },
+            )
             .child(div().when(running, |d| d.mt(px(4.))).child(body))
             .children(self.job_runs(j.id, cx));
         let yours = asked_by_you.then(|| {

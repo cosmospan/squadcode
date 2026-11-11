@@ -3,7 +3,6 @@
 //! installed offers another engine; a stopped job can carry on; a branch that
 //! clashes with its base can be handed back to the bot to bring up to date.
 
-use gpui_kit::assets::IconName;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
@@ -194,99 +193,154 @@ impl Shell {
         } else {
             Vec::new()
         };
-        let mut buttons = div().flex().flex_wrap().gap(px(8.));
+        let mut buttons = div().mt(px(4.)).flex().flex_wrap().gap(px(6.));
+        let primary = |id: &'static str, label: String| ui::dbtn(id, label, ui::Btn::Primary);
+        let plain = |id: &'static str, label: &'static str| ui::dbtn(id, label, ui::Btn::Plain);
+        let ghost = |id: &'static str, label: &'static str| ui::dbtn(id, label, ui::Btn::Ghost);
+        let switch = other.zip(other_name);
         match &t {
             Trouble::Conflict(_) => {
                 buttons = buttons
                     .child(
-                        ui::solid(
+                        primary(
                             "trouble-resolve",
                             format!("Ask {} to fix it", job.bot.name()),
                         )
                         .on_click(cx.listener(move |this, _, _, cx| this.resolve(id, cx))),
                     )
                     .child(
-                        ui::ghost("trouble-discard", "Discard")
+                        ghost("trouble-discard", "Discard")
                             .on_click(cx.listener(move |this, _, _, cx| this.discard_job(id, cx))),
                     );
             }
             Trouble::Stopped | Trouble::Interrupted => {
                 buttons = buttons
                     .child(
-                        ui::solid("trouble-carry", "Carry on")
+                        primary("trouble-carry", "Carry on".into())
                             .on_click(cx.listener(move |this, _, _, cx| this.carry_on(id, cx))),
                     )
                     .child(
-                        ui::ghost("trouble-over", "Start over")
+                        ghost("trouble-over", "Start over")
                             .on_click(cx.listener(move |this, _, _, cx| this.rerun(id, None, cx))),
                     );
                 if !job.worktree.is_empty() {
                     buttons = buttons.child(
-                        ui::ghost("trouble-discard", "Discard")
+                        ghost("trouble-discard", "Discard")
                             .on_click(cx.listener(move |this, _, _, cx| this.discard_job(id, cx))),
                     );
                 }
             }
             _ => {
-                if let (Some(i), Some(name)) = (other, other_name) {
-                    buttons = buttons.child(
-                        ui::solid("trouble-other", format!("Run on {name} instead")).on_click(
-                            cx.listener(move |this, _, _, cx| this.rerun(id, Some(i), cx)),
-                        ),
-                    );
-                }
                 // Signing in runs inside Squad, its card right here.
                 let login = crate::agent::PROVIDERS
                     .iter()
                     .find(|p| p.name == engine)
                     .and_then(|p| crate::agent::sign_in_cmd(p.id));
-                if let (Trouble::SignIn, Some(cmd)) = (&t, login) {
+                let signing = matches!(t, Trouble::SignIn) && login.is_some();
+                if let (true, Some(cmd)) = (signing, login) {
                     buttons = buttons.child(
-                        ui::solid_i("trouble-signin", IconName::LogIn, "Sign in")
+                        primary("trouble-signin", "Sign in".into())
                             .on_click(cx.listener(move |this, _, _, cx| this.run_setup(cmd, cx))),
                     );
                 }
-                if matches!(t, Trouble::Failed(_) | Trouble::Limit(_)) {
-                    let try_again = ui::ghost("trouble-again", "Try again")
-                        .on_click(cx.listener(move |this, _, _, cx| this.rerun(id, None, cx)));
-                    buttons = buttons.child(try_again);
+                if let Some((i, name)) = switch {
+                    let label = format!("Run on {name} instead");
+                    let b = if signing {
+                        ui::dbtn("trouble-other", label, ui::Btn::Plain)
+                    } else {
+                        primary("trouble-other", label)
+                    };
+                    buttons = buttons.child(
+                        b.on_click(cx.listener(move |this, _, _, cx| this.rerun(id, Some(i), cx))),
+                    );
                 }
-                buttons = buttons.child(ui::ghost("trouble-engines", "Engines").on_click(
-                    cx.listener(|this, _, _, cx| this.go(Place::Settings(Pane::Engines), cx)),
-                ));
+                match &t {
+                    Trouble::Missing => {
+                        buttons = buttons.child(
+                            plain("trouble-install", "How to install").on_click(cx.listener(
+                                |this, _, _, cx| this.go(Place::Settings(Pane::Engines), cx),
+                            )),
+                        );
+                    }
+                    Trouble::Failed(_) | Trouble::Limit(_) => {
+                        buttons =
+                            buttons.child(ghost("trouble-again", "Try again").on_click(
+                                cx.listener(move |this, _, _, cx| this.rerun(id, None, cx)),
+                            ));
+                    }
+                    _ => {}
+                }
+                if switch.is_none() && !signing {
+                    buttons = buttons.child(ghost("trouble-engines", "Engines").on_click(
+                        cx.listener(|this, _, _, cx| this.go(Place::Settings(Pane::Engines), cx)),
+                    ));
+                }
             }
         }
+        // Amber: fixable, one press away. Grey: paused, nothing broke. Red:
+        // it broke, read why.
+        let (bar, tint) = match tone {
+            ui::AMBER => (ui::t_amber(), 0.07),
+            ui::RED => (ui::t_red(), 0.06),
+            _ => (ui::faint(), 0.0),
+        };
+        let face = self.avatar(job.bot, 14.);
         Some(
-            ui::card()
+            div()
                 .ml(px(40.))
-                .p(px(16.))
+                .relative()
+                .overflow_hidden()
+                .pl(px(16.))
+                .pr(px(14.))
+                .py(px(12.))
                 .flex()
                 .flex_col()
-                .gap(px(10.))
-                .border_color(c(match tone {
-                    ui::AMBER => ui::ask_tone().2,
-                    ui::RED => ui::bad_tone().2,
-                    _ => ui::line(),
+                .gap(px(5.))
+                .rounded(px(5.))
+                .bg(c(super::theme::mix(ui::raised(), bar, tint)))
+                .border_1()
+                .border_color(c(if tint > 0. {
+                    super::theme::mix(ui::raised(), bar, 0.35)
+                } else {
+                    ui::line()
                 }))
+                .child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .bottom_0()
+                        .w(px(3.))
+                        .bg(c(bar)),
+                )
                 .child(
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(8.))
-                        .child(div().size(px(8.)).rounded_full().bg(c(tone)))
+                        .gap(px(6.))
+                        .font_family(ui::MONO)
+                        .text_size(px(11.))
+                        .text_color(c(ui::faint()))
+                        .child(face)
                         .child(
                             div()
-                                .text_size(px(14.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(c(ui::ink()))
-                                .child(title),
+                                .min_w_0()
+                                .truncate()
+                                .child(format!("{} \u{b7} #{id} {}", job.bot.name(), job.label())),
                         ),
+                )
+                .child(
+                    div()
+                        .text_size(px(13.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c(if tone == ui::RED { ui::t_red() } else { ui::ink() }))
+                        .child(title),
                 )
                 .when(!line.is_empty(), |d| {
                     d.child(
                         div()
-                            .text_size(px(13.))
-                            .line_height(px(19.))
+                            .text_size(px(12.5))
+                            .line_height(px(18.))
                             .text_color(c(ui::body()))
                             .child(line),
                     )
@@ -299,8 +353,8 @@ impl Shell {
                             .child("No other engine is ready on this computer. Add one in Engines to switch."),
                     )
                 })
-                .child(buttons)
-                .when(matches!(t, Trouble::SignIn), |d| d.children(setup)),
+                .when(matches!(t, Trouble::SignIn), |d| d.children(setup))
+                .child(buttons),
         )
     }
 }
