@@ -724,7 +724,23 @@ fn short(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::super::store::{Changed, Job, Status};
-    use super::{marks, took};
+    use super::{marks, pick, took, Marks};
+
+    #[test]
+    fn peek_picks_one_clear_winner_or_none() {
+        let best = Marks {
+            passes: true,
+            smallest: true,
+            ..Default::default()
+        };
+        let other = Marks {
+            fastest: true,
+            ..Default::default()
+        };
+        assert_eq!(pick(&[other.clone(), best.clone()]), Some(1));
+        assert_eq!(pick(&[best.clone(), best]), None);
+        assert_eq!(pick(&[other.clone(), other]), None);
+    }
 
     fn try_(id: u64, secs: u64, cost: &str, lines: usize) -> Job {
         Job {

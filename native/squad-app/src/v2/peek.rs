@@ -260,9 +260,8 @@ impl Shell {
         let belt = held.then(|| self.belt_box(job, cx));
         let clash = self.clash_box(job, cx);
         let in_the_way = self.in_the_way_card(job, cx);
-        let shipped = matches!(job.status, Status::Shipping | Status::Shipped)
-            .then(|| self.review_body(job, cx))
-            .flatten();
+        let ships = matches!(job.status, Status::Shipping | Status::Shipped);
+        let shipped = ships.then(|| self.peek_ship(job, cx));
 
         let stopped = matches!(
             job.status,
@@ -313,7 +312,7 @@ impl Shell {
                         .child(reason),
                 )
         });
-        let checks = peek_checks(job);
+        let checks = peek_checks(job).filter(|_| !ships);
         // A job waiting for you shows its diff right here, to comment on.
         let reviewing = job.status == Status::Review && !job.changes.is_empty();
         let changes = if reviewing {
@@ -501,12 +500,235 @@ impl Shell {
                     .children(in_the_way)
                     .children(shipped)
                     .children(checks)
-                    .children(changes)
+                    .children(changes.filter(|_| !ships))
                     .children(more)
-                    .children(log.filter(|_| !reviewing))
+                    .children(log.filter(|_| !reviewing && !ships))
                     .children(stats),
             )
             .children(foot)
+    }
+
+    /// A job on its way in, in the side panel: Shipper's steps while it
+    /// pushes, the pull request's checks while it's open, and what happened
+    /// once it's merged.
+    fn peek_ship(&mut self, job: &Job, cx: &mut Context<Self>) -> Div {
+        let id = job.id;
+        let mut out = div().flex().flex_col().gap(px(14.));
+        let said: Vec<String> = job
+            .feed
+            .iter()
+            .filter_map(|it| match it {
+                super::store::Item::By(Member::Shipper, t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        if job.status == Status::Shipped {
+            // What happened, from the asking to the merge.
+            let mut events: Vec<String> = Vec::new();
+            for it in &job.feed {
+                match it {
+                    super::store::Item::You(t) => {
+                        let t: String = t.lines().next().unwrap_or("").chars().take(60).collect();
+                        events.push(format!("You: {t}"));
+                    }
+                    super::store::Item::By(m, t) => {
+                        let t: String = t.lines().next().unwrap_or("").chars().take(60).collect();
+                        events.push(format!("{}: {t}", m.name()));
+                    }
+                    _ => {}
+                }
+            }
+            events.push(if job.shipped.is_empty() {
+                "Merged".to_string()
+            } else {
+                job.shipped.clone()
+            });
+            let from = events.len().saturating_sub(6);
+            let last = events.len() - 1;
+            let mut line = div()
+                .flex()
+                .flex_col()
+                .border_l_1()
+                .border_color(c(ui::line_hi()))
+                .pl(px(12.));
+            for (n, e) in events.into_iter().enumerate().skip(from) {
+                let end = n == last;
+                line = line.child(
+                    div()
+                        .relative()
+                        .min_h(px(23.))
+                        .flex()
+                        .items_center()
+                        .text_size(px(12.5))
+                        .text_color(c(if end { ui::ink() } else { ui::body() }))
+                        .child(
+                            div()
+                                .absolute()
+                                .left(px(-15.5))
+                                .top(px(8.5))
+                                .size(px(6.))
+                                .bg(c(if end { ui::t_green() } else { ui::faint() })),
+                        )
+                        .child(div().min_w_0().truncate().child(e)),
+                );
+            }
+            return out
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(label("What happened"))
+                        .child(line),
+                )
+                .child(note_text(
+                    "The job leaves the Inbox. You'll find it under Jobs, Done.".into(),
+                ));
+        }
+        if job.pr.is_empty() {
+            // Shipper pushing: what it did, what it's doing, what's next.
+            let way = self.way(job);
+            let pr_way = matches!(way, super::ship::Way::PullRequest);
+            let face = self.avatar(Member::Shipper, 22.);
+            out = out.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(label("Shipper"))
+                    .child(
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap(px(10.))
+                        .child(div().flex_none().child(face))
+                        .child(note_text(if pr_way {
+                            "The one bot that touches GitHub. It opens the pull request for you."
+                                .into()
+                        } else {
+                            format!("It merges the change into {} here.", job.base)
+                        })),
+                ),
+            );
+            let mut steps = div().flex().flex_col();
+            let mut rows: Vec<(u8, String)> = said.into_iter().map(|t| (0u8, t)).collect();
+            if job.shipping {
+                rows.push((
+                    1,
+                    if pr_way {
+                        "Opening the pull request".into()
+                    } else {
+                        format!("Merging into {}", job.base)
+                    },
+                ));
+            }
+            if pr_way {
+                rows.push((2, "Looking at its checks".into()));
+            }
+            for (i, (state, text)) in rows.into_iter().enumerate() {
+                steps = steps.child(step_row(state, text, i > 0));
+            }
+            return out.child(steps).children(peek_checks(job));
+        }
+        // The pull request is open: its checks, merging on its own, and what
+        // it says.
+        let (done, total) = pr_counts(&job.pr_line);
+        let mut checks = div().flex().flex_col().child(
+            div()
+                .flex()
+                .justify_between()
+                .child(label("Checks on GitHub"))
+                .child(
+                    div()
+                        .font_family(ui::MONO)
+                        .text_size(px(10.5))
+                        .text_color(c(ui::faint()))
+                        .child(match (done, total) {
+                            (Some(d), Some(t)) => format!("{d} of {t} done"),
+                            _ => String::new(),
+                        }),
+                ),
+        );
+        let mut first = true;
+        for f in &job.pr_failed {
+            checks = checks.child(step_row(3, f.clone(), !first));
+            first = false;
+        }
+        if !job.pr_line.is_empty() {
+            let state = match (done, total) {
+                (Some(d), Some(t)) if d >= t && job.pr_failed.is_empty() => 0,
+                _ if !job.pr_failed.is_empty() => 3,
+                _ => 1,
+            };
+            checks = checks.child(step_row(state, job.pr_line.clone(), !first));
+        }
+        let auto = job.auto_merge;
+        let merge_card = div()
+            .id("peek-auto-merge")
+            .px(px(12.))
+            .py(px(10.))
+            .flex()
+            .items_start()
+            .gap(px(10.))
+            .rounded(px(5.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(ui::line()))
+            .cursor_pointer()
+            .child(div().mt(px(2.)).child(super::prefs::switch(auto)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child("Merge when checks pass"),
+                    )
+                    .child(note_text(
+                        "Then Shipper deletes the branch and its worktree.".into(),
+                    )),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_auto_merge(id, !auto, cx)));
+        let words: String = job
+            .last_words()
+            .unwrap_or_default()
+            .chars()
+            .take(320)
+            .collect();
+        let written = div()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .child(label("Written from the job"))
+            .child(
+                div()
+                    .px(px(12.))
+                    .py(px(10.))
+                    .rounded(px(5.))
+                    .bg(c(ui::raised()))
+                    .border_1()
+                    .border_color(c(ui::line()))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child(job.label().to_string()),
+                    )
+                    .when(!words.trim().is_empty(), |d| {
+                        d.child(
+                            div()
+                                .mt(px(3.))
+                                .text_size(px(12.5))
+                                .line_height(px(19.))
+                                .text_color(c(ui::body()))
+                                .child(words),
+                        )
+                    }),
+            );
+        out.child(checks).child(merge_card).child(written)
     }
 
     /// The diff of one changed file, a window of it, with the file's place
@@ -939,6 +1161,58 @@ impl Shell {
                     .child(approve),
                 )
             }
+            Status::Shipping if !job.pr.is_empty() => {
+                let url = job.pr.clone();
+                Some(
+                    foot.child(
+                        ui::dbtn("peek-close-pr", "Close PR", ui::Btn::Ghost).on_click(
+                            cx.listener(move |this, _, _, cx| this.land_pr(id, false, cx)),
+                        ),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        ui::dbtn("peek-gh", "View on GitHub", ui::Btn::Plain)
+                            .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
+                    )
+                    .child(
+                        ui::dbtn("peek-merge", "Merge now", ui::Btn::Primary).on_click(
+                            cx.listener(move |this, _, _, cx| this.land_pr(id, true, cx)),
+                        ),
+                    ),
+                )
+            }
+            Status::Shipping => Some(
+                foot.child(
+                    ui::dbtn("peek-ship-stop", "Stop", ui::Btn::Ghost)
+                        .on_click(cx.listener(move |this, _, _, cx| this.stop_job(id, cx))),
+                )
+                .child(div().flex_1())
+                .child(div().text_size(px(12.5)).text_color(c(ui::body())).child(
+                    if job.shipping {
+                        "Opening a pull request\u{2026}"
+                    } else {
+                        "Waiting for Shipper\u{2026}"
+                    },
+                )),
+            ),
+            Status::Shipped => {
+                let url = job.pr.clone();
+                Some(
+                    foot.child(div().flex_1())
+                        .when(!url.is_empty(), |d| {
+                            d.child(
+                                ui::dbtn("peek-gh", "View on GitHub", ui::Btn::Plain)
+                                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
+                            )
+                        })
+                        .child(ui::dbtn("peek-done", "Close", ui::Btn::Plain).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.reply_open = None;
+                                cx.notify();
+                            }),
+                        )),
+                )
+            }
             Status::Running => Some(
                 foot.child(div().flex_1()).child(
                     ui::dbtn("peek-stop", "Stop", ui::Btn::Plain)
@@ -1165,6 +1439,82 @@ impl Shell {
     }
 }
 
+/// A step or check as a row: a filled circle with a tick when done (0), a
+/// ring while it runs (1), an empty ring still to come (2), red when it
+/// failed (3).
+fn step_row(state: u8, text: String, divided: bool) -> Div {
+    let (ring, fill) = match state {
+        0 => (ui::t_green(), Some(ui::t_green())),
+        1 => (ui::t_blue(), None),
+        3 => (ui::t_red(), Some(ui::t_red())),
+        _ => (ui::line_hi(), None),
+    };
+    let mark = div()
+        .size(px(15.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .border(px(1.5))
+        .border_color(c(ring))
+        .when_some(fill, |d, f| d.bg(c(f)))
+        .map(|d| match state {
+            0 => d.child(
+                Icon::new(IconName::Check)
+                    .size(px(10.))
+                    .text_color(c(0xFFFFFF)),
+            ),
+            3 => d.child(Icon::new(IconName::X).size(px(10.)).text_color(c(0xFFFFFF))),
+            1 => d.child(div().size(px(6.)).rounded_full().bg(c(ring))),
+            _ => d,
+        });
+    div()
+        .py(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(9.))
+        .when(divided, |d| {
+            d.border_t_1().border_color(c(ui::line())).border_dashed()
+        })
+        .child(mark)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(13.))
+                .when(state == 1, |d| d.font_weight(FontWeight::SEMIBOLD))
+                .text_color(c(if state == 2 { ui::faint() } else { ui::ink() }))
+                .child(text),
+        )
+}
+
+/// A quiet line of explanation.
+fn note_text(text: String) -> Div {
+    div()
+        .text_size(px(12.5))
+        .line_height(px(18.))
+        .text_color(c(ui::body()))
+        .child(text)
+}
+
+/// "Checks running: 3 of 5 done" as (3, 5).
+fn pr_counts(line: &str) -> (Option<usize>, Option<usize>) {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    for w in words.windows(3) {
+        if w[1] == "of" {
+            if let (Ok(a), Ok(b)) = (
+                w[0].trim_start_matches(':').parse::<usize>(),
+                w[2].trim_end_matches(',').parse::<usize>(),
+            ) {
+                return (Some(a), Some(b));
+            }
+        }
+    }
+    (None, None)
+}
+
 /// A peek list of the job's checks: each command and how it went.
 pub(super) fn peek_checks(job: &Job) -> Option<Div> {
     // Checks: each command and how it went.
@@ -1195,7 +1545,13 @@ pub(super) fn peek_checks(job: &Job) -> Option<Div> {
 
 #[cfg(test)]
 mod tests {
-    use super::Tab;
+    use super::{pr_counts, Tab};
+
+    #[test]
+    fn reads_how_many_checks_are_done() {
+        assert_eq!(pr_counts("Checks running: 3 of 5 done"), (Some(3), Some(5)));
+        assert_eq!(pr_counts("All checks passed"), (None, None));
+    }
 
     #[test]
     fn every_tab_has_a_name_and_changes_comes_first() {
