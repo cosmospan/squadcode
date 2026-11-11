@@ -4,6 +4,8 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+## [2.0.0-alpha.10] - 2026-11-11
+
 ### Added
 
 - A job that designs has a Design tab beside Changes. It shows the screens its bot keeps in `design/screens` as a board: move around and click a screen to leave a comment, then Send to the bot hands the open comments over as your next words. While a design job runs, its board also carries out the bot's design actions (changing text, styles and layers through Squad Code's design tools), so those work without opening anything first.

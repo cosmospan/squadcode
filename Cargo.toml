@@ -4,7 +4,7 @@ members = ["native/squad-app", "native/squad-holo"]
 exclude = ["vendor/block", "vendor/portable-pty", "vendor/gpui-pre-apple", "vendor/vt100"]
 
 [workspace.package]
-version = "2.0.0-alpha.9"
+version = "2.0.0-alpha.10"
 edition = "2021"
 license = "MIT"
 # The toolchain in rust-toolchain.toml; older ones aren't tested.

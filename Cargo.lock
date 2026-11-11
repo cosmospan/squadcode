@@ -6461,7 +6461,7 @@ dependencies = [
 
 [[package]]
 name = "squad-holo"
-version = "2.0.0-alpha.9"
+version = "2.0.0-alpha.10"
 dependencies = [
  "png 0.17.16",
  "vello_cpu",
@@ -6469,7 +6469,7 @@ dependencies = [
 
 [[package]]
 name = "squadcode"
-version = "2.0.0-alpha.9"
+version = "2.0.0-alpha.10"
 dependencies = [
  "base64",
  "block2 0.6.2",
