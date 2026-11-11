@@ -424,6 +424,10 @@ type Reading = (
     std::sync::mpsc::Receiver<crate::agent::Event>,
 );
 
+/// Where a face eases between moods: the bot, its size, whether it's a bust, and
+/// the job it's drawn for (0 when it's not one job's).
+type MoodSlot = (Member, u32, bool, u64);
+
 /// Hears back once a pull request is merged or closed on GitHub.
 /// The v2 window's root.
 pub struct Shell {
@@ -494,7 +498,7 @@ pub struct Shell {
     hovered: Option<Member>,
     /// Each bot's face per place it's drawn (bot, size, framing): the state
     /// it shows, the one before, and when it changed, so moods ease.
-    moods: HashMap<(Member, u32, bool, u64), (squad_holo::fin::State, squad_holo::fin::State, f64)>,
+    moods: HashMap<MoodSlot, (squad_holo::fin::State, squad_holo::fin::State, f64)>,
     /// Where the pointer is in the window, for the sidebar bots' eyes.
     mouse: Point<Pixels>,
     /// Where each sidebar bot was painted last frame, so its eyes can find the pointer.
@@ -3648,7 +3652,7 @@ impl Shell {
 
     /// `pose`, easing in from the last face shown at `slot` when its mood
     /// just changed.
-    fn eased(&mut self, pose: Figure, slot: (Member, u32, bool, u64)) -> Figure {
+    fn eased(&mut self, pose: Figure, slot: MoodSlot) -> Figure {
         let Some(state) = pose.fin_state() else {
             return pose;
         };
