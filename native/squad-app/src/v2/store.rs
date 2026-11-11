@@ -254,6 +254,9 @@ pub enum Item {
         file: String,
         title: String,
         caption: String,
+        /// What it shows, which decides how much room it gets in the feed.
+        #[serde(default)]
+        kind: PictureKind,
     },
     /// Two to four looks for the person to pick from. `pick` is the one the bot
     /// recommends; `chosen` the one the person picked, once they have.
@@ -263,6 +266,19 @@ pub enum Item {
         pick: usize,
         chosen: Option<usize>,
     },
+}
+
+/// What a shown picture is. A screen is shown small in the feed, to open large or
+/// on the job's Design tab; a diagram is read whole, so it gets the feed's width.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PictureKind {
+    Screen,
+    Diagram,
+    /// Anything else, and any kind a newer Squad Code saved. Serde needs it last.
+    #[default]
+    #[serde(other)]
+    Other,
 }
 
 /// One look in a [`Item::Directions`] card.
