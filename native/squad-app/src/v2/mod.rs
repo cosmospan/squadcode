@@ -1632,6 +1632,18 @@ impl Shell {
                     shell.reply_open = Some(id);
                 }
             }
+            // "peek:2" opens job #2's peek beside its thread.
+            Ok(p) if p.starts_with("peek:") => {
+                let pick = p[5..]
+                    .parse::<u64>()
+                    .ok()
+                    .and_then(|id| shell.crew.store.job(id))
+                    .map(|j| (j.id, j.thread));
+                if let Some((id, thread)) = pick {
+                    shell.crew.store.thread_now = thread;
+                    shell.reply_open = Some(id);
+                }
+            }
             // The right sidebar open on its Files tab.
             Ok("files") => {
                 shell.jobs_open = true;
@@ -1873,7 +1885,7 @@ impl Shell {
 
     /// The text from Today's box becomes a job for the bot its mode goes to, or a
     /// question for Explainer.
-    fn hand_over(&mut self, text: String, cx: &mut Context<Self>) {
+    pub(super) fn hand_over(&mut self, text: String, cx: &mut Context<Self>) {
         // The person spoke here: the bots may talk among themselves again.
         if let Some(f) = self.crew.store.folder().map(|f| f.path.clone()) {
             let here = self.crew.store.thread_here();

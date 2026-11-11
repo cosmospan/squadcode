@@ -11,6 +11,7 @@ use squad_holo::{Framing, Mood};
 
 use gpui_kit::component::Icon;
 
+use super::data::Member;
 use super::store::{Job, Status};
 use super::ui::{self, c};
 use super::{home, Place, Shell};
@@ -262,6 +263,55 @@ impl Shell {
             .then(|| self.review_body(job, cx))
             .flatten();
 
+        let stopped = matches!(
+            job.status,
+            Status::Failed | Status::Interrupted | Status::Stopped
+        );
+        let why = stopped.then(|| {
+            let reason = job
+                .feed
+                .iter()
+                .rev()
+                .find_map(|it| match it {
+                    super::store::Item::Error(e) => Some(e.clone()),
+                    _ => None,
+                })
+                .or_else(|| {
+                    job.last_words()
+                        .map(|w| w.lines().next().unwrap_or("").to_string())
+                })
+                .filter(|r| !r.trim().is_empty())
+                .unwrap_or_else(|| "It ended before it finished.".into());
+            let red = ui::t_red();
+            div()
+                .px(px(14.))
+                .py(px(11.))
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .rounded(px(5.))
+                .bg(c(super::theme::mix(ui::raised(), red, 0.06)))
+                .border_1()
+                .border_color(c(super::theme::mix(ui::raised(), red, 0.3)))
+                .child(
+                    div()
+                        .text_size(px(13.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c(red))
+                        .child(if job.status == Status::Stopped {
+                            "You stopped it"
+                        } else {
+                            "Stopped"
+                        }),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .line_height(px(18.))
+                        .text_color(c(ui::body()))
+                        .child(reason),
+                )
+        });
         let checks = peek_checks(job);
         let changes = self.peek_changes(job, cx);
 
@@ -288,7 +338,7 @@ impl Shell {
                 let dot = match st {
                     0 => ui::t_blue(),
                     2 => ui::t_red(),
-                    _ if end => tone.0,
+                    _ if end && !stopped => tone.0,
                     _ => ui::faint(),
                 };
                 line = line.child(
@@ -308,6 +358,30 @@ impl Shell {
                                 .bg(c(dot)),
                         )
                         .child(div().min_w_0().truncate().child(what.clone())),
+                );
+            }
+            if stopped {
+                line = line.child(
+                    div()
+                        .relative()
+                        .h(px(23.))
+                        .flex()
+                        .items_center()
+                        .text_size(px(12.5))
+                        .text_color(c(ui::ink()))
+                        .child(
+                            div()
+                                .absolute()
+                                .left(px(-15.5))
+                                .top(px(8.5))
+                                .size(px(6.))
+                                .bg(c(ui::t_red())),
+                        )
+                        .child(if job.status == Status::Stopped {
+                            "You stopped it"
+                        } else {
+                            "Stopped and asked you"
+                        }),
                 );
             }
             div().flex().flex_col().child(label("Log")).child(line)
@@ -384,6 +458,7 @@ impl Shell {
                     .gap(px(12.))
                     .child(title)
                     .child(state)
+                    .children(why)
                     .children(belt)
                     .children(clash)
                     .children(in_the_way)
@@ -638,12 +713,45 @@ impl Shell {
                         .on_click(cx.listener(move |this, _, _, cx| this.stop_job(id, cx))),
                 ),
             ),
-            Status::Failed | Status::Interrupted | Status::Stopped => Some(
-                foot.child(div().flex_1()).child(
-                    ui::dbtn("peek-retry", "Try again", ui::Btn::Primary)
+            Status::Failed | Status::Interrupted | Status::Stopped => {
+                let fixer = job.bot != Member::Fixer;
+                let ask = format!(
+                    "@Fixer finish job #{id}, {}: it stopped before it was done",
+                    job.label()
+                );
+                Some(
+                    foot.child(
+                        ui::dbtn("peek-discard", "Discard", ui::Btn::Ghost).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                this.reply_open = None;
+                                this.discard_job(id, cx)
+                            },
+                        )),
+                    )
+                    .child(
+                        ui::dbtn(
+                            "peek-retry",
+                            "Try again",
+                            if fixer {
+                                ui::Btn::Plain
+                            } else {
+                                ui::Btn::Primary
+                            },
+                        )
                         .on_click(cx.listener(move |this, _, _, cx| this.retry_job(id, cx))),
-                ),
-            ),
+                    )
+                    .child(div().flex_1())
+                    .when(fixer, |d| {
+                        d.child(
+                            ui::dbtn("peek-fixer", "Ask Fixer", ui::Btn::Primary).on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.hand_over(ask.clone(), cx);
+                                }),
+                            ),
+                        )
+                    }),
+                )
+            }
             _ => None,
         }
     }
