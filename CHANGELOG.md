@@ -4,11 +4,24 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+## [2.0.0-alpha.11] - 2026-11-11
+
+### Changed
+
+- A screen a bot shows in a job's feed is now a small preview with its name and a line on it, and Open large and Design tab buttons, since a screen needs more room than the conversation has. Architecture and flow diagrams stay in the feed, as wide as the feed and as tall as their shape needs, and direction pictures are smaller so the choices fit side by side.
+- The rail's project ring is a thin frame with a gap around the tile, the chat fades out above the box instead of running into it, and Ask, Do, Plan and Race are one switch with an icon for each.
+- A job's log and history read as a timeline: each step sits on an icon that says how it went, joined by a line, with the latest in full ink.
+
+### Fixed
+
+- Pictures stay inside their cards, direction cards wrap onto a new row when there isn't room, and the title bar names the Settings page you're on.
+- A long branch name or a merge-clash title wraps in a narrow job panel instead of running past its edge.
+- A bot's face no longer flickers now and then when it has two jobs on screen at once.
+
 ## [2.0.0-alpha.10] - 2026-11-11
 
 ### Added
 
-- A screen a bot shows in a job's feed is now a small preview with its name and a line on it, and Open large and Design tab buttons, since a screen needs more room than the conversation has. Architecture and flow diagrams stay in the feed, as wide as the feed and as tall as their shape needs, and direction pictures are smaller so the choices fit side by side.
 - A job that designs has a Design tab beside Changes. It shows the screens its bot keeps in `design/screens` as a board: move around and click a screen to leave a comment, then Send to the bot hands the open comments over as your next words. While a design job runs, its board also carries out the bot's design actions (changing text, styles and layers through Squad Code's design tools), so those work without opening anything first.
 - Bots show pictures in a job's feed. A bot that makes a screenshot, a mockup or an architecture diagram shows it in the feed with a title and a line on what to notice, and clicking it opens it full size. Before designing new screens, a bot shows two to four directions side by side with its own pick marked; Use on one tells the bot to carry on in that look, and you can also say what to mix in the box. The pictures are kept in Squad Code's own folder, so they stay after the job's branch is gone.
 - Files open inside Squad Code. Clicking a file in a message, a job's files or the Files tab shows it in a viewer over the page: code with its colours and line numbers, Markdown as a page (or its source), pictures, and PDFs on a Mac. An HTML page has Preview, which shows it in the job's own browser. Open with hands the file to another app, and Escape closes it.
