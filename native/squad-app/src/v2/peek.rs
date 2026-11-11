@@ -5,6 +5,7 @@
 //! Checks, Browser, Terminal and Files as tabs on the right.
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use squad_holo::{Framing, Mood};
@@ -313,7 +314,43 @@ impl Shell {
                 )
         });
         let checks = peek_checks(job);
-        let changes = self.peek_changes(job, cx);
+        // A job waiting for you shows its diff right here, to comment on.
+        let reviewing = job.status == Status::Review && !job.changes.is_empty();
+        let changes = if reviewing {
+            self.peek_diff(job, cx)
+        } else {
+            self.peek_changes(job, cx)
+        };
+        let more = reviewing.then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(label("Anything else to say"))
+                .child(
+                    div()
+                        .h(px(54.))
+                        .px(px(4.))
+                        .pt(px(4.))
+                        .rounded(px(5.))
+                        .bg(c(ui::raised()))
+                        .border_1()
+                        .border_color(c(ui::line_hi()))
+                        .text_size(px(13.))
+                        .child(Input::new(&self.peek_note).appearance(false).bordered(false)),
+                )
+                .child(
+                    div()
+                        .mt(px(4.))
+                        .text_size(px(12.))
+                        .line_height(px(18.))
+                        .text_color(c(ui::body()))
+                        .child(format!(
+                            "{} gets your comment with the line it's on, and keeps working on the same branch.",
+                            job.bot.name()
+                        )),
+                )
+        });
 
         // Log: the job's last few steps, on a line.
         let steps: Vec<(String, u8)> = job
@@ -465,10 +502,166 @@ impl Shell {
                     .children(shipped)
                     .children(checks)
                     .children(changes)
-                    .children(log)
+                    .children(more)
+                    .children(log.filter(|_| !reviewing))
                     .children(stats),
             )
             .children(foot)
+    }
+
+    /// The diff of one changed file, a window of it, with the file's place
+    /// among the others; click a line to comment on it.
+    fn peek_diff(&mut self, job: &Job, cx: &mut Context<Self>) -> Option<Div> {
+        let id = job.id;
+        let n = job.changes.len();
+        let at = self
+            .diff_open
+            .as_ref()
+            .filter(|(j, _)| *j == id)
+            .and_then(|(_, p)| job.changes.iter().position(|f| &f.path == p));
+        let at = match at {
+            Some(i) => i,
+            None => {
+                let first = job.changes.first()?.path.clone();
+                self.diff_text = super::work::diff(job, &first);
+                self.diff_open = Some((id, first));
+                0
+            }
+        };
+        let f = job.changes[at].clone();
+        let (added, removed) = job.lines();
+        let text = self.diff_text.clone();
+        let total = super::review::numbered(&text).len();
+        const SHOWN: usize = 14;
+        let lines = self.diff_lines(id, &f.path, &text, SHOWN, cx);
+        let next = job.changes[(at + 1) % n].path.clone();
+        let head = div()
+            .h(px(30.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .border_b_1()
+            .border_color(c(ui::line()))
+            .font_family(ui::MONO)
+            .text_size(px(12.))
+            .child(
+                Icon::new(IconName::File)
+                    .size(px(13.))
+                    .text_color(c(ui::faint())),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(c(ui::ink()))
+                    .child(f.path.clone()),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(c(ui::t_green()))
+                    .child(format!("+{}", f.added)),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(c(ui::t_red()))
+                    .child(format!("\u{2212}{}", f.removed)),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .id("peek-next-file")
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .text_color(c(ui::body()))
+                    .when(n > 1, |d| {
+                        d.cursor_pointer()
+                            .hover(|s| s.text_color(c(ui::ink())))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.diff_text = this
+                                    .crew
+                                    .store
+                                    .job(id)
+                                    .map(|j| super::work::diff(j, &next))
+                                    .unwrap_or_default();
+                                this.diff_open = Some((id, next.clone()));
+                                this.line_at = None;
+                                cx.notify();
+                            }))
+                    })
+                    .child(format!("{} of {n}", at + 1))
+                    .when(n > 1, |d| {
+                        d.child(Icon::new(IconName::ChevronRight).size(px(13.)))
+                    }),
+            );
+        let path = f.path.clone();
+        let foot = div()
+            .h(px(28.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .border_t_1()
+            .border_color(c(ui::line()))
+            .font_family(ui::MONO)
+            .text_size(px(11.))
+            .text_color(c(ui::faint()))
+            .child(if total > SHOWN {
+                format!("\u{2026} {} more lines", total - SHOWN)
+            } else {
+                String::new()
+            })
+            .child(
+                div()
+                    .id("peek-full-diff")
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(c(ui::ink())))
+                    .child("Open full diff \u{2197}")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.diff_open = Some((id, path.clone()));
+                        this.ws_tab = Tab::Changes;
+                        this.reply_open = None;
+                        this.go(Place::Live(id), cx);
+                    })),
+            );
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .flex()
+                        .justify_between()
+                        .child(label("Changes"))
+                        .child(
+                            div()
+                                .font_family(ui::MONO)
+                                .text_size(px(10.5))
+                                .text_color(c(ui::faint()))
+                                .child(format!(
+                                    "{n} {} \u{b7} +{added} \u{2212}{removed}",
+                                    if n == 1 { "file" } else { "files" }
+                                )),
+                        ),
+                )
+                .child(
+                    div()
+                        .rounded(px(5.))
+                        .bg(c(ui::raised()))
+                        .border_1()
+                        .border_color(c(ui::line()))
+                        .overflow_hidden()
+                        .child(head)
+                        .child(lines)
+                        .child(foot),
+                ),
+        )
     }
 
     /// A peek list of the files the job changed; a click opens its diff.
@@ -668,14 +861,30 @@ impl Shell {
             Status::Review if !job.changes.is_empty() => {
                 let full = self.approve_label(job);
                 let blocked = held || !job.conflict.is_empty();
-                let approve = ui::dbtn("peek-approve", "Approve", ui::Btn::Primary)
-                    .tooltip(move |window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new(full.clone()).build(window, cx)
-                    })
-                    .when(blocked, |d| d.opacity(0.35).cursor_default())
-                    .when(!blocked, |d| {
-                        d.on_click(cx.listener(move |this, _, _, cx| this.approve(id, cx)))
-                    });
+                let notes = self.line_notes.iter().filter(|n| n.job == id).count();
+                let words = !self.peek_note.read(cx).value().trim().is_empty();
+                let sending = notes > 0 || words;
+                let approve = ui::dbtn(
+                    "peek-approve",
+                    "Approve",
+                    if sending {
+                        ui::Btn::Plain
+                    } else {
+                        ui::Btn::Primary
+                    },
+                )
+                .tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(full.clone()).build(window, cx)
+                })
+                .when(blocked, |d| d.opacity(0.35).cursor_default())
+                .when(!blocked, |d| {
+                    d.on_click(cx.listener(move |this, _, _, cx| this.approve(id, cx)))
+                });
+                let back = match notes {
+                    0 => "Send back".to_string(),
+                    1 => "Send back \u{b7} 1 comment".to_string(),
+                    n => format!("Send back \u{b7} {n} comments"),
+                };
                 Some(
                     foot.child(
                         ui::dbtn("peek-discard", "Discard", ui::Btn::Ghost).on_click(cx.listener(
@@ -685,16 +894,8 @@ impl Shell {
                             },
                         )),
                     )
-                    .child(
-                        ui::dbtn("peek-send-back", "Send back", ui::Btn::Plain).on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.reply_open = None;
-                                this.open_job(id, cx)
-                            }),
-                        ),
-                    )
                     .child(div().flex_1())
-                    .when(blocked, |d| {
+                    .when(blocked && !sending, |d| {
                         d.child(
                             div()
                                 .mr(px(4.))
@@ -704,6 +905,37 @@ impl Shell {
                                 .child(if held { "HELD" } else { "CLASH" }),
                         )
                     })
+                    .child(
+                        ui::dbtn(
+                            "peek-send-back",
+                            back,
+                            if sending {
+                                ui::Btn::Primary
+                            } else {
+                                ui::Btn::Plain
+                            },
+                        )
+                        .tooltip(|window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new(
+                                "Click a line in the diff to comment on it, or write in the box",
+                            )
+                            .build(window, cx)
+                        })
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                let words = this.peek_note.read(cx).value().to_string();
+                                if this.line_notes.iter().any(|n| n.job == id)
+                                    || !words.trim().is_empty()
+                                {
+                                    this.peek_note
+                                        .update(cx, |i, cx| i.set_value("", window, cx));
+                                    this.send_back_with(id, words, cx);
+                                } else {
+                                    this.peek_note.update(cx, |i, cx| i.focus(window, cx));
+                                }
+                            },
+                        )),
+                    )
                     .child(approve),
                 )
             }

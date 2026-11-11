@@ -721,7 +721,7 @@ impl Shell {
             );
             if open {
                 let text = self.diff_text.clone();
-                list = list.child(self.diff_lines(id, &f.path, &text, cx));
+                list = list.child(self.diff_lines(id, &f.path, &text, DIFF_LINES, cx));
             }
         }
 
@@ -1025,7 +1025,7 @@ impl Shell {
                     .unwrap_or_default()
             })
             .unwrap_or_default();
-        let lines = self.diff_lines(id, &path, &text, cx);
+        let lines = self.diff_lines(id, &path, &text, DIFF_LINES, cx);
         let hint = (self.line_at.as_ref().is_none_or(|(j, _, _)| *j != id) && review).then(|| {
             div()
                 .mx(px(12.))
@@ -1356,7 +1356,14 @@ pub(super) fn notes_message(notes: &[&LineNote]) -> String {
 impl Shell {
     /// A job's diff for one file, coloured line by line; click a line to
     /// comment on it.
-    fn diff_lines(&mut self, job: u64, path: &str, diff: &str, cx: &mut Context<Self>) -> Div {
+    pub(super) fn diff_lines(
+        &mut self,
+        job: u64,
+        path: &str,
+        diff: &str,
+        limit: usize,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let mut body = div()
             .py(px(6.))
             .font_family(ui::MONO)
@@ -1371,7 +1378,8 @@ impl Shell {
             );
         }
         let total = lines.len();
-        for (at, (num, l)) in lines.into_iter().take(DIFF_LINES).enumerate() {
+        let limit = limit.min(DIFF_LINES);
+        for (at, (num, l)) in lines.into_iter().take(limit).enumerate() {
             let hunk = l.starts_with("@@");
             let (mark, bg) = if l.starts_with('+') {
                 ("+", Some(ca(ui::t_green(), 0.08)))
@@ -1390,7 +1398,7 @@ impl Shell {
                 .as_ref()
                 .is_some_and(|(j, p, a)| *j == job && p == path && *a == at);
             let p = path.to_string();
-            let shown_num = if l.starts_with('+') || hunk {
+            let shown_num = if hunk {
                 String::new()
             } else {
                 num.split(',').next().unwrap_or("").to_string()
@@ -1455,28 +1463,70 @@ impl Shell {
                 .filter(|(_, x)| x.job == job && x.path == path && x.at == at)
             {
                 let text = note.text.clone();
+                let line = note.line.split(',').next().unwrap_or("").to_string();
                 body = body.child(
                     div()
-                        .mx(px(16.))
-                        .my(px(3.))
-                        .px(px(10.))
-                        .py(px(5.))
-                        .rounded(px(8.))
-                        .bg(ca(ui::AMBER, 0.12))
-                        .border_1()
-                        .border_color(ca(ui::AMBER, 0.35))
+                        .px(px(12.))
+                        .py(px(8.))
                         .flex()
-                        .items_center()
-                        .gap(px(8.))
+                        .items_start()
+                        .gap(px(10.))
+                        .bg(c(ui::raised()))
+                        .border_l(px(3.))
+                        .border_color(c(ui::accent_bar()))
+                        .border_t_1()
+                        .border_b_1()
                         .font_family("Geist")
-                        .text_size(px(12.5))
-                        .text_color(c(ui::ink()))
                         .child(
-                            Icon::new(IconName::MessageSquare)
-                                .size(px(12.))
-                                .text_color(c(ui::t_amber())),
+                            div()
+                                .size(px(20.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(4.))
+                                .bg(c(ui::pick_fill()))
+                                .text_size(px(11.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c(ui::pick_on()))
+                                .child("Y"),
                         )
-                        .child(div().flex_1().min_w_0().child(text))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(6.))
+                                        .child(
+                                            div()
+                                                .text_size(px(12.5))
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .text_color(c(ui::ink()))
+                                                .child("You"),
+                                        )
+                                        .child(
+                                            div()
+                                                .font_family(ui::MONO)
+                                                .text_size(px(11.))
+                                                .text_color(c(ui::faint()))
+                                                .child(format!("line {line}")),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .line_height(px(19.))
+                                        .whitespace_normal()
+                                        .text_color(c(ui::ink()))
+                                        .child(text),
+                                ),
+                        )
                         .child(
                             ui::icon_btn(SharedString::from(format!("dn-{job}-{i}")), IconName::X)
                                 .size(px(20.))
@@ -1524,12 +1574,12 @@ impl Shell {
                 );
             }
         }
-        if total > DIFF_LINES {
+        if total > limit && limit == DIFF_LINES {
             body = body.child(
                 div()
                     .px(px(16.))
                     .text_color(c(ui::faint()))
-                    .child(format!("{} more lines", total - DIFF_LINES)),
+                    .child(format!("{} more lines", total - limit)),
             );
         }
         body
@@ -1553,6 +1603,30 @@ impl Shell {
             text,
         });
         cx.notify();
+    }
+
+    /// Sends a job back with its line comments and any more words, as one
+    /// message.
+    pub(super) fn send_back_with(&mut self, id: u64, words: String, cx: &mut Context<Self>) {
+        let notes: Vec<&LineNote> = self.line_notes.iter().filter(|n| n.job == id).collect();
+        let mut text = if notes.is_empty() {
+            String::new()
+        } else {
+            notes_message(&notes)
+        };
+        let words = words.trim();
+        if !words.is_empty() {
+            if !text.is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(words);
+        }
+        if text.is_empty() {
+            return;
+        }
+        self.line_notes.retain(|n| n.job != id);
+        self.line_at = None;
+        self.follow_up(id, text, cx);
     }
 
     /// Sends a job back with its line comments, as one message.

@@ -766,6 +766,8 @@ pub struct Shell {
     /// line's place in the shown diff.
     line_at: Option<(u64, String, usize)>,
     line_input: Entity<InputState>,
+    /// The side panel's box for more words when sending a job back.
+    peek_note: Entity<InputState>,
     /// Comments on diff lines, waiting to go back with Send back.
     line_notes: Vec<review::LineNote>,
     /// The point-and-change bar on a job's browser.
@@ -909,6 +911,9 @@ impl Shell {
         let live_input = cx.new(|cx| InputState::new(window, cx).placeholder("Add to the job…"));
         let line_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("What should change here? Enter adds it")
+        });
+        let peek_note = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Or write here to add more words\u{2026}")
         });
         let pick_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("What should change about it? Enter sends it")
@@ -1364,6 +1369,7 @@ impl Shell {
             live_input,
             live_ask: false,
             line_input: line_input.clone(),
+            peek_note,
             line_notes: Vec::new(),
             line_at: None,
             pick_input: pick_input.clone(),
