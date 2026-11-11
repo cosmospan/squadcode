@@ -100,6 +100,8 @@ pub(crate) enum DesignEvent {
         /// The model picked for it; empty for its default.
         model: String,
     },
+    /// A board's comments, sent to the bot of the job it belongs to: what to change.
+    Comments(String),
 }
 
 type Pt = (f32, f32);
@@ -462,6 +464,9 @@ pub(crate) struct DesignCanvas {
     code_link_for: String,
     f_variant: Entity<InputState>,
     comp_vals: (String, String),
+    /// A board: the screens to look at and comment on, as a job's Design tab shows
+    /// them, without the editing tools, panels or ask bar.
+    board: bool,
     /// The comment tool, the design's comments, the one open, and its text box.
     commenting: bool,
     comments: Vec<super::notes::Comment>,
@@ -799,6 +804,7 @@ impl DesignCanvas {
             code_link_for: String::new(),
             f_variant,
             comp_vals: Default::default(),
+            board: false,
             commenting: false,
             comments: Vec::new(),
             comment_open: None,
@@ -852,6 +858,31 @@ impl DesignCanvas {
         this.serve_agents(cx);
         this.refresh_uncommitted(cx);
         this
+    }
+
+    /// The design at `root` as a board: its screens to look at and comment on, and
+    /// agents' design actions carried out, but nothing to edit by hand.
+    pub(crate) fn board(root: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut this = Self::new(root, window, cx);
+        this.board = true;
+        this.layers_hidden = true;
+        this.keep_commenting();
+        this
+    }
+
+    /// A board always has its comment tool out: a click on a screen leaves a comment.
+    fn keep_commenting(&mut self) {
+        if self.commenting {
+            return;
+        }
+        self.commenting = true;
+        self.hand = false;
+        self.marking = false;
+        self.comments = super::notes::load(&self.root);
+        self.people = super::notes::people(&self.root, &self.comments);
+        if self.author.is_empty() {
+            self.author = super::notes::author(&self.root);
+        }
     }
 
     // ---- Work on the drawing browser, off the UI thread
@@ -3571,6 +3602,18 @@ impl DesignCanvas {
         self.new_open = false;
         let local = self.local(e.position);
         let w = self.world(local);
+        // A board only comments and moves around.
+        if self.board {
+            if e.button == MouseButton::Left && !self.space {
+                self.comment_down(w, cx);
+            } else {
+                self.drag = Drag::Pan {
+                    from: local,
+                    start: self.pan,
+                };
+            }
+            return;
+        }
         if self.eyedropper && e.button == MouseButton::Left {
             self.eyedrop(w, cx);
             return;
@@ -4062,6 +4105,9 @@ impl DesignCanvas {
     /// Right-click a layer or a screen for what can be done to it.
     fn on_right(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        if self.board {
+            return;
+        }
         self.new_open = false;
         let local = self.local(e.position);
         let w = self.world(local);
@@ -4122,6 +4168,14 @@ impl DesignCanvas {
         }
         let k = &e.keystroke;
         let m = &k.modifiers;
+        // A board's keys only move around: hold space to drag the view.
+        if self.board {
+            if k.key == "space" && !self.space {
+                self.space = true;
+                cx.notify();
+            }
+            return;
+        }
         let sec = m.secondary();
         let handled = match (sec, m.shift, m.alt, k.key.as_str()) {
             (true, false, true, "t") if !self.also.is_empty() => {
@@ -5500,6 +5554,86 @@ impl DesignCanvas {
         )
     }
 
+    /// A board with no screens yet: they show here as the bot makes them.
+    fn board_empty(&self) -> Option<AnyElement> {
+        if !self.board || !self.canvas.screens.is_empty() {
+            return None;
+        }
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(13.))
+                .text_color(rgb(c_muted()))
+                .child("No screens yet. They show here as the bot designs them.")
+                .into_any_element(),
+        )
+    }
+
+    /// A board's own bar: how to comment and move around, and Fit.
+    fn board_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+        let open = self.comments.iter().filter(|c| !c.resolved).count();
+        let said = match open {
+            0 => "Click a screen to leave the bot a comment".to_string(),
+            1 => "1 open comment · click a screen to add one".to_string(),
+            n => format!("{n} open comments · click a screen to add one"),
+        };
+        div()
+            .absolute()
+            .bottom(px(12.))
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .h(px(34.))
+                    .pl(px(12.))
+                    .pr(px(4.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(float_edge())
+                    .bg(float(c_raised()))
+                    .occlude()
+                    .text_size(px(12.5))
+                    .text_color(rgb(c_muted()))
+                    .child(said)
+                    .child(div().w(px(1.)).h(px(20.)).bg(divider()))
+                    .when(open > 0, |bar| {
+                        let ids: Vec<u32> = self
+                            .comments
+                            .iter()
+                            .filter(|c| !c.resolved)
+                            .map(|c| c.id)
+                            .collect();
+                        bar.child(
+                            text_btn("design-board-send", "Send to the bot", None, true)
+                                .tooltip(tip("Ask the bot to work through the open comments"))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.fix_comments(ids.clone(), window, cx)
+                                })),
+                        )
+                    })
+                    .child(
+                        text_btn("design-board-fit", "Fit", None, false)
+                            .tooltip(tip("Show every screen"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.fit();
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
     fn empty_state(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.canvas.screens.is_empty() || self.thinking_now() {
             return None;
@@ -5618,7 +5752,9 @@ impl DesignCanvas {
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
-                this.drop_pictures(paths.paths(), cx)
+                if !this.board {
+                    this.drop_pictures(paths.paths(), cx)
+                }
             }))
             .on_pinch(cx.listener(|this, e: &PinchEvent, _, cx| {
                 let local = this.local(e.position);
@@ -5683,7 +5819,8 @@ impl DesignCanvas {
             .children(self.colour_picker(cx))
             .when(self.eyedropper, |a| a.cursor_crosshair())
             .children(self.mark_hint(cx))
-            .children(self.empty_state(cx))
+            .children(self.empty_state(cx).filter(|_| !self.board))
+            .children(self.board_empty())
             .children(self.thinking())
             .when(self.playing.is_none(), |a| {
                 a.children(self.comment_layer(cx))
@@ -5708,7 +5845,7 @@ impl DesignCanvas {
         // Commenting puts the comments where the ask bar would be, unless AI is at work.
         if let Some(bar) = self
             .ask_bar(cx)
-            .filter(|_| !self.commenting || self.ai.is_some())
+            .filter(|_| !self.board && (!self.commenting || self.ai.is_some()))
         {
             area = area.child(bar);
         }
@@ -5751,10 +5888,12 @@ impl DesignCanvas {
                     ),
             );
         }
-        if self.playing.is_none() {
+        if self.board {
+            area = area.child(self.board_bar(cx));
+        } else if self.playing.is_none() {
             area = area.child(self.bottom_bar(cx)).child(self.help_button(cx));
         }
-        if self.layers_hidden {
+        if self.layers_hidden && !self.board {
             area = area.child(
                 div().absolute().top(px(8.)).left(px(8.)).child(
                     icon_btn(
@@ -5770,10 +5909,12 @@ impl DesignCanvas {
                 ),
             );
         }
-        if self.new_open {
+        if self.new_open && !self.board {
             area = area.child(self.new_menu(cx));
         }
-        area = area.children(self.selection_menu_on_canvas(cx));
+        if !self.board {
+            area = area.children(self.selection_menu_on_canvas(cx));
+        }
         area = area.children(self.player(cx));
         if self.playing.is_some() {
             // Comments in Present go over the screen playing.
@@ -6126,6 +6267,9 @@ impl DesignCanvas {
     }
 
     fn render_inner(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.board {
+            self.keep_commenting();
+        }
         self.load_fields(window, cx);
         self.load_typed_fields(window, cx);
         // The layers panel reads the selected screen, however it was selected.
@@ -6165,8 +6309,16 @@ impl DesignCanvas {
                 }
             }))
             .on_action(cx.listener(|this, _: &DesignEscape, window, cx| this.escape(window, cx)))
-            .on_action(cx.listener(|this, _: &DesignUndo, _, cx| this.undo(cx)))
-            .on_action(cx.listener(|this, _: &DesignRedo, _, cx| this.redo(cx)))
+            .on_action(cx.listener(|this, _: &DesignUndo, _, cx| {
+                if !this.board {
+                    this.undo(cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &DesignRedo, _, cx| {
+                if !this.board {
+                    this.redo(cx)
+                }
+            }))
             .on_action(cx.listener(|this, _: &DesignCopy, _, cx| this.copy(false, cx)))
             .on_action(cx.listener(|this, _: &DesignNextLayer, window, cx| {
                 this.tab(handles::Walk::Next, window, cx)
@@ -6184,7 +6336,7 @@ impl DesignCanvas {
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .when(!self.layers_hidden, |el| {
+                    .when(!self.layers_hidden && !self.board, |el| {
                         el.child(self.layers_side(window, cx))
                     })
                     .child(
@@ -6206,7 +6358,7 @@ impl DesignCanvas {
                                 glass_fill(c_canvas()),
                             )),
                     )
-                    .child(self.right_panel(cx)),
+                    .when(!self.board, |el| el.child(self.right_panel(cx))),
             )
             .into_any_element()
     }

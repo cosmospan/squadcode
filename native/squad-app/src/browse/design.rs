@@ -26,6 +26,7 @@ This job is design work: make it look and feel like a product a top team would s
 - Every state: empty, loading and error, not only the happy path. Fit the device: one column and 44 px tap targets on a phone, the width used well on a desktop.
 - Look at it. Start the app, open each screen you changed in the job's browser, run Squad Code's design_check on it and fix what it finds, then take a screenshot and judge it as a demanding design lead would. Do this until it's right, at most three rounds a screen.
 - New screens start with directions: before building them out, make the main screen in two or three different looks, save a screenshot of each, show them with Squad Code's show_directions tool and say which you'd pick and why. Carry on with that one; if the person picks another, it comes as your next message.
+- Screens kept in design/screens (one HTML file a screen) are on the job's Design tab, where the person watches and comments: change them with Squad Code's design_ tools when you have them, and treat comments sent from there as the person's asks.
 - Show the result: when a screen is right, save a screenshot and show it with show_picture, so the person sees it without opening the app.";
 
 /// A mood: its name, what it's like, and the theme variables it sets.

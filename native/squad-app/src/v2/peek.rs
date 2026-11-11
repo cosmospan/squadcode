@@ -27,6 +27,8 @@ pub(super) const TALK_W: f32 = 430.;
 pub(super) enum Tab {
     #[default]
     Changes,
+    /// The screens a design job's bot made, as a board to comment on.
+    Design,
     Checks,
     Browser,
     Terminal,
@@ -34,8 +36,9 @@ pub(super) enum Tab {
 }
 
 impl Tab {
-    pub(super) const ALL: [Tab; 5] = [
+    pub(super) const ALL: [Tab; 6] = [
         Tab::Changes,
+        Tab::Design,
         Tab::Checks,
         Tab::Browser,
         Tab::Terminal,
@@ -45,6 +48,7 @@ impl Tab {
     pub(super) fn name(self) -> &'static str {
         match self {
             Tab::Changes => "Changes",
+            Tab::Design => "Design",
             Tab::Checks => "Checks",
             Tab::Browser => "Browser",
             Tab::Terminal => "Terminal",
@@ -1274,6 +1278,11 @@ impl Shell {
             return self.live(id, cx);
         };
         let talk = self.live_talk(&job, cx);
+        let design = super::board::has_design(&job);
+        // A job without design work has no Design tab to be on.
+        if self.ws_tab == Tab::Design && !design {
+            self.ws_tab = Tab::Changes;
+        }
         let tab = self.ws_tab;
         let mut tabs = div()
             .h(px(50.))
@@ -1284,6 +1293,9 @@ impl Shell {
             .border_b_1()
             .border_color(c(ui::line()));
         for t in Tab::ALL {
+            if t == Tab::Design && !design {
+                continue;
+            }
             let on = t == tab;
             let count = match t {
                 Tab::Changes if !job.changes.is_empty() => Some(job.changes.len()),
@@ -1365,6 +1377,14 @@ impl Shell {
                     .into_any_element(),
                 None => empty(
                     "No changes yet. They show here as the bot edits files.",
+                    None,
+                )
+                .into_any_element(),
+            },
+            Tab::Design => match self.board_for(&job, window, cx) {
+                Some(board) => board.into_any_element(),
+                None => empty(
+                    "No screens yet. They show here as the bot designs them, and you can comment on them.",
                     None,
                 )
                 .into_any_element(),

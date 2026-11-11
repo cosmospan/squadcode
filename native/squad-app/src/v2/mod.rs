@@ -10,6 +10,7 @@
 
 mod apps;
 mod asks;
+mod board;
 mod brain;
 mod builder;
 mod channel;
@@ -734,6 +735,9 @@ pub struct Shell {
     web: webpage::Web,
     /// The job workspace's tab.
     ws_tab: peek::Tab,
+    /// Design boards by job: one for each running job that designs, and the one
+    /// on screen (see [`board`]).
+    boards: HashMap<u64, Entity<crate::designdraw::view::DesignCanvas>>,
     /// The Inbox's project filter, by folder path: None shows every project.
     inbox_project: Option<String>,
     /// Jobs shows as a list instead of the board.
@@ -1525,6 +1529,7 @@ impl Shell {
             screen_focus: cx.focus_handle(),
             web,
             ws_tab: peek::Tab::default(),
+            boards: HashMap::new(),
             inbox_project: None,
             jobs_list: false,
             server_url: None,
@@ -3751,6 +3756,11 @@ impl Render for Shell {
             window.request_animation_frame();
         }
         self.poll(cx);
+        let board_shown = match self.place {
+            Place::Live(id) if self.ws_tab == peek::Tab::Design => Some(id),
+            _ => None,
+        };
+        self.keep_boards(board_shown, window, cx);
         self.poll_maker(window, cx);
         data::set_here(self.crew.store.folder().map_or("", |f| f.path.as_str()));
         theme::follow_system(system_dark(window.appearance()));

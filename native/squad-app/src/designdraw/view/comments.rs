@@ -335,6 +335,18 @@ impl DesignCanvas {
         if let [one] = picked.as_slice() {
             self.select_screen(Some(one.screen.clone()));
         }
+        // A board hands them to the job's bot, which is already at work on the design.
+        if self.board {
+            cx.emit(DesignEvent::Comments(notes::task(&lines)));
+            self.comment_open = None;
+            self.say(if lines.len() == 1 {
+                "Sent to the bot."
+            } else {
+                "Sent to the bot, all together."
+            });
+            cx.notify();
+            return;
+        }
         if self.ask(notes::task(&lines), window, cx) {
             if let Some(ai) = self.ai.as_mut() {
                 ai.comments = picked.iter().map(|c| c.id).collect();
