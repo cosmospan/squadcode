@@ -6,6 +6,7 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ### Added
 
+- A job that designs has a Design tab beside Changes. It shows the screens its bot keeps in `design/screens` as a board: move around and click a screen to leave a comment, then Send to the bot hands the open comments over as your next words. While a design job runs, its board also carries out the bot's design actions (changing text, styles and layers through Squad Code's design tools), so those work without opening anything first.
 - Bots show pictures in a job's feed. A bot that makes a screenshot, a mockup or an architecture diagram shows it in the feed with a title and a line on what to notice, and clicking it opens it full size. Before designing new screens, a bot shows two to four directions side by side with its own pick marked; Use on one tells the bot to carry on in that look, and you can also say what to mix in the box. The pictures are kept in Squad Code's own folder, so they stay after the job's branch is gone.
 - Files open inside Squad Code. Clicking a file in a message, a job's files or the Files tab shows it in a viewer over the page: code with its colours and line numbers, Markdown as a page (or its source), pictures, and PDFs on a Mac. An HTML page has Preview, which shows it in the job's own browser. Open with hands the file to another app, and Escape closes it.
 
