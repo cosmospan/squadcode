@@ -1686,7 +1686,11 @@ impl Shell {
         }
         // A file open in the viewer, for looking at it.
         if let Some(file) = std::env::var_os("SQUADCODE_VIEW") {
-            shell.open_file(file.into(), None, window, cx);
+            let job = match shell.place {
+                Place::Live(id) => Some(id),
+                _ => None,
+            };
+            shell.open_file(file.into(), job, window, cx);
         }
         shell
     }

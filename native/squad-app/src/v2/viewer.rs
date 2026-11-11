@@ -132,6 +132,10 @@ pub(super) struct Viewer {
     /// The apps that can open it, default first, looked up the first time
     /// you ask, as (name, the app's path).
     pub(super) apps: Option<Vec<(String, PathBuf)>>,
+    /// What the job did to the file, like "MODIFIED", when it changed it.
+    change: Option<&'static str>,
+    /// The file's size in bytes.
+    bytes: u64,
 }
 
 impl Shell {
@@ -174,6 +178,18 @@ impl Shell {
             }
             Kind::Text | Kind::Markdown | Kind::Html => text_body(&path, kind, window, cx),
         };
+        let change = job.and_then(|id| self.crew.store.job(id)).and_then(|j| {
+            let rel = path
+                .strip_prefix(j.dir())
+                .ok()?
+                .to_string_lossy()
+                .into_owned();
+            j.changes
+                .iter()
+                .find(|c| c.path == rel)
+                .map(|c| change_word(&c.status))
+        });
+        let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         self.viewer = Some(Viewer {
             path,
             kind,
@@ -181,6 +197,8 @@ impl Shell {
             source: false,
             job,
             apps: None,
+            change,
+            bytes,
         });
         self.menu = None;
         cx.notify();
@@ -225,6 +243,10 @@ impl Shell {
 
     /// The viewer, over the page, when a file is open.
     pub(super) fn file_view(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let open_label = match self.viewer_apps().first() {
+            Some((app, _)) => format!("Open with {app}"),
+            None => "Open with".to_string(),
+        };
         let v = self.viewer.as_ref()?;
         let path = v.path.clone();
         let name = path
@@ -265,30 +287,45 @@ impl Shell {
 
         let mut tools = div().flex().items_center().gap(px(6.)).flex_none();
         if kind == Kind::Markdown {
-            tools = tools.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(2.))
-                    .child(ui::pill("file-read", "Read", !source).on_click(cx.listener(
-                        |this, _, _, cx| {
+            let mut seg = div()
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .p(px(2.))
+                .rounded(px(6.))
+                .bg(c(ui::hover()));
+            for (k, label) in ["Page", "Source"].into_iter().enumerate() {
+                let on = source == (k == 1);
+                seg = seg.child(
+                    div()
+                        .id(("file-mode", k))
+                        .px(px(10.))
+                        .py(px(4.))
+                        .rounded(px(4.))
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .cursor_pointer()
+                        .map(|d| {
+                            if on {
+                                d.bg(c(ui::float()))
+                                    .text_color(c(ui::ink()))
+                                    .border_1()
+                                    .border_color(c(ui::line()))
+                            } else {
+                                d.text_color(c(ui::muted()))
+                                    .hover(|s| s.text_color(c(ui::ink())))
+                            }
+                        })
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(v) = this.viewer.as_mut() {
-                                v.source = false;
+                                v.source = k == 1;
                             }
                             cx.notify();
-                        },
-                    )))
-                    .child(
-                        ui::pill("file-source", "Source", source).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                if let Some(v) = this.viewer.as_mut() {
-                                    v.source = true;
-                                }
-                                cx.notify();
-                            },
-                        )),
-                    ),
-            );
+                        })),
+                );
+            }
+            tools = tools.child(seg);
         }
         if kind == Kind::Html {
             tools = tools.child(
@@ -315,18 +352,15 @@ impl Shell {
             .child(
                 self.drop_menu(
                     super::menu::Ctx::File(menu_path),
-                    ui::ghost_i(
-                        "file-open-with",
-                        IconName::SquareArrowOutUpRight,
-                        "Open with",
-                    )
-                    .h(px(28.))
-                    .text_size(px(12.5))
-                    .child(
-                        Icon::new(IconName::ChevronDown)
-                            .size(px(12.))
-                            .text_color(c(ui::muted())),
-                    ),
+                    ui::dbtn("file-open-with", open_label, ui::Btn::Plain)
+                        .h(px(30.))
+                        .gap(px(6.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(
+                            Icon::new(IconName::ChevronDown)
+                                .size(px(12.))
+                                .text_color(c(ui::muted())),
+                        ),
                     cx,
                 ),
             )
@@ -335,10 +369,11 @@ impl Shell {
                     .on_click(cx.listener(|this, _, _, cx| this.close_file(cx))),
             );
 
+        let change = v.change;
         let head = div()
             .flex_none()
             .h(px(48.))
-            .px(px(16.))
+            .px(px(14.))
             .flex()
             .items_center()
             .gap(px(10.))
@@ -346,24 +381,24 @@ impl Shell {
             .border_color(c(ui::line()))
             .child(
                 Icon::new(icon)
-                    .size(px(16.))
+                    .size(px(15.))
                     .flex_none()
-                    .text_color(c(ui::muted())),
+                    .text_color(c(ui::body())),
             )
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .flex()
-                    .items_baseline()
-                    .gap(px(8.))
+                    .items_center()
+                    .gap(px(10.))
                     .child(
                         div()
                             .flex_none()
-                            .max_w(px(360.))
+                            .max_w(px(320.))
                             .truncate()
                             .text_size(px(14.))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .font_weight(FontWeight::BOLD)
                             .text_color(c(ui::ink()))
                             .child(name),
                     )
@@ -373,20 +408,63 @@ impl Shell {
                             .truncate()
                             .font_family(ui::MONO)
                             .text_size(px(11.5))
-                            .text_color(c(ui::faint()))
+                            .text_color(c(ui::muted()))
                             .child(folder),
                     )
-                    .when_some(detail, |d, t| {
+                    .when_some(change, |d, word| {
+                        let tone = match word {
+                            "NEW" => ui::t_green(),
+                            "DELETED" => ui::t_red(),
+                            _ => ui::t_amber(),
+                        };
                         d.child(
                             div()
                                 .flex_none()
-                                .text_size(px(11.5))
-                                .text_color(c(ui::faint()))
-                                .child(t),
+                                .font_family(ui::MONO)
+                                .text_size(px(10.5))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c(tone))
+                                .child(word),
                         )
                     }),
             )
             .child(tools);
+
+        // The line along the bottom: what the file is, and how to leave or ask.
+        let mut facts = vec![kind_word(kind, &path)];
+        facts.extend(detail);
+        if v.bytes > 0 {
+            facts.push(size_words(v.bytes));
+        }
+        let asker = v.job.and_then(|id| self.crew.store.job(id)).map(|j| j.bot);
+        let foot = div()
+            .flex_none()
+            .h(px(32.))
+            .px(px(14.))
+            .flex()
+            .items_center()
+            .gap(px(16.))
+            .border_t_1()
+            .border_color(c(ui::line()))
+            .font_family(ui::MONO)
+            .text_size(px(11.))
+            .text_color(c(ui::muted()))
+            .child(div().flex_1().min_w_0().truncate().child(facts.join(" · ")))
+            .child(div().flex_none().child("Esc to close"))
+            .when_some(asker, |d, bot| {
+                let about = path.clone();
+                d.child(
+                    div()
+                        .id("file-ask")
+                        .flex_none()
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(c(ui::ink())))
+                        .child(format!("Ask {} about this file", bot.name()))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.ask_about_file(bot, &about, window, cx)
+                        })),
+                )
+            });
 
         let quiet = |msg: String| {
             div()
@@ -418,12 +496,18 @@ impl Shell {
                 .overflow_y_scroll()
                 .child(
                     div()
-                        .max_w(px(760.))
+                        .max_w(px(684.))
                         .mx_auto()
                         .px(px(32.))
-                        .py(px(24.))
+                        .pt(px(28.))
+                        .pb(px(32.))
+                        .text_size(px(14.))
+                        .line_height(px(22.))
+                        .text_color(c(ui::body()))
                         .child(
-                            TextView::markdown("file-markdown-text", md.clone()).selectable(true),
+                            TextView::markdown("file-markdown-text", md.clone())
+                                .style(page_style(cx))
+                                .selectable(true),
                         ),
                 )
                 .into_any_element(),
@@ -512,20 +596,144 @@ impl Shell {
             Body::Cannot(why) => quiet(why.clone()),
         };
 
+        let card = div()
+            .id("file-viewer-card")
+            .w(px(900.))
+            .max_w_full()
+            .h(px(640.))
+            .max_h_full()
+            .flex()
+            .flex_col()
+            .rounded(px(10.))
+            .overflow_hidden()
+            .bg(c(ui::float()))
+            .border_1()
+            .border_color(c(ui::line()))
+            .shadow(vec![BoxShadow {
+                color: hsla(0., 0., 0., 0.18),
+                offset: point(px(0.), px(12.)),
+                blur_radius: px(40.),
+                spread_radius: px(0.),
+                inset: false,
+            }])
+            // A click on the card stays on it; one beside it closes the viewer.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(head)
+            .child(div().flex_1().min_h_0().bg(c(ui::bg())).child(content))
+            .child(foot);
         Some(
             div()
                 .id("file-viewer")
                 .absolute()
                 .inset_0()
+                .p(px(40.))
                 .flex()
-                .flex_col()
-                .bg(c(ui::bg()))
+                .items_center()
+                .justify_center()
+                .bg(hsla(0., 0., 0., 0.28))
                 .occlude()
-                .child(head)
-                .child(div().flex_1().min_h_0().child(content))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| this.close_file(cx)),
+                )
+                .child(card)
                 .into_any_element(),
         )
     }
+
+    /// Opens a chat with `bot`, its box started with a question about `path`.
+    fn ask_about_file(
+        &mut self,
+        bot: super::data::Member,
+        path: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.close_file(cx);
+        self.go(super::Place::Chat(bot), cx);
+        let ask = format!("About {name}: ");
+        self.chat_input.update(cx, |i, cx| {
+            i.set_value(ask, window, cx);
+            i.focus(window, cx);
+        });
+        cx.notify();
+    }
+}
+
+/// The word for what a job did to a file, from its git status.
+fn change_word(status: &str) -> &'static str {
+    match status.trim() {
+        "A" | "??" => "NEW",
+        "D" => "DELETED",
+        _ => "MODIFIED",
+    }
+}
+
+/// What kind of file this is, in a word, for the viewer's bottom line.
+fn kind_word(kind: Kind, path: &Path) -> String {
+    match kind {
+        Kind::Markdown => "Markdown".into(),
+        Kind::Html => "HTML".into(),
+        Kind::Image => "Picture".into(),
+        Kind::Pdf => "PDF".into(),
+        _ => super::filetab::language(&path.to_string_lossy()).into(),
+    }
+}
+
+/// A file size the way people say it: "812 B", "2.1 KB", "3.4 MB".
+fn size_words(bytes: u64) -> String {
+    const K: f64 = 1024.;
+    let b = bytes as f64;
+    if b < K {
+        format!("{bytes} B")
+    } else if b < K * K {
+        format!("{:.1} KB", b / K)
+    } else {
+        format!("{:.1} MB", b / (K * K))
+    }
+}
+
+/// How a Markdown file reads as a page: headings with weight, code in a
+/// framed well, and tables as plain ruled rows under a small mono head.
+fn page_style(cx: &App) -> gpui_kit::component::text::TextViewStyle {
+    use gpui_kit::component::ActiveTheme;
+    let line = c(ui::line());
+    let theme = cx.theme();
+    let mut style = gpui_kit::component::text::TextViewStyle::default()
+        .heading_font_size(|level, _| match level {
+            1 => px(26.),
+            2 => px(17.),
+            _ => px(15.),
+        })
+        .inline_code(HighlightStyle {
+            background_color: Some(c(ui::well())),
+            ..Default::default()
+        })
+        .code_block(
+            StyleRefinement::default()
+                .bg(c(ui::well()))
+                .border_1()
+                .border_color(line)
+                .rounded(px(6.))
+                .px(px(12.))
+                .py(px(10.)),
+        )
+        .table(StyleRefinement::default().border_0().bg(c(ui::float())))
+        .table_head(
+            StyleRefinement::default()
+                .bg(c(ui::float()))
+                .text_color(c(ui::muted()))
+                .font_family(ui::MONO)
+                .text_size(px(11.)),
+        )
+        .table_cell(StyleRefinement::default().border_r_0().px_0().py(px(8.)));
+    style.highlight_theme = theme.highlight_theme.clone();
+    style.is_dark = theme.is_dark();
+    style
 }
 
 /// A text file's body: read, checked, and put in a read-only editor.
@@ -629,8 +837,20 @@ pub(super) fn open_in(path: &Path, app: Option<&Path>, cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{kind_of, language_of, looks_like_text, Kind};
+    use super::{change_word, kind_of, kind_word, language_of, looks_like_text, size_words, Kind};
     use std::path::Path;
+
+    #[test]
+    fn the_bottom_line_reads_plainly() {
+        assert_eq!(size_words(663), "663 B");
+        assert_eq!(size_words(2150), "2.1 KB");
+        assert_eq!(size_words(3 * 1024 * 1024), "3.0 MB");
+        assert_eq!(kind_word(Kind::Text, Path::new("a/pay.ts")), "TypeScript");
+        assert_eq!(kind_word(Kind::Markdown, Path::new("a.md")), "Markdown");
+        assert_eq!(change_word("M"), "MODIFIED");
+        assert_eq!(change_word("??"), "NEW");
+        assert_eq!(change_word("D"), "DELETED");
+    }
 
     #[test]
     fn files_are_shown_by_kind() {
