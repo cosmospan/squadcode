@@ -1886,7 +1886,7 @@ impl Shell {
             from: None,
         });
         // Glide from one state's face to the next, as the bots do in the app.
-        let figure = self.eased(figure, (who, u32::MAX, false));
+        let figure = self.eased(figure, (who, u32::MAX, false, 0));
         let preview = self.pose_img(figure, 150., Framing::Full);
         let accent = who.accent();
 

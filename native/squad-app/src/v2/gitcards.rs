@@ -201,6 +201,8 @@ impl Shell {
                     .text_size(px(12.))
                     .text_color(c(ui::body()))
                     .when(n > 0, |d| d.border_t_1().border_color(c(tone.2)))
+                    .min_w_0()
+                    .truncate()
                     .child(path.clone()),
             );
         }
@@ -231,11 +233,13 @@ impl Shell {
                                 .size(px(14.))
                                 .text_color(c(tone.0)),
                         )
-                        .child(if one {
+                        // Its own box, so a narrow panel wraps the title instead of
+                        // running it past the card's edge.
+                        .child(div().flex_1().min_w_0().child(if one {
                             "Your changes to this file clash with the merge"
                         } else {
                             "Your changes to these files clash with the merge"
-                        }),
+                        })),
                 )
                 .child(
                     div()

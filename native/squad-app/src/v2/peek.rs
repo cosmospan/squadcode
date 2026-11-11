@@ -8,7 +8,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use squad_holo::{Framing, Mood};
+use squad_holo::Mood;
 
 use gpui_kit::component::Icon;
 
@@ -58,6 +58,80 @@ impl Tab {
 }
 
 /// The design's list label (`.lbl`): mono capitals, faint.
+/// One step in a timeline: its icon and colour, what happened, and whether it
+/// reads in full ink (where things stand now) or quietly (done and past).
+type Step = (IconName, u32, String, bool);
+
+/// Steps down a thin rail: each on an icon that says how it went, joined by a
+/// line, the latest in full ink. Replaces the old tick marks, which sat half
+/// outside the panel and read as stray slivers.
+fn timeline(rows: Vec<Step>) -> Div {
+    let count = rows.len();
+    let mut list = div().flex().flex_col();
+    for (n, (icon, tone, text, strong)) in rows.into_iter().enumerate() {
+        let first = n == 0;
+        let last = n + 1 == count;
+        let rail = div()
+            .relative()
+            .w(px(18.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(!first, |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .left(px(8.5))
+                        .top_0()
+                        .h(relative(0.5))
+                        .w(px(1.))
+                        .bg(c(ui::line_hi())),
+                )
+            })
+            .when(!last, |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .left(px(8.5))
+                        .top(relative(0.5))
+                        .bottom_0()
+                        .w(px(1.))
+                        .bg(c(ui::line_hi())),
+                )
+            })
+            .child(
+                div()
+                    .size(px(18.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(c(ui::panel()))
+                    .child(Icon::new(icon).size(px(13.)).text_color(c(tone))),
+            );
+        list = list.child(
+            div()
+                .min_h(px(28.))
+                .flex()
+                .items_stretch()
+                .gap(px(10.))
+                .child(rail)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .text_size(px(12.5))
+                        .text_color(c(if strong { ui::ink() } else { ui::body() }))
+                        .child(div().min_w_0().truncate().child(text)),
+                ),
+        );
+    }
+    list
+}
+
 fn label(text: &str) -> Div {
     div()
         .mb(px(6.))
@@ -151,7 +225,7 @@ impl Shell {
         } else {
             tone.0
         };
-        let face = self.bot(job.bot, Mood::Idle, 40., Framing::Bust);
+        let face = self.job_bot(job.id, job.bot, Mood::Idle, 40.);
         let by = if job.engine.is_empty() {
             job.bot.name().to_string()
         } else {
@@ -243,16 +317,20 @@ impl Shell {
         } else {
             job.remote_on.clone()
         };
+        // Wraps: a long branch drops to its own line rather than being cut short,
+        // and is only cut when it's wider than the whole panel.
         let state = div()
             .flex()
+            .flex_wrap()
             .items_center()
-            .gap(px(14.))
+            .gap_x(px(14.))
+            .gap_y(px(4.))
             .font_family(ui::MONO)
             .text_size(px(12.))
             .text_color(c(ui::body()))
             .child(ui::mono_status(col, &state_word).flex_none())
             .when(!job.branch.is_empty(), |d| {
-                d.child(div().min_w_0().truncate().child(if job.base.is_empty() {
+                d.child(div().max_w_full().truncate().child(if job.base.is_empty() {
                     job.branch.clone()
                 } else {
                     format!("{} \u{2192} {}", job.branch, job.base)
@@ -367,63 +445,29 @@ impl Shell {
         let log = (!steps.is_empty()).then(|| {
             let from = steps.len().saturating_sub(4);
             let last = steps.len() - 1;
-            let mut line = div()
-                .flex()
-                .flex_col()
-                .border_l_1()
-                .border_color(c(ui::line_hi()))
-                .pl(px(12.));
+            let mut rows: Vec<Step> = Vec::new();
             for (n, (what, st)) in steps.iter().enumerate().skip(from) {
-                let end = n == last;
-                let dot = match st {
-                    0 => ui::t_blue(),
-                    2 => ui::t_red(),
-                    _ if end && !stopped => tone.0,
-                    _ => ui::faint(),
-                };
-                line = line.child(
-                    div()
-                        .relative()
-                        .h(px(23.))
-                        .flex()
-                        .items_center()
-                        .text_size(px(12.5))
-                        .text_color(c(if end { ui::ink() } else { ui::body() }))
-                        .child(
-                            div()
-                                .absolute()
-                                .left(px(-15.5))
-                                .top(px(8.5))
-                                .size(px(6.))
-                                .bg(c(dot)),
-                        )
-                        .child(div().min_w_0().truncate().child(what.clone())),
-                );
+                let end = n == last && !stopped;
+                rows.push(match st {
+                    0 => (IconName::LoaderCircle, ui::t_blue(), what.clone(), true),
+                    2 => (IconName::CircleX, ui::t_red(), what.clone(), end),
+                    _ if end => (IconName::CircleCheck, tone.0, what.clone(), true),
+                    _ => (IconName::Check, ui::faint(), what.clone(), false),
+                });
             }
             if stopped {
-                line = line.child(
-                    div()
-                        .relative()
-                        .h(px(23.))
-                        .flex()
-                        .items_center()
-                        .text_size(px(12.5))
-                        .text_color(c(ui::ink()))
-                        .child(
-                            div()
-                                .absolute()
-                                .left(px(-15.5))
-                                .top(px(8.5))
-                                .size(px(6.))
-                                .bg(c(ui::t_red())),
-                        )
-                        .child(if job.status == Status::Stopped {
-                            "You stopped it"
-                        } else {
-                            "Stopped and asked you"
-                        }),
-                );
+                rows.push((
+                    IconName::CircleStop,
+                    ui::t_red(),
+                    if job.status == Status::Stopped {
+                        "You stopped it".into()
+                    } else {
+                        "Stopped and asked you".into()
+                    },
+                    true,
+                ));
             }
+            let line = timeline(rows);
             div().flex().flex_col().child(label("Log")).child(line)
         });
 
@@ -501,7 +545,7 @@ impl Shell {
                     .children(why)
                     .children(belt)
                     .children(clash)
-                    .children(in_the_way)
+                    .children(in_the_way.map(|d| d.mx(px(0.)).mb(px(0.))))
                     .children(shipped)
                     .children(checks)
                     .children(changes.filter(|_| !ships))
@@ -549,33 +593,19 @@ impl Shell {
             });
             let from = events.len().saturating_sub(6);
             let last = events.len() - 1;
-            let mut line = div()
-                .flex()
-                .flex_col()
-                .border_l_1()
-                .border_color(c(ui::line_hi()))
-                .pl(px(12.));
-            for (n, e) in events.into_iter().enumerate().skip(from) {
-                let end = n == last;
-                line = line.child(
-                    div()
-                        .relative()
-                        .min_h(px(23.))
-                        .flex()
-                        .items_center()
-                        .text_size(px(12.5))
-                        .text_color(c(if end { ui::ink() } else { ui::body() }))
-                        .child(
-                            div()
-                                .absolute()
-                                .left(px(-15.5))
-                                .top(px(8.5))
-                                .size(px(6.))
-                                .bg(c(if end { ui::t_green() } else { ui::faint() })),
-                        )
-                        .child(div().min_w_0().truncate().child(e)),
-                );
-            }
+            let rows: Vec<Step> = events
+                .into_iter()
+                .enumerate()
+                .skip(from)
+                .map(|(n, e)| {
+                    if n == last {
+                        (IconName::GitMerge, ui::t_green(), e, true)
+                    } else {
+                        (IconName::Check, ui::faint(), e, false)
+                    }
+                })
+                .collect();
+            let line = timeline(rows);
             return out
                 .child(
                     div()

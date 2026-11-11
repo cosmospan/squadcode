@@ -97,7 +97,7 @@ impl Shell {
             Status::Shipped | Status::Shipping => Mood::Signature,
             _ => Mood::Idle,
         };
-        let hero = self.bot(who, mood, 26., Framing::Bust);
+        let hero = self.job_bot(job.id, who, mood, 26.);
         let progress = job.progress();
         // The engine's own summary already says how long it took.
         let mut meta = if job.summary.is_empty() || running {

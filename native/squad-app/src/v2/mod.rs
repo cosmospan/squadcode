@@ -494,7 +494,7 @@ pub struct Shell {
     hovered: Option<Member>,
     /// Each bot's face per place it's drawn (bot, size, framing): the state
     /// it shows, the one before, and when it changed, so moods ease.
-    moods: HashMap<(Member, u32, bool), (squad_holo::fin::State, squad_holo::fin::State, f64)>,
+    moods: HashMap<(Member, u32, bool, u64), (squad_holo::fin::State, squad_holo::fin::State, f64)>,
     /// Where the pointer is in the window, for the sidebar bots' eyes.
     mouse: Point<Pixels>,
     /// Where each sidebar bot was painted last frame, so its eyes can find the pointer.
@@ -3629,14 +3629,26 @@ impl Shell {
 
     /// A bot drawn at `size` logical pixels, in `mood`.
     fn bot(&mut self, who: Member, mood: Mood, size: f32, framing: Framing) -> Img {
+        self.bot_at(who, mood, size, framing, 0)
+    }
+
+    /// A bot drawn for one job, easing between moods on its own. Two jobs by
+    /// the same bot, drawn at one size with different moods, would otherwise
+    /// share a slot and keep restarting each other's cross-fade: the face
+    /// flickers now and then.
+    fn job_bot(&mut self, job: u64, who: Member, mood: Mood, size: f32) -> Img {
+        self.bot_at(who, mood, size, Framing::Bust, job)
+    }
+
+    fn bot_at(&mut self, who: Member, mood: Mood, size: f32, framing: Framing, tag: u64) -> Img {
         let pose = mascot::figure(who, mood).shine(self.hovered == Some(who));
-        let pose = self.eased(pose, (who, size.to_bits(), framing == Framing::Bust));
+        let pose = self.eased(pose, (who, size.to_bits(), framing == Framing::Bust, tag));
         self.pose_img(pose, size, framing)
     }
 
     /// `pose`, easing in from the last face shown at `slot` when its mood
     /// just changed.
-    fn eased(&mut self, pose: Figure, slot: (Member, u32, bool)) -> Figure {
+    fn eased(&mut self, pose: Figure, slot: (Member, u32, bool, u64)) -> Figure {
         let Some(state) = pose.fin_state() else {
             return pose;
         };
