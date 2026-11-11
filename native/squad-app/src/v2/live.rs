@@ -1397,12 +1397,9 @@ impl Shell {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_file(open.clone(), Some(job), window, cx);
                     }))
-                    .child(
-                        img(path)
-                            .w_full()
-                            .h(px(320.))
-                            .object_fit(ObjectFit::Contain),
-                    ),
+                    // A box of its own, so a tall picture is fitted inside it rather
+                    // than growing past the card once it has loaded.
+                    .child(fitted(path, 320.)),
             )
             .when(!caption.is_empty(), |d| {
                 d.child(
@@ -1431,7 +1428,9 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let bot_pick = |k: usize| (k == pick).then_some("BOT'S PICK");
-        let mut row = div().p(px(12.)).flex().gap(px(10.));
+        // Side by side when there's room; in a narrow feed they wrap one under another
+        // rather than squeezing names and buttons until they're cut off.
+        let mut row = div().p(px(12.)).flex().flex_wrap().gap(px(10.));
         for (k, o) in options.iter().enumerate() {
             let letter = (b'A' + k as u8) as char;
             let on = chosen.map_or(k == pick, |ch| ch == k);
@@ -1445,7 +1444,7 @@ impl Shell {
             };
             let tile = div()
                 .flex_1()
-                .min_w_0()
+                .min_w(px(180.))
                 .flex()
                 .flex_col()
                 .rounded(px(4.))
@@ -1464,7 +1463,7 @@ impl Shell {
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.open_file(open.clone(), Some(job), window, cx);
                         }))
-                        .child(img(path).size_full().object_fit(ObjectFit::Contain)),
+                        .child(fitted(path, 204.)),
                 )
                 .child(
                     div()
@@ -1475,6 +1474,7 @@ impl Shell {
                         .child(
                             div()
                                 .flex()
+                                .flex_wrap()
                                 .items_center()
                                 .gap(px(6.))
                                 .child(
@@ -1575,6 +1575,25 @@ impl Shell {
         };
         self.follow_up(job, text, cx);
     }
+}
+
+/// A picture shrunk to fit a box `h` tall and as wide as there is room, whole and
+/// centred. The image keeps its own size and is only capped, since an image sized in
+/// percentages takes its height from its width and spills out of a short box.
+fn fitted(path: std::path::PathBuf, h: f32) -> Div {
+    div()
+        .w_full()
+        .h(px(h))
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            img(path)
+                .max_w_full()
+                .max_h_full()
+                .object_fit(ObjectFit::Contain),
+        )
 }
 
 pub(super) fn note_line(text: &str) -> Div {

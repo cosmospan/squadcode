@@ -1172,7 +1172,7 @@ impl Shell {
                 Some(g) => format!("{} / Plan / {}", self.thread_crumb(g.thread), g.text),
                 None => "Jobs / Plan".into(),
             },
-            Place::Settings(_) => "Settings".into(),
+            Place::Settings(p) => format!("Settings / {}", p.name()),
             Place::Server => "Machines".into(),
             Place::Screen => "Machines / Screen".into(),
             Place::Browser(id) => match self.crew.store.job(id) {
@@ -1250,7 +1250,8 @@ impl Shell {
                         .into_any_element(),
                     _ => text.into_any_element(),
                 };
-                if global {
+                // Settings have no project in front, so their path starts bare.
+                if global && i == 0 {
                     vec![text]
                 } else {
                     vec![chev, text]
