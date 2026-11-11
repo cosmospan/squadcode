@@ -524,11 +524,31 @@ impl Shell {
                     file,
                     title,
                     caption,
-                } => feed.child(
-                    div()
-                        .pl(px(44.))
-                        .child(self.picture_card(job.id, at, file, title, caption, cx)),
-                ),
+                    kind: store::PictureKind::Screen,
+                } => {
+                    let board = super::board::has_design(job);
+                    feed.child(div().pl(px(44.)).child(self.screen_card(
+                        job.id,
+                        at,
+                        file,
+                        (title, caption),
+                        board,
+                        cx,
+                    )))
+                }
+                Item::Picture {
+                    file,
+                    title,
+                    caption,
+                    kind,
+                } => feed.child(div().pl(px(44.)).child(self.picture_card(
+                    job.id,
+                    at,
+                    file,
+                    (title, caption),
+                    *kind == store::PictureKind::Diagram,
+                    cx,
+                ))),
                 Item::Directions {
                     title,
                     options,
@@ -1346,19 +1366,21 @@ pub(super) fn section(title: &str, body: Div) -> Div {
 impl Shell {
     /// A picture the bot showed: a screenshot, mockup or diagram, with its name and
     /// what to notice. Clicking it opens it full size.
+    /// A diagram is read whole, so it gets more room than other pictures.
     fn picture_card(
         &self,
         job: u64,
         at: usize,
         file: &str,
-        title: &str,
-        caption: &str,
+        (title, caption): (&str, &str),
+        diagram: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let path = std::path::PathBuf::from(file);
         let open = path.clone();
+        let (wide, tall) = if diagram { (900., 440.) } else { (640., 320.) };
         ui::card()
-            .max_w(px(640.))
+            .max_w(px(wide))
             .overflow_hidden()
             .when(!title.is_empty(), |d| {
                 d.child(
@@ -1399,7 +1421,7 @@ impl Shell {
                     }))
                     // A box of its own, so a tall picture is fitted inside it rather
                     // than growing past the card once it has loaded.
-                    .child(fitted(path, 320.)),
+                    .child(shaped(path, tall)),
             )
             .when(!caption.is_empty(), |d| {
                 d.child(
@@ -1415,6 +1437,131 @@ impl Shell {
                 )
             })
             .into_any_element()
+    }
+
+    /// A screen the bot designed: a small preview with its name, to open large or on
+    /// the job's Design tab, where there's room to look at it properly. `board` is
+    /// whether the job has that tab.
+    fn screen_card(
+        &self,
+        job: u64,
+        at: usize,
+        file: &str,
+        (title, caption): (&str, &str),
+        board: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let path = std::path::PathBuf::from(file);
+        let (open, open2) = (path.clone(), path.clone());
+        let name = if title.is_empty() {
+            "A screen".to_string()
+        } else {
+            title.to_string()
+        };
+        ui::card()
+            .max_w(px(520.))
+            .p(px(10.))
+            .flex()
+            .gap(px(12.))
+            .child(
+                div()
+                    .id(SharedString::from(format!("screen-{job}-{at}")))
+                    .w(px(96.))
+                    .flex_none()
+                    .rounded(px(4.))
+                    .bg(c(ui::ground()))
+                    .p(px(4.))
+                    .cursor_pointer()
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new("Open it large")
+                            .build(window, cx)
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_file(open.clone(), Some(job), window, cx);
+                    }))
+                    .child(fitted(path, 120.)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(
+                                Icon::new(IconName::Smartphone)
+                                    .size(px(13.))
+                                    .text_color(c(ui::muted())),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c(ui::ink()))
+                                    .truncate()
+                                    .child(name),
+                            ),
+                    )
+                    .when(!caption.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .text_size(px(12.5))
+                                .line_height(px(18.))
+                                .text_color(c(ui::body()))
+                                .child(caption.to_string()),
+                        )
+                    })
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap(px(6.))
+                            .child(
+                                ui::dbtn_i(
+                                    SharedString::from(format!("screen-open-{job}-{at}")),
+                                    IconName::Maximize2,
+                                    "Open large",
+                                    ui::Btn::Plain,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, window, cx| {
+                                        this.open_file(open2.clone(), Some(job), window, cx);
+                                    },
+                                )),
+                            )
+                            .when(board, |d| {
+                                d.child(
+                                    ui::dbtn_i(
+                                        SharedString::from(format!("screen-board-{job}-{at}")),
+                                        IconName::Palette,
+                                        "Design tab",
+                                        ui::Btn::Plain,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.open_design_tab(job, cx);
+                                        },
+                                    )),
+                                )
+                            }),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// Opens job `id`'s workspace on its Design tab.
+    fn open_design_tab(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.ws_tab = super::peek::Tab::Design;
+        if self.place != Place::Live(id) {
+            self.go(Place::Live(id), cx);
+        }
+        cx.notify();
     }
 
     /// Two to four looks to pick from, side by side. The bot's pick is marked, and
@@ -1456,14 +1603,14 @@ impl Shell {
                 .child(
                     div()
                         .id(SharedString::from(format!("direction-pic-{job}-{at}-{k}")))
-                        .h(px(220.))
+                        .h(px(150.))
                         .p(px(8.))
                         .bg(c(ui::ground()))
                         .cursor_pointer()
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.open_file(open.clone(), Some(job), window, cx);
                         }))
-                        .child(fitted(path, 204.)),
+                        .child(fitted(path, 134.)),
                 )
                 .child(
                     div()
@@ -1580,6 +1727,47 @@ impl Shell {
 /// A picture shrunk to fit a box `h` tall and as wide as there is room, whole and
 /// centred. The image keeps its own size and is only capped, since an image sized in
 /// percentages takes its height from its width and spills out of a short box.
+/// A picture as wide as its box and as tall as its shape needs, up to `most`: a wide
+/// diagram doesn't sit in a tall empty box, a tall screen doesn't run on. Falls back
+/// to a box `most` tall when the picture's size can't be read.
+fn shaped(path: std::path::PathBuf, most: f32) -> Div {
+    match picture_ratio(&path) {
+        Some(r) => div()
+            .w_full()
+            .max_h(px(most))
+            .aspect_ratio(r)
+            .overflow_hidden()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                img(path)
+                    .max_w_full()
+                    .max_h_full()
+                    .object_fit(ObjectFit::Contain),
+            ),
+        None => fitted(path, most),
+    }
+}
+
+/// A picture's width over its height, read once from its file and remembered.
+fn picture_ratio(path: &std::path::Path) -> Option<f32> {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    thread_local! {
+        static SEEN: RefCell<HashMap<std::path::PathBuf, Option<f32>>> = RefCell::new(HashMap::new());
+    }
+    SEEN.with(|seen| {
+        *seen
+            .borrow_mut()
+            .entry(path.to_path_buf())
+            .or_insert_with(|| {
+                let (w, h) = image::image_dimensions(path).ok()?;
+                (w > 0 && h > 0).then(|| w as f32 / h as f32)
+            })
+    })
+}
+
 fn fitted(path: std::path::PathBuf, h: f32) -> Div {
     div()
         .w_full()

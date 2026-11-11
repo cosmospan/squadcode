@@ -3,7 +3,7 @@
 //! Squad Code's MCP server, which copies the pictures into Squad Code's own folder and
 //! leaves a note for the job. The job picks the notes up as feed items while it runs.
 
-use super::store::{Direction, Item};
+use super::store::{Direction, Item, PictureKind};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -116,6 +116,11 @@ fn picture(base: &Path, dir: &str, args: &Value) -> Result<Item, String> {
         file,
         title: words(args, "title", 80),
         caption: words(args, "caption", 400),
+        kind: match args["kind"].as_str() {
+            Some("screen") => PictureKind::Screen,
+            Some("diagram") => PictureKind::Diagram,
+            _ => PictureKind::Other,
+        },
     })
 }
 
@@ -221,7 +226,12 @@ pub(crate) fn list() -> Vec<Value> {
                 "properties": {
                     "path": { "type": "string", "description": "The picture's file, absolute or relative to the job's folder." },
                     "title": { "type": "string", "description": "A short name, like \"Home screen, phone\" or \"How the studio runs today\"." },
-                    "caption": { "type": "string", "description": "A sentence or two on what to notice." }
+                    "caption": { "type": "string", "description": "A sentence or two on what to notice." },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["screen", "diagram", "other"],
+                        "description": "screen for a screen of the app (shown as a small preview the person opens large or on the job's Design tab), diagram for an architecture or flow diagram (shown full width), other for anything else."
+                    }
                 },
                 "required": ["path"]
             }
@@ -288,7 +298,7 @@ mod tests {
             &base,
             &dir,
             PICTURE,
-            &json!({ "path": "shots/home.png", "title": "Home", "caption": "The calm one" }),
+            &json!({ "path": "shots/home.png", "title": "Home", "caption": "The calm one", "kind": "screen" }),
         );
         assert!(got.get("isError").is_none(), "{got}");
         // Another job's folder sees nothing.
@@ -298,11 +308,13 @@ mod tests {
             file,
             title,
             caption,
+            kind,
         }] = items.as_slice()
         else {
             panic!("{items:?}");
         };
         assert_eq!((title.as_str(), caption.as_str()), ("Home", "The calm one"));
+        assert_eq!(*kind, PictureKind::Screen);
         // The copy stays when the job's own file goes.
         std::fs::remove_file(work.join("shots/home.png")).unwrap();
         assert_eq!(std::fs::read(file).unwrap(), b"png");
