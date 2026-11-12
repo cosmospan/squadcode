@@ -352,7 +352,7 @@ impl Shell {
             usage_say.push_str(&format!("\n${spend:.2} spent today"));
         }
         const BAR_H: f32 = 22.;
-        let usage = rail_btn("rail-usage", self.usage_open)
+        let usage = rail_btn("rail-usage", self.pop_open(super::popover::Pop::Usage))
             .child(
                 div()
                     .w(px(8.))
@@ -377,7 +377,7 @@ impl Shell {
                     ),
             )
             .tooltip(tip(usage_say))
-            .on_click(cx.listener(|this, _, _, cx| this.toggle_usage(cx)));
+            .on_click(cx.listener(|this, e: &ClickEvent, _, cx| this.toggle_usage(e, cx)));
 
         // Machines: where the crew runs, with a dot for whether your server
         // answers once there is one.
@@ -584,63 +584,8 @@ impl Shell {
                 )
             })
             .collect();
-        // Run the app, or, while it runs, its address and a way to open it.
-        let app = runs.iter().find(|r| r.2.is_some()).cloned();
-        let run_box = folder.is_some().then(|| {
-            let base = div()
-                .id("side-run")
-                .mx(px(2.))
-                .mb(px(10.))
-                .h(px(32.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(5.))
-                .bg(c(ui::raised()))
-                .border_1()
-                .border_color(c(ui::line()))
-                .text_size(px(12.5))
-                .cursor_pointer()
-                .hover(|s| s.border_color(c(ui::line_hi())));
-            match app {
-                Some((_, _, Some(url), up)) => {
-                    let open = url.clone();
-                    base.child(div().size(px(7.)).rounded_full().flex_none().bg(c(if up {
-                        ui::t_green()
-                    } else {
-                        ui::t_amber()
-                    })))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .font_family(ui::MONO)
-                            .text_size(px(12.))
-                            .text_color(c(ui::ink()))
-                            .child(url.trim_start_matches("http://").to_string()),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c(ui::accent_text()))
-                            .child("Open \u{2197}"),
-                    )
-                    .tooltip(tip("Open the running app in your browser"))
-                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&open)))
-                }
-                _ => base
-                    .text_color(c(ui::muted()))
-                    .child(Icon::new(IconName::Play).size(px(13.)))
-                    .child("Run app")
-                    .tooltip(tip("Start this project's app here in Squad"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.run_app(None, None, cx);
-                    })),
-            }
-        });
+        // Run the app, or, while it runs, a pill that brings its card out.
+        let run_box = folder.is_some().then(|| self.run_pill(&here, cx));
         // Everything running, docked at the foot of the panel.
         let dock = (!runs.is_empty()).then(|| {
             let mut d = div()
@@ -689,9 +634,7 @@ impl Shell {
                                     .child(p),
                             )
                         })
-                        .when_some(url, |d, u| {
-                            d.on_click(cx.listener(move |_, _, _, cx| cx.open_url(&u)))
-                        }),
+                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_run_pop(id, cx))),
                 );
             }
             d

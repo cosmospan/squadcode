@@ -354,7 +354,7 @@ impl Shell {
         self.palette_sel = 0;
         self.palette_at = std::time::Instant::now();
         self.focus_moved = std::time::Instant::now();
-        self.folder_menu = false;
+        self.close_pop();
         self.palette_input.update(cx, |i, cx| {
             i.set_value("", window, cx);
             i.focus(window, cx);

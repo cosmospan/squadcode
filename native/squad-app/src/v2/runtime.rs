@@ -3776,6 +3776,57 @@ mod tests {
     }
 
     #[test]
+    fn a_job_for_later_waits_for_its_time_then_starts() {
+        let mut st = AppSettings::default();
+        for p in crate::agent::PROVIDERS.iter() {
+            let mut a = st.agent(p.id);
+            a.binary = "/nonexistent/squad-test-agent".into();
+            st.agents.insert(p.id.to_string(), a);
+        }
+        let dir = std::env::temp_dir().join(format!("squad-later-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let folder = store::Folder {
+            name: "t".into(),
+            path: dir.to_string_lossy().into_owned(),
+            ship: String::new(),
+        };
+        // Not a demo (the night shift skips those), but saves only mark the
+        // store dirty, so nothing is written to ~/.squadcode.
+        let mut rt = Runtime::new(Store {
+            deferred: true,
+            ..Default::default()
+        });
+        let now = store::now();
+        let id = rt.queue_later(
+            Member::Builder,
+            Mode::Build,
+            "tidy the flaky tests".into(),
+            folder,
+            now + 3600,
+        );
+        // Its time hasn't come: it stays in line.
+        rt.poll_shift(&st);
+        assert!(rt.store.jobs.is_empty());
+        assert_eq!(rt.store.later.len(), 1);
+        // It's kept with the rest of the store, so it outlives a restart.
+        let saved = serde_json::to_string(&rt.store).unwrap();
+        let back: Store = serde_json::from_str(&saved).unwrap();
+        assert_eq!(back.later, rt.store.later);
+        // An hour on, its time has come: it starts on the next poll, on the
+        // night shift.
+        rt.store.later[0].made -= 3600;
+        rt.store.later[0].at -= 3600 + 1;
+        rt.shift_at = Instant::now() - Duration::from_secs(60);
+        rt.poll_shift(&st);
+        assert!(rt.store.later.iter().all(|l| l.id != id));
+        let job = rt.store.jobs.last().expect("the waiting job started");
+        assert_eq!(job.bot, Member::Builder);
+        assert!(job.shift);
+        assert!(job.label().contains("tidy the flaky tests"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_fresh_crew_is_idle() {
         let rt = Runtime::new(quiet_store());
         assert!(!rt.busy());
