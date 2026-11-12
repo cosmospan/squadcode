@@ -796,14 +796,18 @@ pub struct Shell {
     issue_list: Option<IssueList>,
     /// A rewind waiting for its OK: the job and the point.
     rewind_ask: Option<(u64, usize)>,
-    /// Terminal drawers' shells, by job, and the job whose drawer is open.
-    terms: HashMap<u64, crate::pty::Shell>,
+    /// Terminal drawers (their tabs of shells), by job, project or server,
+    /// and the one whose drawer is open.
+    terms: HashMap<u64, term::Drawer>,
     term_open: Option<u64>,
     term_focus: FocusHandle,
     term_focused: bool,
     /// Frames left to keep handing focus to a drawer that just opened.
     term_grab: u8,
     term_cols: u16,
+    /// How tall the open drawer's shells were last drawn, for fitting them
+    /// when it fills its space.
+    term_h: std::rc::Rc<std::cell::Cell<f32>>,
     /// The window's width, for fitting the terminal to it.
     view_w: f32,
     /// How see-through the window is, under Settings > Appearance.
@@ -1564,6 +1568,7 @@ impl Shell {
             term_focused: false,
             term_grab: 0,
             term_cols: 100,
+            term_h: Default::default(),
             view_w: 1280.,
             clear_slider,
             pop_slider,
@@ -3951,6 +3956,9 @@ impl Render for Shell {
         });
         let setup = self.place == Place::Welcome;
         let project_drawer = self.project_drawer(cx);
+        // A project's or the server's terminal filling the page takes the
+        // page's place.
+        let term_fills = self.shared_term_max() && !setup;
         let root = div()
             .size_full()
             .relative()
@@ -4108,23 +4116,25 @@ impl Render for Shell {
                             .when(setup, |d| d.h_full())
                             .when(!setup, |d| d.bg(c(ui::bg())))
                             .relative()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .w_full()
-                                    .relative()
-                                    .overflow_hidden()
-                                    // The pattern lies under the page only, not the top bar:
-                                    // the bar is a plain strip of the page's own ground, so
-                                    // the pattern never runs into the bar's edge and no grid
-                                    // line lands a few pixels off it.
-                                    .when(!setup, |d| {
-                                        d.children(ui::pattern(crate::pattern::Area::Content))
-                                    })
-                                    .child(div().size_full().child(body))
-                                    .children(self.file_view(cx)),
-                            )
+                            .when(!term_fills, |d| {
+                                d.child(
+                                    div()
+                                        .flex_1()
+                                        .min_h_0()
+                                        .w_full()
+                                        .relative()
+                                        .overflow_hidden()
+                                        // The pattern lies under the page only, not the top bar:
+                                        // the bar is a plain strip of the page's own ground, so
+                                        // the pattern never runs into the bar's edge and no grid
+                                        // line lands a few pixels off it.
+                                        .when(!setup, |d| {
+                                            d.children(ui::pattern(crate::pattern::Area::Content))
+                                        })
+                                        .child(div().size_full().child(body))
+                                        .children(self.file_view(cx)),
+                                )
+                            })
                             .when(!setup, |d| d.children(project_drawer))
                             .when(!setup, |d| d.child(self.statusbar(cx))),
                     ),

@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- The terminal drawer holds several shells as tabs. + (or Cmd+T, Ctrl+Shift+T off a Mac) opens another shell in the same project or job, each tab is named by what its shell says it's doing, and its × (or Cmd+W) ends that shell. Side by side (Cmd+D) shows up to three of them next to each other, the one taking your keys marked in the accent; Fill the page (Cmd+Shift+Enter) lets the terminal take the page's place and fit itself to the height, and the same button puts it back. The job workspace's Terminal tab has the tabs and Side by side too.
+
 ## [2.0.0-alpha.11] - 2026-11-11
 
 ### Changed
