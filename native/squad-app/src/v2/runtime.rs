@@ -3616,6 +3616,7 @@ mod tests {
             name: "t".into(),
             path: dir.to_string_lossy().into_owned(),
             ship: String::new(),
+            ..Default::default()
         };
         let mut rt = Runtime::new(quiet_store());
         rt.store.jobs.push(store::Job {
@@ -3675,6 +3676,7 @@ mod tests {
             name: "t".into(),
             path: dir.to_string_lossy().into_owned(),
             ship: String::new(),
+            ..Default::default()
         };
         let mut rt = Runtime::new(quiet_store());
         rt.store.folders = vec![folder.clone()];
@@ -3747,6 +3749,7 @@ mod tests {
             name: "t".into(),
             path: "/tmp/squad-old-mention".into(),
             ship: String::new(),
+            ..Default::default()
         };
         rt.store.jobs.push(store::Job {
             id: 1,
@@ -3786,6 +3789,7 @@ mod tests {
             name: "t".into(),
             path: dir.to_string_lossy().into_owned(),
             ship: String::new(),
+            ..Default::default()
         };
         // Not a demo (the night shift skips those), but saves only mark the
         // store dirty, so nothing is written to ~/.squadcode.
@@ -3848,6 +3852,7 @@ mod tests {
             name: "t".into(),
             path: dir.to_string_lossy().into_owned(),
             ship: String::new(),
+            ..Default::default()
         };
         let opened = rt.start_job(&st, Member::Builder, Mode::Ask, "Read me".into(), folder);
         let Opened::Job(id) = opened else {
@@ -3876,6 +3881,7 @@ mod tests {
             name: "t".into(),
             path: dir.to_string_lossy().into_owned(),
             ship: String::new(),
+            ..Default::default()
         };
         let thread = rt.store.thread_here();
         rt.store.talks.push(Talk {
@@ -4091,6 +4097,7 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
             name: "repo".into(),
             path: repo.to_string_lossy().into_owned(),
             ship: String::new(),
+            ..Default::default()
         };
         let mut rt = Runtime::new(super::tests::quiet_store());
         let job = rt.make_job(
@@ -4283,6 +4290,7 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
             name: "repo".into(),
             path: repo.to_string_lossy().into_owned(),
             ship: String::new(),
+            ..Default::default()
         };
         Bench {
             base,

@@ -508,6 +508,7 @@ mod tests {
                 name: "t".into(),
                 path: folder.clone(),
                 ship: String::new(),
+                ..Default::default()
             },
             branch: iso.branch.clone(),
             worktree: iso.worktree.clone(),
@@ -544,6 +545,7 @@ mod tests {
                 name: "t".into(),
                 path: folder.clone(),
                 ship: String::new(),
+                ..Default::default()
             },
             branch: iso.branch.clone(),
             worktree: iso.worktree.clone(),
@@ -610,6 +612,7 @@ mod tests {
                 name: "t".into(),
                 path: folder.to_string(),
                 ship: String::new(),
+                ..Default::default()
             },
             branch: iso.branch.clone(),
             worktree: iso.worktree.clone(),

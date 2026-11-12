@@ -255,6 +255,7 @@ impl Shell {
             name: tied.rsplit(['/', '\\']).next().unwrap_or(tied).to_string(),
             path: tied.to_string(),
             ship: String::new(),
+            ..Default::default()
         }))
     }
 

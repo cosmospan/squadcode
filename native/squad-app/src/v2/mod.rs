@@ -19,6 +19,7 @@ pub mod cli;
 mod crew;
 mod data;
 mod demo;
+mod emblem;
 mod engine;
 mod engines;
 mod filetab;
@@ -1606,6 +1607,14 @@ impl Shell {
             Ok("usage-open") => shell.open_pop(popover::Pop::Usage),
             // The Run it later menu by a thread's send button, open.
             Ok("later-open") => shell.open_pop(popover::Pop::Later),
+            // The project switcher dropped from the head of the panel.
+            Ok("switcher") => shell.menu = Some((point(px(64.), px(98.)), menu::Ctx::Projects)),
+            // The emblem picker for the project you're in.
+            Ok("emblem") => {
+                if let Some(f) = shell.crew.store.folder() {
+                    shell.menu = Some((point(px(64.), px(98.)), menu::Ctx::Emblem(f.path.clone())));
+                }
+            }
             Ok("palette") => shell.open_palette(window, cx),
             // The project's app started from the sidebar, its card open
             // beside the run pill; "run-app:tucked" with the card tucked away.
@@ -4082,6 +4091,25 @@ impl Render for Shell {
                 {
                     cx.stop_propagation();
                     return;
+                }
+                // ⌥⌘1 to ⌥⌘9: the projects, in the switcher's order.
+                if (m.platform || m.control) && m.alt && !m.shift {
+                    if let Some(i) = key
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| (1..=9).contains(n))
+                        .map(|n| n - 1)
+                        .filter(|i| *i < this.crew.store.folders.len())
+                    {
+                        this.palette = false;
+                        if this.crew.store.current != i {
+                            this.crew.store.current = i;
+                            this.crew.store.save();
+                        }
+                        this.go(Place::Today, cx);
+                        cx.stop_propagation();
+                        return;
+                    }
                 }
                 if !(m.platform || m.control) || m.shift || m.alt {
                     return;

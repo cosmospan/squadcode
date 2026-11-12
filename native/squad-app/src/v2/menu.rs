@@ -1,4 +1,4 @@
-//! Right-click menus: on a project's tile, a thread, a bot, a job and a
+//! Right-click menus: on a project, a thread, a bot, a job and a
 //! message. Each offers what that thing's own buttons do, plus the things
 //! that otherwise take a trip (copy a path, show it in Finder, a terminal).
 //!
@@ -23,8 +23,12 @@ use super::{Place, Shell};
 /// What was right-clicked.
 #[derive(Clone)]
 pub(super) enum Ctx {
-    /// A project's tile on the rail, by its folder's path.
+    /// A project, from the switcher, by its folder's path.
     Project(String),
+    /// The switcher's list of projects, dropped from the head of the panel.
+    Projects,
+    /// The shapes and colours for a project's emblem, by its folder's path.
+    Emblem(String),
     /// A # thread in the sidebar: the project's path and the thread.
     Thread(String, u64),
     /// A bot in Direct messages.
@@ -46,6 +50,15 @@ pub(super) enum Ctx {
 #[derive(Clone)]
 enum Act {
     OpenProject(String),
+    AddProject,
+    /// Opens the emblem picker for a project, where its menu was.
+    PickEmblem(String),
+    /// A project's emblem takes the shape at this place in `emblem::SHAPES`.
+    Shape(String, usize),
+    /// A project's emblem takes the colour at this place in `emblem::TINTS`.
+    Tint(String, usize),
+    /// Squad picks the project's emblem again.
+    AutoEmblem(String),
     NewThread(String),
     ProjectTerminal(String),
     RemoveProject(String),
@@ -78,6 +91,23 @@ struct Item {
     icon: IconName,
     act: Act,
     danger: bool,
+    /// A project's emblem drawn in place of the icon.
+    lead: Option<super::emblem::Emblem>,
+    /// The quiet words on the right, and whether they're a status to stand out.
+    note: Option<(String, Note)>,
+    /// The one you're on: in bold, like a picked row.
+    on: bool,
+}
+
+/// How a note on a menu row is drawn.
+#[derive(Clone, Copy, PartialEq)]
+enum Note {
+    /// Faint mono, like a shortcut.
+    Key,
+    /// Something waits on you: ink on the accent.
+    Ask,
+    /// The crew works there: blue.
+    Busy,
 }
 
 /// `None` draws a hairline between groups.
@@ -89,6 +119,9 @@ fn item(label: impl Into<SharedString>, icon: IconName, act: Act) -> Entry {
         icon,
         act,
         danger: false,
+        lead: None,
+        note: None,
+        on: false,
     })
 }
 
@@ -98,6 +131,21 @@ fn danger(label: impl Into<SharedString>, icon: IconName, act: Act) -> Entry {
         icon,
         act,
         danger: true,
+        lead: None,
+        note: None,
+        on: false,
+    })
+}
+
+/// The keys that open the project at `i` in the list, the first nine:
+/// ⌥⌘ and its number on a Mac, Ctrl Alt and its number elsewhere.
+pub(super) fn project_key(i: usize) -> Option<String> {
+    (i < 9).then(|| {
+        if cfg!(target_os = "macos") {
+            format!("\u{2325}\u{2318}{}", i + 1)
+        } else {
+            format!("Ctrl Alt {}", i + 1)
+        }
     })
 }
 
@@ -216,6 +264,11 @@ impl Shell {
                     item("Open", IconName::ArrowRight, Act::OpenProject(p.clone())),
                     item("New thread", IconName::Hash, Act::NewThread(p.clone())),
                     item(
+                        "Change emblem\u{2026}",
+                        IconName::Palette,
+                        Act::PickEmblem(p.clone()),
+                    ),
+                    item(
                         "Open terminal here",
                         IconName::SquareTerminal,
                         Act::ProjectTerminal(p.clone()),
@@ -243,6 +296,87 @@ impl Shell {
                         Act::DeleteProject(p),
                     ),
                 ]
+            }
+            Ctx::Projects => {
+                let emblems = super::emblem::all(&store.folders);
+                let current = store.current;
+                let folders: Vec<(String, String)> = store
+                    .folders
+                    .iter()
+                    .map(|f| (f.name.clone(), f.path.clone()))
+                    .collect();
+                let mut v: Vec<Entry> = Vec::new();
+                for (i, (name, path)) in folders.into_iter().enumerate() {
+                    let rows = self.thread_rows_in(&path);
+                    let busy: usize = rows.iter().map(|r| r.2).sum();
+                    let asks: usize = rows.iter().map(|r| r.3).sum();
+                    let note = if asks > 0 {
+                        Some((format!("{asks} waiting"), Note::Ask))
+                    } else if busy > 0 {
+                        Some((format!("{busy} working"), Note::Busy))
+                    } else {
+                        project_key(i).map(|k| (k, Note::Key))
+                    };
+                    v.push(Some(Item {
+                        label: name.into(),
+                        icon: IconName::Folder,
+                        act: Act::OpenProject(path),
+                        danger: false,
+                        lead: emblems.get(i).copied(),
+                        note,
+                        on: i == current,
+                    }));
+                }
+                v.push(None);
+                v.push(item(
+                    "Add a project\u{2026}",
+                    IconName::Plus,
+                    Act::AddProject,
+                ));
+                v
+            }
+            Ctx::Emblem(path) => {
+                let Some(i) = store.folders.iter().position(|f| &f.path == path) else {
+                    return Vec::new();
+                };
+                let now = super::emblem::all(&store.folders)[i];
+                let mut v: Vec<Entry> = Vec::new();
+                for (k, (name, _)) in super::emblem::SHAPES.iter().enumerate() {
+                    v.push(Some(Item {
+                        label: (*name).into(),
+                        icon: IconName::Circle,
+                        act: Act::Shape(path.clone(), k),
+                        danger: false,
+                        lead: Some(super::emblem::Emblem {
+                            shape: k,
+                            tint: now.tint,
+                        }),
+                        note: None,
+                        on: k == now.shape,
+                    }));
+                }
+                v.push(None);
+                for k in 0..super::emblem::TINTS.len() {
+                    v.push(Some(Item {
+                        label: "".into(),
+                        icon: IconName::Circle,
+                        act: Act::Tint(path.clone(), k),
+                        danger: false,
+                        lead: Some(super::emblem::Emblem {
+                            shape: now.shape,
+                            tint: k,
+                        }),
+                        note: None,
+                        on: k == now.tint,
+                    }));
+                }
+                v.push(None);
+                v.push(item(
+                    "Let Squad pick",
+                    IconName::Sparkles,
+                    Act::AutoEmblem(path.clone()),
+                ));
+                v
             }
             Ctx::Thread(path, id) => {
                 let (path, id) = (path.clone(), *id);
@@ -437,9 +571,43 @@ impl Shell {
     }
 
     fn run_menu(&mut self, act: Act, window: &mut Window, cx: &mut Context<Self>) {
+        let was_at = self.menu.as_ref().map(|m| m.0);
         self.menu = None;
         self.menu_hot = None;
         match act {
+            Act::AddProject => self.pick_folder(cx),
+            Act::PickEmblem(p) => {
+                if let Some(at) = was_at {
+                    self.menu = Some((at, Ctx::Emblem(p)));
+                }
+            }
+            Act::Shape(p, k) => {
+                let tint = super::emblem::of(&self.crew.store.folders, &p).tint;
+                if let Some(f) = self.crew.store.folders.iter_mut().find(|f| f.path == p) {
+                    f.emblem = super::emblem::SHAPES[k].0.to_string();
+                    // Keep the colour it shows now, so changing one doesn't move the other.
+                    f.tint = Some(tint as u8);
+                }
+                self.crew.store.save();
+                // Stay open, to try another.
+                self.menu = was_at.map(|at| (at, Ctx::Emblem(p)));
+            }
+            Act::Tint(p, k) => {
+                let shape = super::emblem::of(&self.crew.store.folders, &p).shape;
+                if let Some(f) = self.crew.store.folders.iter_mut().find(|f| f.path == p) {
+                    f.tint = Some(k as u8);
+                    f.emblem = super::emblem::SHAPES[shape].0.to_string();
+                }
+                self.crew.store.save();
+                self.menu = was_at.map(|at| (at, Ctx::Emblem(p)));
+            }
+            Act::AutoEmblem(p) => {
+                if let Some(f) = self.crew.store.folders.iter_mut().find(|f| f.path == p) {
+                    f.emblem.clear();
+                    f.tint = None;
+                }
+                self.crew.store.save();
+            }
             Act::OpenProject(p) => {
                 if self.pick_project(&p) {
                     self.go(Place::Today, cx);
@@ -594,24 +762,110 @@ impl Shell {
         if items.is_empty() {
             return None;
         }
+        // The emblem picker lays its shapes and colours out as a grid.
+        let picker = matches!(target, Ctx::Emblem(_));
         let mut list = div().flex().flex_col().p(px(5.));
+        let mut grid: Option<Div> = None;
+        let mut swatch: Option<Div> = None;
+        let mut section = 0;
         for (i, entry) in items.into_iter().enumerate() {
             let Some(entry) = entry else {
+                if picker {
+                    section += 1;
+                    continue;
+                }
                 list = list.child(div().my(px(4.)).mx(px(8.)).h(px(1.)).bg(c(ui::line())));
                 continue;
             };
             let hot = self.menu_hot == Some(i);
+            let act = entry.act;
+            if picker && section < 2 {
+                let lead = entry
+                    .lead
+                    .unwrap_or(super::emblem::Emblem { shape: 0, tint: 0 });
+                let click =
+                    cx.listener(move |this, _, window, cx| this.run_menu(act.clone(), window, cx));
+                if section == 0 {
+                    let cell = div()
+                        .id(("menu-shape", i))
+                        .size(px(32.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(8.))
+                        .cursor_pointer()
+                        .map(|d| {
+                            if entry.on {
+                                d.child(super::sidebar::emblem_tile(lead, 32.))
+                            } else {
+                                d.text_color(c(ui::muted()))
+                                    .when(hot, |d| d.bg(c(ui::hover())))
+                                    .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                                    .child(Icon::new(lead.icon()).size(px(16.)))
+                            }
+                        })
+                        .on_click(click);
+                    grid = Some(
+                        grid.unwrap_or_else(|| {
+                            div()
+                                .w(px(7. * 34.))
+                                .flex()
+                                .flex_wrap()
+                                .gap(px(2.))
+                                .p(px(4.))
+                        })
+                        .child(cell),
+                    );
+                } else {
+                    let col = lead.color();
+                    let dot = div()
+                        .id(("menu-tint", i))
+                        .size(px(22.))
+                        .rounded_full()
+                        .cursor_pointer()
+                        .bg(c(col))
+                        .border_2()
+                        .border_color(c(ui::float()))
+                        .when(entry.on || hot, |d| {
+                            d.shadow(vec![BoxShadow {
+                                color: c(if entry.on { ui::ink() } else { ui::line_hi() }),
+                                offset: point(px(0.), px(0.)),
+                                blur_radius: px(0.),
+                                spread_radius: px(1.5),
+                                inset: false,
+                            }])
+                        })
+                        .on_click(click);
+                    swatch = Some(
+                        swatch
+                            .unwrap_or_else(|| {
+                                div().flex().gap(px(6.)).px(px(8.)).pt(px(6.)).pb(px(8.))
+                            })
+                            .child(dot),
+                    );
+                }
+                continue;
+            }
+            if let Some(g) = grid.take() {
+                list = list.child(g);
+            }
+            if let Some(sw) = swatch.take() {
+                list = list
+                    .child(div().my(px(4.)).mx(px(8.)).h(px(1.)).bg(c(ui::line())))
+                    .child(sw)
+                    .child(div().my(px(4.)).mx(px(8.)).h(px(1.)).bg(c(ui::line())));
+            }
             let (ink, glyph, wash) = if entry.danger {
                 (ui::t_red(), ui::t_red(), ca(ui::RED, 0.10))
             } else {
                 (ui::ink(), ui::muted(), c(ui::hover()))
             };
-            let act = entry.act;
+            let tall = entry.lead.is_some();
             list = list.child(
                 div()
                     .id(("menu-item", i))
-                    .h(px(30.))
-                    .px(px(9.))
+                    .h(px(if tall { 34. } else { 30. }))
+                    .px(px(if tall { 6. } else { 9. }))
                     .flex()
                     .items_center()
                     .gap(px(9.))
@@ -619,18 +873,62 @@ impl Shell {
                     .cursor_pointer()
                     .text_size(px(13.))
                     .text_color(c(ink))
+                    .when(entry.on, |d| d.font_weight(FontWeight::SEMIBOLD).bg(wash))
                     .when(hot, |d| d.bg(wash))
                     .hover(move |s| s.bg(wash))
-                    .child(Icon::new(entry.icon).size(px(14.)).text_color(c(glyph)))
-                    .child(entry.label)
+                    .map(|d| match entry.lead {
+                        Some(e) => d.child(super::sidebar::emblem_tile(e, 22.)),
+                        None => d.child(Icon::new(entry.icon).size(px(14.)).text_color(c(glyph))),
+                    })
+                    .child(div().flex_1().min_w_0().truncate().child(entry.label))
+                    .when_some(entry.note, |d, (text, kind)| {
+                        let n = div()
+                            .flex_none()
+                            .ml(px(10.))
+                            .font_family(ui::MONO)
+                            .text_size(px(10.5))
+                            .font_weight(FontWeight::NORMAL);
+                        d.child(match kind {
+                            Note::Key => n.text_color(c(ui::faint())).child(text),
+                            Note::Ask => n
+                                .px(px(5.))
+                                .rounded(px(3.))
+                                .bg(c(ui::pick_fill()))
+                                .text_color(c(ui::pick_on()))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(text),
+                            Note::Busy => n
+                                .flex()
+                                .items_center()
+                                .gap(px(5.))
+                                .text_color(c(ui::faint()))
+                                .child(div().size(px(6.)).rounded(px(1.)).bg(c(ui::t_blue())))
+                                .child(text),
+                        })
+                    })
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.run_menu(act.clone(), window, cx)
                     })),
             );
         }
+        if picker {
+            list = list.child(
+                div()
+                    .px(px(9.))
+                    .pt(px(2.))
+                    .pb(px(4.))
+                    .text_size(px(11.5))
+                    .text_color(c(ui::faint()))
+                    .child("Shape and colour for this project"),
+            );
+        }
         let menu = div()
             .id("menu")
-            .min_w(px(220.))
+            .min_w(px(if matches!(target, Ctx::Projects) {
+                236.
+            } else {
+                220.
+            }))
             .rounded(px(11.))
             .bg(c(ui::float()))
             .border_1()

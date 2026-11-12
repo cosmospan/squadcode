@@ -333,6 +333,7 @@ mod tests {
                 name: "app".into(),
                 path: "/work/app".into(),
                 ship: String::new(),
+                ..Default::default()
             },
             race: 0,
             goal: false,
