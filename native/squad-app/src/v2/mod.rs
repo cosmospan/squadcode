@@ -601,6 +601,15 @@ pub struct Shell {
     /// Typing into a run's output, for a prompt it shows.
     run_focus: FocusHandle,
     run_typing: Option<u64>,
+    /// The run whose card is open beside the sidebar's run pill; it tucks
+    /// back into the pill when you go elsewhere or click outside it.
+    run_pop: Option<u64>,
+    /// When that card was last tucked away by a click outside it, so the
+    /// same click landing on the pill doesn't open it again.
+    run_pop_shut: Option<Instant>,
+    /// What Run app would start in a folder, looked up now and then rather
+    /// than on every frame: (folder, when, command).
+    run_guess: Option<(String, Instant, Option<String>)>,
     /// Where a command clicked in a message was said: Peek's message, the
     /// job. Its card shows there.
     act_from: (Option<u64>, Option<u64>),
@@ -795,14 +804,18 @@ pub struct Shell {
     issue_list: Option<IssueList>,
     /// A rewind waiting for its OK: the job and the point.
     rewind_ask: Option<(u64, usize)>,
-    /// Terminal drawers' shells, by job, and the job whose drawer is open.
-    terms: HashMap<u64, crate::pty::Shell>,
+    /// Terminal drawers (their tabs of shells), by job, project or server,
+    /// and the one whose drawer is open.
+    terms: HashMap<u64, term::Drawer>,
     term_open: Option<u64>,
     term_focus: FocusHandle,
     term_focused: bool,
     /// Frames left to keep handing focus to a drawer that just opened.
     term_grab: u8,
     term_cols: u16,
+    /// How tall the open drawer's shells were last drawn, for fitting them
+    /// when it fills its space.
+    term_h: std::rc::Rc<std::cell::Cell<f32>>,
     /// The window's width, for fitting the terminal to it.
     view_w: f32,
     /// How see-through the window is, under Settings > Appearance.
@@ -1442,6 +1455,9 @@ impl Shell {
             next_run: 0,
             run_focus: cx.focus_handle(),
             run_typing: None,
+            run_pop: None,
+            run_pop_shut: None,
+            run_guess: None,
             act_from: (None, None),
             warmed_at: None,
             run_wanted: None,
@@ -1561,6 +1577,7 @@ impl Shell {
             term_focused: false,
             term_grab: 0,
             term_cols: 100,
+            term_h: Default::default(),
             view_w: 1280.,
             clear_slider,
             pop_slider,
@@ -1590,6 +1607,19 @@ impl Shell {
             // The Run it later menu by a thread's send button, open.
             Ok("later-open") => shell.open_pop(popover::Pop::Later),
             Ok("palette") => shell.open_palette(window, cx),
+            // The project's app started from the sidebar, its card open
+            // beside the run pill; "run-app:tucked" with the card tucked away.
+            Ok(p) if p.starts_with("run-app") => {
+                shell.run_app(None, None, cx);
+                if p.ends_with(":tucked") {
+                    shell.run_pop = None;
+                }
+            }
+            // The Overview with its Setup form open.
+            Ok("project-setup") => {
+                shell.place = Place::Overview;
+                shell.open_project_setup(window, cx);
+            }
             // "job:9:files" opens job #9's workspace on its Files tab.
             Ok(p) if p.starts_with("job:") && p.matches(':').count() == 2 => {
                 let tab = p.rsplit(':').next().unwrap_or_default();
@@ -1761,6 +1791,8 @@ impl Shell {
                 self.side_job = true;
             }
             self.place = place;
+            // A run's card open beside the sidebar tucks back into its pill.
+            self.run_pop = None;
             if let Place::Settings(pane) = place {
                 self.settings_pane = pane;
             }
@@ -3951,6 +3983,9 @@ impl Render for Shell {
         });
         let setup = self.place == Place::Welcome;
         let project_drawer = self.project_drawer(cx);
+        // A project's or the server's terminal filling the page takes the
+        // page's place.
+        let term_fills = self.shared_term_max() && !setup;
         let root = div()
             .size_full()
             .relative()
@@ -4114,23 +4149,25 @@ impl Render for Shell {
                             .when(setup, |d| d.h_full())
                             .when(!setup, |d| d.bg(c(ui::bg())))
                             .relative()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .w_full()
-                                    .relative()
-                                    .overflow_hidden()
-                                    // The pattern lies under the page only, not the top bar:
-                                    // the bar is a plain strip of the page's own ground, so
-                                    // the pattern never runs into the bar's edge and no grid
-                                    // line lands a few pixels off it.
-                                    .when(!setup, |d| {
-                                        d.children(ui::pattern(crate::pattern::Area::Content))
-                                    })
-                                    .child(div().size_full().child(body))
-                                    .children(self.file_view(cx)),
-                            )
+                            .when(!term_fills, |d| {
+                                d.child(
+                                    div()
+                                        .flex_1()
+                                        .min_h_0()
+                                        .w_full()
+                                        .relative()
+                                        .overflow_hidden()
+                                        // The pattern lies under the page only, not the top bar:
+                                        // the bar is a plain strip of the page's own ground, so
+                                        // the pattern never runs into the bar's edge and no grid
+                                        // line lands a few pixels off it.
+                                        .when(!setup, |d| {
+                                            d.children(ui::pattern(crate::pattern::Area::Content))
+                                        })
+                                        .child(div().size_full().child(body))
+                                        .children(self.file_view(cx)),
+                                )
+                            })
                             .when(!setup, |d| d.children(project_drawer))
                             .when(!setup, |d| d.child(self.statusbar(cx))),
                     ),

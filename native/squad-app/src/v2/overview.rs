@@ -40,7 +40,7 @@ impl ProjectForm {
             copy: make(".env.local"),
             run: make("pnpm dev --port $PORT"),
             url: make("http://localhost:$PORT"),
-            port: make("3100"),
+            port: make("off"),
             checks: make("pnpm lint, pnpm test"),
             editing: false,
             error: None,
@@ -173,6 +173,111 @@ fn code(text: String) -> Div {
             .text_color(c(ui::ink()))
             .child(text)
     }
+}
+
+/// What Squad works out about the project in `dir` with no `squad.toml`:
+/// how to start it, where it serves, and its checks.
+fn found_in(dir: &str) -> Project {
+    let (run, url) = super::work::detect_start(dir).unwrap_or_default();
+    Project {
+        run,
+        url: url.unwrap_or_default(),
+        checks: super::work::detect_checks(dir),
+        ..Project::default()
+    }
+}
+
+/// Where Squad found the run command in `dir`, in a word or two.
+fn found_where(dir: &str) -> &'static str {
+    let d = std::path::Path::new(dir);
+    [
+        ("package.json", "found in package.json"),
+        ("Cargo.toml", "found in Cargo.toml"),
+        ("pyproject.toml", "found in pyproject.toml"),
+        ("manage.py", "found in manage.py"),
+        ("go.mod", "found in go.mod"),
+        ("Makefile", "found in Makefile"),
+        ("Procfile", "found in Procfile"),
+    ]
+    .iter()
+    .find(|(f, _)| d.join(f).exists())
+    .map(|(_, w)| *w)
+    .unwrap_or("found")
+}
+
+/// A field of the Setup form: its name and what it's for on one line, the
+/// box under them across the card.
+fn form_field(key: &str, hint: &str, input: Div) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .py(px(10.))
+        .border_b_1()
+        .border_color(c(ui::line2()))
+        .child(
+            div()
+                .flex()
+                .items_baseline()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c(ui::ink()))
+                        .child(key.to_string()),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(12.))
+                        .text_color(c(ui::faint()))
+                        .child(hint.to_string()),
+                ),
+        )
+        .child(div().w_full().flex().child(input))
+}
+
+/// A text box in the Setup form, `w` wide or the whole row, with a small
+/// "found" tag when Squad filled it in from the project.
+fn input_box(input: &Entity<InputState>, w: Option<f32>, badge: Option<String>) -> Div {
+    div()
+        .when_some(w, |d, w| d.w(px(w)).flex_none())
+        .when(w.is_none(), |d| d.flex_1().min_w_0())
+        .h(px(32.))
+        .pl(px(2.))
+        .pr(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .rounded(px(6.))
+        .bg(c(ui::raised()))
+        .border_1()
+        .border_color(c(ui::line()))
+        .font_family(ui::MONO)
+        .text_size(px(12.5))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(Input::new(input).appearance(false).bordered(false)),
+        )
+        .when_some(badge, |d, b| {
+            d.child(
+                div()
+                    .flex_none()
+                    .px(px(6.))
+                    .py(px(1.))
+                    .rounded(px(4.))
+                    .bg(ui::ca(ui::accent_bar(), 0.16))
+                    .font_family(ui::MONO)
+                    .text_size(px(10.))
+                    .text_color(c(ui::accent_text()))
+                    .child(b.to_uppercase()),
+            )
+        })
 }
 
 impl Shell {
@@ -458,6 +563,19 @@ impl Shell {
             )
     }
 
+    /// Opens the Setup form on the Overview, filled from `squad.toml`, or
+    /// from what Squad finds in the project when there's none yet.
+    pub(super) fn open_project_setup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(here) = self.crew.store.folder().map(|f| f.path.clone()) else {
+            return;
+        };
+        let start = project::load(&here).unwrap_or_else(|| found_in(&here));
+        self.proj_form.fill(&start, window, cx);
+        self.proj_form.editing = true;
+        self.proj_form.error = None;
+        cx.notify();
+    }
+
     /// How every job sets up: `squad.toml`, read, or as a form to edit.
     fn overview_setup(&mut self, here: &str, cx: &mut Context<Self>) -> Div {
         let read = project::read(here);
@@ -465,42 +583,69 @@ impl Shell {
             Ok(p) => (p.clone(), None),
             Err(why) => (None, Some(why.clone())),
         };
+        let found = found_in(here);
         let sub = match (&file, &broken) {
             (_, Some(_)) => format!("{} has a mistake", project::FILE),
-            (Some(_), None) => format!("{} \u{b7} in the project", project::FILE),
-            (None, None) => format!("No {} yet \u{b7} Squad works these out", project::FILE),
+            (Some(_), None) => format!("From {} in the project.", project::FILE),
+            (None, None) => format!(
+                "No {} yet. These are what Squad found in the project; save them to keep or change them.",
+                project::FILE
+            ),
         };
         let mut card = panel().child(card_head("Setup", Some(sub)));
         if self.proj_form.editing {
-            let row = |key: &str, input: &Entity<InputState>| {
-                field(
-                    key,
-                    div()
-                        .h(px(30.))
-                        .px(px(2.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(6.))
-                        .bg(c(ui::raised()))
-                        .border_1()
-                        .border_color(c(ui::line()))
-                        .font_family(ui::MONO)
-                        .text_size(px(12.5))
-                        .child(Input::new(input).appearance(false).bordered(false)),
-                )
-            };
             let f = &self.proj_form;
+            let value = |input: &Entity<InputState>| input.read(cx).value().trim().to_string();
+            // A field Squad filled in from the project says so, until you
+            // change it.
+            let from = |now: String, was: String, whence: &str| -> Option<String> {
+                (!now.is_empty() && now == was).then(|| whence.to_string())
+            };
+            let run_from = from(value(&f.run), found.run.clone(), found_where(here));
+            let url_from = from(value(&f.url), found.url.clone(), "found");
+            let checks_from = from(value(&f.checks), found.checks.join(", "), "found");
+            let row = |key: &str,
+                       hint: &str,
+                       input: &Entity<InputState>,
+                       w: Option<f32>,
+                       badge: Option<String>| {
+                form_field(key, hint, input_box(input, w, badge))
+            };
             card = card
                 .child(
                     div()
                         .flex()
                         .flex_col()
-                        .child(row("Setup", &f.setup))
-                        .child(row("Copy", &f.copy))
-                        .child(row("Run", &f.run))
-                        .child(row("Address", &f.url))
-                        .child(row("Port", &f.port))
-                        .child(row("Checks", &f.checks)),
+                        .child(row("Run", "How to start the app", &f.run, None, run_from))
+                        .child(row("Address", "Where it serves", &f.url, None, url_from))
+                        .child(row(
+                            "Setup",
+                            "Commands a fresh job copy runs first",
+                            &f.setup,
+                            None,
+                            None,
+                        ))
+                        .child(row(
+                            "Copy",
+                            "Ignored files each job copy gets",
+                            &f.copy,
+                            None,
+                            None,
+                        ))
+                        .child(row(
+                            "Ports",
+                            "Each job's app gets its own port from here",
+                            &f.port,
+                            Some(220.),
+                            None,
+                        ))
+                        .child(row(
+                            "Checks",
+                            "Checker runs these on every finished job",
+                            &f.checks,
+                            None,
+                            checks_from,
+                        )),
                 )
                 .child(div().text_size(px(12.)).text_color(c(ui::faint())).child(
                     "Separate several commands or files with commas. $PORT is each job's own port.",
@@ -514,33 +659,56 @@ impl Shell {
                     )
                 });
             let dir = here.to_string();
+            let again = found.clone();
             card = card.child(
                 div()
                     .flex()
+                    .items_center()
                     .gap(px(8.))
-                    .child(ui::solid("ov-save", "Save").on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            match this
-                                .proj_form
-                                .read(cx)
-                                .and_then(|p| project::write(&dir, &p))
-                            {
-                                Ok(()) => {
-                                    this.proj_form.editing = false;
-                                    this.proj_form.error = None;
+                    .child(
+                        ui::solid("ov-save", format!("Save to {}", project::FILE)).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                match this
+                                    .proj_form
+                                    .read(cx)
+                                    .and_then(|p| project::write(&dir, &p))
+                                {
+                                    Ok(()) => {
+                                        this.proj_form.editing = false;
+                                        this.proj_form.error = None;
+                                        this.run_guess = None;
+                                    }
+                                    Err(why) => this.proj_form.error = Some(why),
                                 }
-                                Err(why) => this.proj_form.error = Some(why),
-                            }
-                            cx.notify();
-                        },
-                    )))
+                                cx.notify();
+                            }),
+                        ),
+                    )
                     .child(ui::ghost("ov-cancel", "Cancel").on_click(cx.listener(
                         |this, _, _, cx| {
                             this.proj_form.editing = false;
                             this.proj_form.error = None;
                             cx.notify();
                         },
-                    ))),
+                    )))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .id("ov-found")
+                            .px(px(6.))
+                            .py(px(3.))
+                            .rounded(px(4.))
+                            .cursor_pointer()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::accent_text()))
+                            .hover(|s| s.bg(c(ui::hover())))
+                            .child("Use what Squad found")
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.proj_form.fill(&again, window, cx);
+                                cx.notify();
+                            })),
+                    ),
             );
             return card;
         }
@@ -553,27 +721,23 @@ impl Shell {
             );
         }
         // What jobs get now: the file's keys, or what Squad found.
-        let shown = file.clone().unwrap_or_else(|| {
-            let (run, url) = super::work::detect_start(here).unwrap_or_default();
-            Project {
-                run,
-                url: url.unwrap_or_default(),
-                checks: super::work::detect_checks(here),
-                ..Project::default()
-            }
-        });
-        let start = shown.clone();
-        let dir = here.to_string();
+        let shown = file.clone().unwrap_or_else(|| found.clone());
         card.child(
             div()
                 .flex()
                 .flex_col()
+                .child(field("Run", code(shown.run.clone())))
+                .child(field("Address", code(shown.url.clone())))
                 .child(field("Setup", code(shown.setup.join(", "))))
                 .child(field("Copy", code(shown.copy.join(", "))))
-                .child(field("Run", code(shown.run.clone())))
-                .when(shown.port > 0, |d| {
-                    d.child(field("Ports", code(format!("from {}", shown.port))))
-                })
+                .child(field(
+                    "Ports",
+                    code(if shown.port > 0 {
+                        format!("from {}", shown.port)
+                    } else {
+                        String::new()
+                    }),
+                ))
                 .child(field("Checks", code(shown.checks.join(", ")))),
         )
         .child(
@@ -584,11 +748,7 @@ impl Shell {
                     if file.is_some() { "Edit" } else { "Set up" },
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    let _ = &dir;
-                    this.proj_form.fill(&start, window, cx);
-                    this.proj_form.editing = true;
-                    this.proj_form.error = None;
-                    cx.notify();
+                    this.open_project_setup(window, cx);
                 })),
             ),
         )

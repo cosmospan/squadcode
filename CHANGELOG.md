@@ -4,9 +4,17 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- The terminal drawer holds several shells as tabs. + (or Cmd+T, Ctrl+Shift+T off a Mac) opens another shell in the same project or job, each tab is named by what its shell says it's doing, and its × (or Cmd+W) ends that shell. Side by side (Cmd+D) shows up to three of them next to each other, the one taking your keys marked in the accent; Fill the page (Cmd+Shift+Enter) lets the terminal take the page's place and fit itself to the height, and the same button puts it back. The job workspace's Terminal tab has the tabs and Side by side too.
+
 ### Changed
 
 - The Run it later menu lines up: each time has an icon, its name over why you'd pick it, and when it starts in a column on the right, the clock over the day ("11:00 PM", "today"), so both lines of every row share an edge.
+- A running app no longer sits pinned over the composer. Run app turns into a small pill under the project's name with its command, port, an Open button and a chevron; its card (output, Restart, Stop) opens beside the sidebar the first time and tucks back into the pill when you go to another page or click outside it. Click the pill, or its line under Running now, to bring the card back. A crashed app shows red in the pill.
+- Run app says what it will run before you press it, and opens Setup when Squad can't tell, instead of doing nothing.
+- The Setup form on the Overview has room to type: each field has its name and what it's for over a full-width box, values Squad found are filled in and tagged, Address is shown, and Use what Squad found puts them back.
+- Run app knows more kinds of project: FastAPI, Streamlit and Flask apps (through uv, Poetry or a .venv), Spring Boot, Gradle, .NET, Deno, Rack, Hugo, Jekyll, PHP, Procfiles, Makefile and justfile targets, and a site in `public/`, `docs/` or `dist/`. Python runs with `python3`, which every Mac has.
 
 ### Fixed
 
