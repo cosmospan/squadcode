@@ -3789,6 +3789,7 @@ mod tests {
             name: "t".into(),
             path: dir.to_string_lossy().into_owned(),
             ship: String::new(),
+            ..Default::default()
         };
         // Not a demo (the night shift skips those), but saves only mark the
         // store dirty, so nothing is written to ~/.squadcode.
