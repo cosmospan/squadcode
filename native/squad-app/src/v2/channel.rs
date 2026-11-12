@@ -36,8 +36,24 @@ pub(super) const COMMANDS: [(&str, &str); 9] = [
     ("/delete", "Delete this thread; its jobs move to #general"),
 ];
 
-/// How wide the chat column reads at most.
+/// How wide the composer reads at most, and the chat while a side panel
+/// is open beside the thread.
 const COLUMN: f32 = 760.;
+
+/// How wide the chat reads at most when no side panel is open: messages
+/// and job cards stretch into the room the panel would take, while the
+/// composer keeps to `COLUMN`.
+const COLUMN_WIDE: f32 = 1440.;
+
+/// How wide the chat may read: wide with the right side closed, back to
+/// the composer's width when the Jobs panel or a job's pane is open.
+fn feed_width(side_open: bool) -> f32 {
+    if side_open {
+        COLUMN
+    } else {
+        COLUMN_WIDE
+    }
+}
 
 /// How many entries a thread shows at first, and adds with each "Show earlier".
 const THREAD_PAGE: usize = 30;
@@ -884,9 +900,20 @@ impl Shell {
             self.thread_scroll.scroll_to_bottom();
         }
         let empty = shown.is_empty();
+        // Is anything open on the right? The Jobs panel, or a job's own
+        // conversation beside the thread. Then the chat narrows back.
+        let side_open = self.jobs_open
+            || self
+                .reply_open
+                .and_then(|id| self.crew.store.job(id))
+                .is_some_and(|j| {
+                    j.folder.path == folder.path
+                        && self.crew.store.thread_for(&folder.path, j.thread) == thread
+                });
+        let wide = feed_width(side_open);
         let mut feed = div()
             .w_full()
-            .max_w(px(COLUMN))
+            .max_w(px(wide))
             .flex()
             .flex_col()
             .child(self.thread_intro(thread, &name, empty, total));
@@ -970,7 +997,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(head)
-            .children(self.about_thread(&folder.path, thread, cx))
+            .children(self.about_thread(&folder.path, thread, wide, cx))
             .children(catch_up.map(|bar| self.catch_up_line(bar, cx)))
             .child(
                 div()
@@ -1097,7 +1124,13 @@ impl Shell {
     /// "About this thread": what the thread is for in one line, opening to
     /// the whole summary bots read, the person's pinned notes (each can go),
     /// and Rewrite now. Nothing until the thread has something in it.
-    fn about_thread(&mut self, folder: &str, thread: u64, cx: &mut Context<Self>) -> Option<Div> {
+    fn about_thread(
+        &mut self,
+        folder: &str,
+        thread: u64,
+        wide: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
         let sum = self.crew.store.summary(folder, thread).cloned();
         let said = self.crew.store.said_in(folder, thread).len();
         let writing = self.crew.summing(folder, thread);
@@ -1125,7 +1158,7 @@ impl Shell {
         let _ = line;
         let mut body = div()
             .w_full()
-            .max_w(px(COLUMN))
+            .max_w(px(wide))
             .mx_auto()
             .px(px(28.))
             .py(px(12.))

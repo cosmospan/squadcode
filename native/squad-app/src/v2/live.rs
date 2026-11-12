@@ -48,6 +48,8 @@ impl Shell {
             );
         };
         let drawer = self.term_drawer(&job, cx);
+        // The job's terminal filling the page takes the feed's place.
+        let fills = drawer.is_some() && self.term_max();
         // What Squad runs for this job (its app, a command from its words),
         // under it, whatever its feed scrolls to.
         let runs = self.job_runs(id, cx);
@@ -65,15 +67,17 @@ impl Shell {
             .size_full()
             .flex()
             .flex_col()
-            .child(
-                // Its details live in the one right sidebar, beside the Jobs list.
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .child(self.live_main(&job, cx)),
-            )
-            .children(runs)
+            .when(!fills, |d| {
+                d.child(
+                    // Its details live in the one right sidebar, beside the Jobs list.
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .child(self.live_main(&job, cx)),
+                )
+                .children(runs)
+            })
             .children(drawer)
             .into_any_element()
     }
