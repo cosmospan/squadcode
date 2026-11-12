@@ -19,6 +19,7 @@ pub mod cli;
 mod crew;
 mod data;
 mod demo;
+mod emblem;
 mod engine;
 mod engines;
 mod filetab;
@@ -1590,6 +1591,14 @@ impl Shell {
             }
             // The status bar's usage popover, open.
             Ok("usage-open") => shell.usage_open = true,
+            // The project switcher dropped from the head of the panel.
+            Ok("switcher") => shell.menu = Some((point(px(64.), px(98.)), menu::Ctx::Projects)),
+            // The emblem picker for the project you're in.
+            Ok("emblem") => {
+                if let Some(f) = shell.crew.store.folder() {
+                    shell.menu = Some((point(px(64.), px(98.)), menu::Ctx::Emblem(f.path.clone())));
+                }
+            }
             Ok("palette") => shell.open_palette(window, cx),
             // "job:9:files" opens job #9's workspace on its Files tab.
             Ok(p) if p.starts_with("job:") && p.matches(':').count() == 2 => {
@@ -4041,6 +4050,25 @@ impl Render for Shell {
                 {
                     cx.stop_propagation();
                     return;
+                }
+                // ⌥⌘1 to ⌥⌘9: the projects, in the switcher's order.
+                if (m.platform || m.control) && m.alt && !m.shift {
+                    if let Some(i) = key
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| (1..=9).contains(n))
+                        .map(|n| n - 1)
+                        .filter(|i| *i < this.crew.store.folders.len())
+                    {
+                        this.palette = false;
+                        if this.crew.store.current != i {
+                            this.crew.store.current = i;
+                            this.crew.store.save();
+                        }
+                        this.go(Place::Today, cx);
+                        cx.stop_propagation();
+                        return;
+                    }
                 }
                 if !(m.platform || m.control) || m.shift || m.alt {
                     return;

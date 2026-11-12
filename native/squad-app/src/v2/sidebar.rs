@@ -158,102 +158,35 @@ fn running(n: usize) -> Div {
     row_note(format!("{n} working"), Some(ui::t_blue()))
 }
 
-/// The colours projects and threads take in turn, so each is easy to spot.
-const TINTS: [u32; 6] = [
-    ui::VIOLET,
-    ui::GREEN,
-    ui::ORANGE,
-    ui::BLUE,
-    ui::AMBER,
-    ui::RED,
-];
-
-/// A project's colour, the same wherever it sits in the list.
-fn path_tint(path: &str) -> u32 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    path.hash(&mut h);
-    TINTS[(h.finish() % TINTS.len() as u64) as usize]
-}
-
-/// Up to two letters for a project: the first of its first two words
-/// ("squad-code" is SC, "myApp" is MA), else its first two ("shop" is Sh).
-fn initials(name: &str) -> String {
-    let mut words: Vec<String> = Vec::new();
-    let mut word = String::new();
-    let mut prev_lower = false;
-    for ch in name.chars() {
-        if !ch.is_alphanumeric() {
-            if !word.is_empty() {
-                words.push(std::mem::take(&mut word));
-            }
-            prev_lower = false;
-            continue;
-        }
-        if ch.is_uppercase() && prev_lower && !word.is_empty() {
-            words.push(std::mem::take(&mut word));
-        }
-        prev_lower = ch.is_lowercase();
-        word.push(ch);
-    }
-    if !word.is_empty() {
-        words.push(word);
-    }
-    match words.as_slice() {
-        [] => "?".into(),
-        [one] => {
-            let mut cs = one.chars();
-            let a: String = cs
-                .next()
-                .map(|c| c.to_uppercase().collect())
-                .unwrap_or_default();
-            let b: String = cs
-                .next()
-                .map(|c| c.to_lowercase().collect())
-                .unwrap_or_default();
-            format!("{a}{b}")
-        }
-        [a, b, ..] => [a, b]
-            .iter()
-            .filter_map(|w| w.chars().next())
-            .flat_map(|c| c.to_uppercase())
-            .collect(),
-    }
-}
-
-/// A project's tile: its letters in mono on a soft wash of its colour. The
-/// project you're in is ringed in the accent.
-fn monogram(name: &str, tint: u32, on: bool) -> Div {
-    // The ring is a frame around the tile, 2px off it and 1.5px wide, as in the
-    // design. Box shadows drew it as one thick band with no gap.
+/// A project's emblem as a tile `size` across: its shape in its colour on a
+/// wash of that colour.
+pub(super) fn emblem_tile(e: super::emblem::Emblem, size: f32) -> Div {
+    let tint = e.color();
     div()
-        .size(px(39.))
+        .size(px(size))
         .flex_none()
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(9.5))
+        .rounded(px((size * 0.28).round()))
+        .bg(c(super::theme::mix(ui::raised(), tint, 0.2)))
+        .text_color(c(super::theme::mix(tint, ui::ink(), 0.45)))
+        .child(Icon::new(e.icon()).size(px((size * 0.52).round())))
+}
+
+/// A small round dot pinned to a rail button's corner, ringed in the rail's
+/// ground so it reads as sitting on top.
+fn corner_dot(col: u32, top: bool) -> Div {
+    div()
+        .absolute()
+        .when(top, |d| d.top(px(5.)))
+        .when(!top, |d| d.bottom(px(5.)))
+        .right(px(5.))
+        .size(px(8.))
+        .rounded_full()
         .border(px(1.5))
-        .border_color(if on {
-            c(ui::accent_bar())
-        } else {
-            gpui::transparent_black()
-        })
-        .child(
-            div()
-                .size(px(32.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(6.))
-                .font_family(ui::MONO)
-                .text_size(px(11.))
-                .font_weight(FontWeight::MEDIUM)
-                .bg(c(super::theme::mix(ui::raised(), tint, 0.2)))
-                .text_color(c(super::theme::mix(tint, ui::ink(), 0.55)))
-                .child(initials(name)),
-        )
+        .border_color(c(ground()))
+        .bg(c(col))
 }
 
 /// How many things wait on you, on the Inbox's corner: mono on the accent.
@@ -281,29 +214,6 @@ fn count_badge(n: usize) -> Div {
         } else {
             n.to_string()
         })
-}
-
-/// A small square in the accent on a tile's corner: something in the
-/// project is new or needs you.
-fn ask_dot() -> Div {
-    div()
-        .absolute()
-        .top(px(6.5))
-        .right(px(6.5))
-        .size(px(7.))
-        .rounded(px(2.))
-        .bg(c(ui::accent_bar()))
-}
-
-/// A blue square on a tile's foot while the crew works in the project.
-fn busy_dot() -> Div {
-    div()
-        .absolute()
-        .bottom(px(6.5))
-        .right(px(6.5))
-        .size(px(7.))
-        .rounded(px(2.))
-        .bg(c(ui::t_blue()))
 }
 
 /// What a section's + does.
@@ -361,8 +271,10 @@ impl Shell {
             .child(div().flex_1().min_h_0().flex().child(rail).children(panel))
     }
 
-    /// The icon rail: Peek on top, the places, your projects as tiles, and
-    /// Settings at the foot.
+    /// The icon rail: the places, icons only, with their names on hover;
+    /// then, at its foot, how things stand: the night shift, today's usage
+    /// and the machines, and Settings. Projects live in the switcher at the
+    /// head of the panel.
     fn rail(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let place = self.place;
 
@@ -378,159 +290,134 @@ impl Shell {
             }))
             .on_click(cx.listener(|this, _, _, cx| this.go(Place::Inbox, cx)));
 
-        // Your projects as tiles, the one you're in ringed: a dot when
-        // something in it needs you, blue while the crew works there.
-        let current = self.crew.store.current;
-        let folders: Vec<(usize, String, String)> = self
-            .crew
-            .store
-            .folders
-            .iter()
-            .enumerate()
-            .map(|(i, f)| (i, f.name.clone(), f.path.clone()))
-            .collect();
-        let mut list = div()
-            .id("rail-projects")
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(8.))
-            .pt(px(4.))
-            .pb(px(4.));
-        for (i, name, path) in folders {
-            let rows = self.thread_rows_in(&path);
-            let busy: usize = rows.iter().map(|r| r.2).sum();
-            let asks: usize = rows.iter().map(|r| r.3).sum();
-            let on = i == current;
-            let unread = !on && rows.iter().any(|r| self.crew.store.unread(&path, r.0));
-            let mut say = format!("{name}\n{}", short_path(&path));
-            if asks > 0 {
-                say.push_str(&format!("\n{asks} waiting on you"));
-            }
-            if busy > 0 {
-                say.push_str(&format!("\n{busy} running"));
-            }
-            if unread {
-                say.push_str("\nNew messages");
-            }
-            let group: SharedString = format!("rail-p-{i}").into();
-            let tint = path_tint(&path);
-            list = list.child(
+        let overview = rail_btn("rail-overview", place == Place::Overview)
+            .child(Icon::new(IconName::House).size(px(18.)))
+            .tooltip(tip("Overview\nThis project: run, Git, setup"))
+            .on_click(cx.listener(|this, _, _, cx| this.go(Place::Overview, cx)));
+
+        // Jobs, with a blue dot while any are running.
+        let working = self.crew.store.running().count();
+        let jobs = rail_btn("rail-jobs", place == Place::History)
+            .child(Icon::new(IconName::LayoutDashboard).size(px(18.)))
+            .when(working > 0, |d| d.child(corner_dot(ui::t_blue(), true)))
+            .tooltip(tip(match working {
+                0 => "Jobs\nNothing running".to_string(),
+                1 => "Jobs\n1 running".to_string(),
+                n => format!("Jobs\n{n} running"),
+            }))
+            .on_click(cx.listener(|this, _, _, cx| this.go(Place::History, cx)));
+
+        let crew = rail_btn("rail-crew", place == Place::Crew)
+            .child(Icon::new(IconName::Users).size(px(18.)))
+            .tooltip(tip("Crew\nYour bots and what they know"))
+            .on_click(cx.listener(|this, _, _, cx| this.go(Place::Crew, cx)));
+
+        // The night shift: a moon, with a violet dot while jobs wait for it.
+        let later = self.crew.store.later.len();
+        let night = rail_btn("rail-night", false)
+            .child(Icon::new(IconName::Moon).size(px(17.)))
+            .when(later > 0, |d| {
+                d.text_color(c(ui::t_violet()))
+                    .child(corner_dot(ui::VIOLET, true))
+            })
+            .tooltip(tip(match later {
+                0 => {
+                    "Night shift\nNothing waiting. Start a job with /later to queue one".to_string()
+                }
+                1 => "Night shift\n1 job waiting to start".to_string(),
+                n => format!("Night shift\n{n} jobs waiting to start"),
+            }))
+            .on_click(cx.listener(|this, _, _, cx| this.go(Place::History, cx)));
+
+        // Today's usage: a thin bar that fills with the plan window closest
+        // to its limit. Opens the engines popover.
+        let (plan, spend) = {
+            let st = cx.global::<crate::settings::AppSettings>();
+            super::statusbar::plan_and_spend(st, &self.crew.store)
+        };
+        let used = plan.unwrap_or(0.).clamp(0., 100.);
+        let bar_col = if used >= 90. {
+            ui::RED
+        } else if used >= 75. {
+            ui::AMBER
+        } else {
+            ui::ink()
+        };
+        let mut usage_say = String::from("Usage today");
+        match plan {
+            Some(p) => usage_say.push_str(&format!("\n{p:.0}% of the plan closest to its limit")),
+            None => usage_say.push_str("\nNo plan limits read yet"),
+        }
+        if spend > 0. {
+            usage_say.push_str(&format!("\n${spend:.2} spent today"));
+        }
+        const BAR_H: f32 = 22.;
+        let usage = rail_btn("rail-usage", self.usage_open)
+            .child(
                 div()
-                    .id(("rail-project", i))
-                    .group(group.clone())
-                    .w_full()
-                    .h(px(32.))
-                    .flex_none()
+                    .w(px(8.))
+                    .h(px(BAR_H))
+                    .rounded(px(4.))
+                    .bg(c(ui::line()))
+                    .border_1()
+                    .border_color(c(ui::line_hi()))
                     .flex()
-                    .items_center()
-                    .justify_center()
-                    .cursor_pointer()
+                    .flex_col()
+                    .justify_end()
+                    .overflow_hidden()
                     .child(
                         div()
-                            .relative()
-                            .child(monogram(&name, tint, on))
-                            // A dot, not a number: the count lives on the Inbox.
-                            .when(asks > 0 || unread, |d| d.child(ask_dot()))
-                            .when(busy > 0, |d| d.child(busy_dot())),
-                    )
-                    // No name card over its own right-click menu.
-                    .when(self.menu.is_none(), |d| d.tooltip(tip(say)))
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        self.on_menu(super::menu::Ctx::Project(path.clone()), cx),
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if this.crew.store.current != i {
-                            this.crew.store.current = i;
-                            this.crew.store.save();
-                        }
-                        this.go(Place::Today, cx);
-                    })),
-            );
-        }
-        list = list.child(
-            div()
-                .w_full()
-                .h(px(32.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    div()
-                        .id("rail-add-project")
-                        .size(px(32.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(6.))
-                        .border_1()
-                        .border_color(c(ui::line_hi()))
-                        .text_color(c(ui::muted()))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
-                        .child(Icon::new(IconName::Plus).size(px(14.)))
-                        .tooltip(tip("Add a project folder"))
-                        .on_click(cx.listener(|this, _, _, cx| this.pick_folder(cx))),
-                ),
-        );
+                            .w_full()
+                            .h(px((BAR_H * used / 100.).round().max(if plan.is_some() {
+                                2.
+                            } else {
+                                0.
+                            })))
+                            .bg(c(bar_col)),
+                    ),
+            )
+            .tooltip(tip(usage_say))
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_usage(cx)));
+
+        // Machines: where the crew runs, with a dot for whether your server
+        // answers once there is one.
+        let up = self.crew.link.as_ref().map(|l| l.up());
+        let machines = rail_btn(
+            "rail-machines",
+            matches!(place, Place::Server | Place::Screen),
+        )
+        .child(Icon::new(IconName::Server).size(px(18.)))
+        .when_some(up, |d, up| {
+            d.child(corner_dot(
+                if up { ui::t_green() } else { ui::faint() },
+                false,
+            ))
+        })
+        .tooltip(tip(match up {
+            Some(true) => "Machines\nThis Mac, and your server is up",
+            Some(false) => "Machines\nThis Mac; your server isn't answering",
+            None => "Machines\nThis Mac and your server",
+        }))
+        .on_click(cx.listener(|this, _, _, cx| this.go(Place::Server, cx)));
+
+        let settings = rail_btn("rail-settings", matches!(place, Place::Settings(_)))
+            .child(Icon::new(IconName::Settings).size(px(18.)))
+            .tooltip(tip("Settings"))
+            .on_click(cx.listener(|this, _, _, cx| {
+                let pane = this.settings_pane;
+                this.go(Place::Settings(pane), cx)
+            }));
 
         let slim = self.side_slim && !matches!(place, Place::Settings(_));
-        let foot = div()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(4.))
-            .pt(px(8.))
-            .when(slim, |d| {
-                d.child(
-                    rail_btn("rail-open", false)
-                        .child(Icon::new(IconName::PanelLeftOpen).size(px(17.)))
-                        .tooltip(tip("Show the sidebar"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.side_slim = false;
-                            cx.notify();
-                        })),
-                )
-            })
-            // Machines: where the crew runs, this Mac and your server, with a
-            // dot for whether the server answers once there is one.
-            .child({
-                let up = self.crew.link.as_ref().map(|l| l.up());
-                rail_btn(
-                    "rail-machines",
-                    matches!(place, Place::Server | Place::Screen),
-                )
-                .child(Icon::new(IconName::Server).size(px(18.)))
-                .when_some(up, |d, up| {
-                    d.child(
-                        div()
-                            .absolute()
-                            .bottom(px(6.))
-                            .right(px(6.))
-                            .size(px(7.))
-                            .rounded_full()
-                            .border_1()
-                            .border_color(c(ground()))
-                            .bg(c(if up { ui::t_green() } else { ui::faint() })),
-                    )
-                })
-                .tooltip(tip("Machines\nThis Mac and your server"))
-                .on_click(cx.listener(|this, _, _, cx| this.go(Place::Server, cx)))
-            })
-            .child(
-                rail_btn("rail-settings", matches!(place, Place::Settings(_)))
-                    .child(Icon::new(IconName::Settings).size(px(18.)))
-                    .tooltip(tip("Settings"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let pane = this.settings_pane;
-                        this.go(Place::Settings(pane), cx)
-                    })),
-            );
+        let open = slim.then(|| {
+            rail_btn("rail-open", false)
+                .child(Icon::new(IconName::PanelLeftOpen).size(px(17.)))
+                .tooltip(tip("Show the sidebar"))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.side_slim = false;
+                    cx.notify();
+                }))
+        });
 
         div()
             .id("rail")
@@ -540,14 +427,21 @@ impl Shell {
             .flex()
             .flex_col()
             .items_center()
-            .gap(px(4.))
+            .gap(px(6.))
             .pt(px(10.))
             .pb(px(12.))
             .when(!slim, |d| d.border_r_1().border_color(c(ui::line())))
             .child(inbox)
+            .child(overview)
+            .child(jobs)
+            .child(crew)
+            .child(div().flex_1())
+            .children(open)
+            .child(night)
+            .child(usage)
+            .child(machines)
             .child(div().w(px(20.)).h(px(1.)).my(px(2.)).bg(c(ui::line_hi())))
-            .child(list)
-            .child(foot)
+            .child(settings)
     }
 
     /// The labelled panel for the project you're in, laid out like a chat
@@ -556,28 +450,7 @@ impl Shell {
     fn panel(&mut self, inbox: usize, cx: &mut Context<Self>) -> Div {
         let place = self.place;
 
-        let _ = inbox;
-        // The project's own places. The Inbox and Machines sit on the rail,
-        // since they span every project.
-        let working = self.crew.store.running().count();
-        let nav = div()
-            .flex()
-            .flex_col()
-            .gap(px(1.))
-            .child(
-                row("side-overview", place == Place::Overview)
-                    .child(Icon::new(IconName::House).size(px(16.)))
-                    .child("Overview")
-                    .on_click(cx.listener(|this, _, _, cx| this.go(Place::Overview, cx))),
-            )
-            .child(
-                row("side-history", place == Place::History)
-                    .child(Icon::new(IconName::LayoutDashboard).size(px(16.)))
-                    .child("Jobs")
-                    .when(working > 0, |d| d.child(running(working)))
-                    .on_click(cx.listener(|this, _, _, cx| this.go(Place::History, cx))),
-            );
-
+        let _ = (inbox, place);
         let threads = self.thread_list(cx);
         let crew = self.crew_list(cx);
 
@@ -606,35 +479,95 @@ impl Shell {
             }
             None => "No project yet".into(),
         };
-        let head = div()
-            .px(px(4.))
-            .pb(px(10.))
+        // The switcher: the project's emblem, name and where it lives, as a
+        // button that drops the list of projects. Right-click it for the
+        // project's own menu.
+        let emblem = folder
+            .as_ref()
+            .map(|f| super::emblem::of(&self.crew.store.folders, &f.path));
+        let switch_open = matches!(self.menu, Some((_, super::menu::Ctx::Projects)));
+        let button = div()
+            .id("side-switcher")
+            .w_full()
+            .h(px(46.))
+            .pl(px(7.))
+            .pr(px(8.))
             .flex()
-            .flex_col()
-            .gap(px(1.))
+            .items_center()
+            .gap(px(9.))
+            .rounded(px(8.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(if switch_open {
+                ui::line_hi()
+            } else {
+                ui::line()
+            }))
+            .cursor_pointer()
+            .hover(|s| s.border_color(c(ui::line_hi())))
+            .map(|d| match emblem {
+                Some(e) => d.child(emblem_tile(e, 30.)),
+                None => d.child(
+                    div()
+                        .size(px(30.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(8.))
+                        .border_1()
+                        .border_color(c(ui::line_hi()))
+                        .text_color(c(ui::muted()))
+                        .child(Icon::new(IconName::Plus).size(px(14.))),
+                ),
+            })
             .child(
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .text_size(px(15.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c(ui::ink()))
-                    .child(div().truncate().child(project))
+                    .flex_col()
                     .child(
-                        Icon::new(IconName::ChevronDown)
-                            .size(px(13.))
-                            .text_color(c(ui::faint())),
+                        div()
+                            .truncate()
+                            .text_size(px(13.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c(ui::ink()))
+                            .child(project),
+                    )
+                    .child(
+                        div()
+                            .truncate()
+                            .font_family(ui::MONO)
+                            .text_size(px(10.5))
+                            .text_color(c(ui::faint()))
+                            .child(where_),
                     ),
             )
             .child(
-                div()
-                    .truncate()
-                    .font_family(ui::MONO)
-                    .text_size(px(11.5))
-                    .text_color(c(ui::faint()))
-                    .child(where_),
-            );
+                Icon::new(IconName::ChevronsUpDown)
+                    .size(px(14.))
+                    .text_color(c(ui::faint())),
+            )
+            .when_some(folder.as_ref().map(|f| f.path.clone()), |d, path| {
+                d.on_mouse_down(
+                    MouseButton::Right,
+                    self.on_menu(super::menu::Ctx::Project(path), cx),
+                )
+            });
+        let head =
+            div()
+                .pb(px(10.))
+                .child(if folder.is_some() || !self.crew.store.folders.is_empty() {
+                    self.drop_menu(super::menu::Ctx::Projects, button, cx)
+                        .w_full()
+                } else {
+                    div().w_full().child(
+                        button
+                            .tooltip(tip("Add a project folder"))
+                            .on_click(cx.listener(|this, _, _, cx| this.pick_folder(cx))),
+                    )
+                });
 
         // What runs in this project now: the app, and any other command.
         let here = folder.as_ref().map(|f| f.path.clone()).unwrap_or_default();
@@ -783,7 +716,6 @@ impl Shell {
                     .overflow_y_scroll()
                     .flex()
                     .flex_col()
-                    .child(nav)
                     .child(threads)
                     .child(crew),
             )
@@ -1097,7 +1029,7 @@ impl Shell {
         true
     }
 
-    fn thread_rows_in(&self, path: &str) -> Vec<(u64, String, usize, usize)> {
+    pub(super) fn thread_rows_in(&self, path: &str) -> Vec<(u64, String, usize, usize)> {
         let store = &self.crew.store;
         let mut ids: Vec<(u64, String)> = vec![(0, "general".into())];
         ids.extend(
@@ -1635,19 +1567,5 @@ impl Shell {
                 .child(deferred(card).with_priority(6))
                 .into_any_element(),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::initials;
-
-    #[test]
-    fn a_project_gets_up_to_two_letters() {
-        assert_eq!(initials("squad-code"), "SC");
-        assert_eq!(initials("myApp"), "MA");
-        assert_eq!(initials("shop"), "Sh");
-        assert_eq!(initials("x"), "X");
-        assert_eq!(initials("--"), "?");
     }
 }

@@ -190,6 +190,12 @@ pub struct Folder {
     pub path: String,
     /// What Approve does here: "pr", "merge", or "" to decide from the remote.
     pub ship: String,
+    /// The emblem you picked for it, by its icon's name: "" lets Squad pick
+    /// one no other project has.
+    pub emblem: String,
+    /// The colour you picked for its emblem, by its place in the sidebar's
+    /// tints; none lets Squad pick.
+    pub tint: Option<u8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -924,7 +930,7 @@ impl Store {
                     .map(|p| Folder {
                         name: p.name.clone(),
                         path: p.path.clone(),
-                        ship: String::new(),
+                        ..Default::default()
                     })
                     .collect(),
                 ..Default::default()
@@ -1467,7 +1473,7 @@ impl Store {
             Folder {
                 name,
                 path: p,
-                ship: String::new(),
+                ..Default::default()
             },
         );
         self.current = 0;
