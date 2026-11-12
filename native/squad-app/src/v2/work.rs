@@ -708,7 +708,15 @@ pub fn detect_start(dir: &str) -> Option<(String, Option<String>)> {
     let read = |name: &str| std::fs::read_to_string(d.join(name)).unwrap_or_default();
     let port_in = |text: &str| -> Option<String> {
         for pat in [
-            "listen(", "PORT || ", "PORT ?? ", "port=", "port: ", "--port ",
+            "listen(",
+            "PORT || ",
+            "PORT ?? ",
+            "port=",
+            "port: ",
+            "--port ",
+            "-p ",
+            "http.server ",
+            "localhost:",
         ] {
             if let Some(at) = text.find(pat) {
                 let digits: String = text[at + pat.len()..]
@@ -793,23 +801,54 @@ pub fn detect_start(dir: &str) -> Option<(String, Option<String>)> {
                 port_in(serve).or_else(|| usual(serve)),
             ));
         }
+        if let Some(preview) = scripts["preview"].as_str() {
+            return Some((
+                format!("{pm} run preview"),
+                port_in(preview).or_else(|| usual(preview)),
+            ));
+        }
         if !main.is_empty() || d.join("server.js").exists() {
             let file = if main.is_empty() { "server.js" } else { main };
             return Some((format!("node {file}"), port_in(&code)));
         }
     }
+    for f in ["deno.json", "deno.jsonc"] {
+        if d.join(f).exists() {
+            let cfg: serde_json::Value = serde_json::from_str(&read(f)).unwrap_or_default();
+            if let Some((task, body)) = ["dev", "start", "serve"]
+                .iter()
+                .find_map(|t| cfg["tasks"][*t].as_str().map(|b| (*t, b)))
+            {
+                return Some((format!("deno task {task}"), port_in(body)));
+            }
+        }
+    }
     if d.join("Cargo.toml").exists() {
         return Some(("cargo run".into(), port_in(&read("src/main.rs"))));
     }
+    // Python: through the project's own environment when it has one (uv,
+    // Poetry, a .venv), else python3, which every Mac and Linux has.
+    let py = python_in(d);
     if d.join("manage.py").exists() {
         return Some((
-            "python manage.py runserver".into(),
+            format!("{py} manage.py runserver"),
             Some("http://localhost:8000".into()),
         ));
     }
-    for f in ["app.py", "main.py", "server.py"] {
+    for f in [
+        "app.py",
+        "main.py",
+        "server.py",
+        "streamlit_app.py",
+        "src/app.py",
+        "src/main.py",
+        "app/main.py",
+    ] {
         if d.join(f).exists() {
-            return Some((format!("python {f}"), port_in(&read(f))));
+            return Some(
+                python_start(&py, f, &read(f))
+                    .unwrap_or_else(|| (format!("{py} {f}"), port_in(&read(f)))),
+            );
         }
     }
     if d.join("go.mod").exists() {
@@ -845,6 +884,58 @@ pub fn detect_start(dir: &str) -> Option<(String, Option<String>)> {
             Some("http://localhost:4000".into()),
         ));
     }
+    if d.join("config.ru").exists() {
+        return Some((
+            "bundle exec rackup".into(),
+            Some("http://localhost:9292".into()),
+        ));
+    }
+    if let Some(found) = jvm_start(d, &read) {
+        return Some(found);
+    }
+    let csproj = std::fs::read_dir(d).is_ok_and(|it| {
+        it.flatten()
+            .any(|e| e.path().extension().is_some_and(|x| x == "csproj"))
+    });
+    if csproj {
+        let props = read("Properties/launchSettings.json");
+        return Some(("dotnet run".into(), find_link_in(&props)));
+    }
+    if d.join("hugo.toml").exists()
+        || (d.join("config.toml").exists() && d.join("content").is_dir())
+    {
+        return Some(("hugo server".into(), Some("http://localhost:1313".into())));
+    }
+    if d.join("_config.yml").exists() && d.join("Gemfile").exists() {
+        return Some((
+            "bundle exec jekyll serve".into(),
+            Some("http://localhost:4000".into()),
+        ));
+    }
+    // A Procfile's web line, then a Makefile or justfile target named for
+    // running: the project saying in its own words how it starts.
+    if let Some(web) = read("Procfile")
+        .lines()
+        .find_map(|l| l.strip_prefix("web:"))
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        let cmd = web.replace("$PORT", "5000");
+        return Some((cmd.clone(), port_in(&cmd)));
+    }
+    for (file, tool) in [
+        ("Makefile", "make"),
+        ("justfile", "just"),
+        ("Justfile", "just"),
+    ] {
+        let text = read(file);
+        if let Some(t) = ["dev", "run", "serve", "start"]
+            .iter()
+            .find(|t| has_target(&text, t))
+        {
+            return Some((format!("{tool} {t}"), port_in(&text)));
+        }
+    }
     for f in [
         "compose.yaml",
         "compose.yml",
@@ -879,13 +970,128 @@ pub fn detect_start(dir: &str) -> Option<(String, Option<String>)> {
             port.map(|p| format!("http://localhost:{p}")),
         ));
     }
-    if d.join("index.html").exists() {
+    if d.join("index.php").exists() {
         return Some((
-            "python3 -m http.server 8000".into(),
+            "php -S localhost:8000".into(),
             Some("http://localhost:8000".into()),
         ));
     }
+    // A plain site: served as files, from wherever its index.html is.
+    for sub in ["", "public", "site", "docs", "dist", "www"] {
+        if d.join(sub).join("index.html").exists() {
+            let from = if sub.is_empty() {
+                String::new()
+            } else {
+                format!(" -d {sub}")
+            };
+            return Some((
+                format!("python3 -m http.server 8000{from}"),
+                Some("http://localhost:8000".into()),
+            ));
+        }
+    }
     None
+}
+
+/// The Python that runs the project in `d`: through uv or Poetry when it
+/// uses them, its own .venv when it has one, else python3.
+fn python_in(d: &Path) -> String {
+    if d.join("uv.lock").exists() {
+        "uv run python".into()
+    } else if d.join("poetry.lock").exists() {
+        "poetry run python".into()
+    } else if d.join(".venv/bin/python").exists() {
+        ".venv/bin/python".into()
+    } else if d.join("venv/bin/python").exists() {
+        "venv/bin/python".into()
+    } else if cfg!(windows) {
+        "python".into()
+    } else {
+        "python3".into()
+    }
+}
+
+/// How to start a Python web app in `file` when it needs its server's own
+/// command rather than `python file`: FastAPI under uvicorn, Streamlit,
+/// or Flask on its usual port.
+fn python_start(py: &str, file: &str, code: &str) -> Option<(String, Option<String>)> {
+    let module = file.trim_end_matches(".py").replace('/', ".");
+    if code.contains("import streamlit") {
+        return Some((
+            format!("{py} -m streamlit run {file}"),
+            Some("http://localhost:8501".into()),
+        ));
+    }
+    if code.contains("FastAPI(") && !code.contains("uvicorn.run(") {
+        let var = code
+            .lines()
+            .find_map(|l| {
+                let (name, rest) = l.split_once('=')?;
+                rest.trim()
+                    .starts_with("FastAPI(")
+                    .then(|| name.trim().to_string())
+            })
+            .filter(|v| v.chars().all(|c| c.is_alphanumeric() || c == '_'))
+            .unwrap_or_else(|| "app".into());
+        return Some((
+            format!("{py} -m uvicorn {module}:{var} --reload"),
+            Some("http://localhost:8000".into()),
+        ));
+    }
+    if code.contains("Flask(") && !code.contains("port") {
+        return Some((format!("{py} {file}"), Some("http://localhost:5000".into())));
+    }
+    None
+}
+
+/// How to start a Java or Kotlin app: Spring Boot through its build tool's
+/// run task, else Gradle's `run`. The project's own wrapper when it has one.
+fn jvm_start(d: &Path, read: &dyn Fn(&str) -> String) -> Option<(String, Option<String>)> {
+    let spring = Some("http://localhost:8080".to_string());
+    if d.join("pom.xml").exists() {
+        let mvn = if d.join("mvnw").exists() {
+            "./mvnw"
+        } else {
+            "mvn"
+        };
+        if read("pom.xml").contains("spring-boot") {
+            return Some((format!("{mvn} spring-boot:run"), spring));
+        }
+        return Some((format!("{mvn} exec:java"), None));
+    }
+    for f in ["build.gradle.kts", "build.gradle"] {
+        if d.join(f).exists() {
+            let gradle = if d.join("gradlew").exists() {
+                "./gradlew"
+            } else {
+                "gradle"
+            };
+            if read(f).contains("org.springframework.boot") {
+                return Some((format!("{gradle} bootRun"), spring));
+            }
+            return Some((format!("{gradle} run"), None));
+        }
+    }
+    None
+}
+
+/// Whether a Makefile or justfile has a target called `name`.
+fn has_target(text: &str, name: &str) -> bool {
+    text.lines().any(|l| {
+        l.strip_prefix(name)
+            .is_some_and(|rest| rest.starts_with(':') && !rest.starts_with(":="))
+    })
+}
+
+/// The first local address written in `text`, such as a .NET launch
+/// profile's applicationUrl.
+fn find_link_in(text: &str) -> Option<String> {
+    let at = text.find("http://localhost:")?;
+    let digits: String = text[at + 17..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    (!digits.is_empty()).then(|| format!("http://localhost:{digits}"))
 }
 
 /// The port a Go server listens on, from `":8080"` in its code.
@@ -1010,5 +1216,84 @@ mod start_tests {
         );
         assert_eq!(url.as_deref(), Some("http://localhost:80"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod more_start_tests {
+    use super::detect_start;
+
+    fn start(name: &str, files: &[(&str, &str)]) -> Option<(String, Option<String>)> {
+        let dir = std::env::temp_dir().join(format!("squad-more-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (f, body) in files {
+            let path = dir.join(f);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        let found = detect_start(dir.to_str().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+        found
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn python_java_make_and_plain_sites_start_too() {
+        assert_eq!(
+            start(
+                "fastapi",
+                &[("main.py", "from fastapi import FastAPI\napi = FastAPI()\n")]
+            ),
+            Some((
+                "python3 -m uvicorn main:api --reload".into(),
+                Some("http://localhost:8000".into())
+            ))
+        );
+        assert_eq!(
+            start("uv", &[("uv.lock", ""), ("app.py", "print(1)")]).map(|s| s.0),
+            Some("uv run python app.py".into())
+        );
+        assert_eq!(
+            start(
+                "streamlit",
+                &[("streamlit_app.py", "import streamlit as st")]
+            )
+            .map(|s| s.0),
+            Some("python3 -m streamlit run streamlit_app.py".into())
+        );
+        assert_eq!(
+            start(
+                "make",
+                &[(
+                    "Makefile",
+                    "X := 1\nbuild:\n\tcc x.c\nrun: build\n\t./a.out\n"
+                )]
+            )
+            .map(|s| s.0),
+            Some("make run".into())
+        );
+        assert_eq!(
+            start(
+                "procfile",
+                &[("Procfile", "web: gunicorn app:app --bind 0.0.0.0:$PORT")]
+            )
+            .map(|s| s.0),
+            Some("gunicorn app:app --bind 0.0.0.0:5000".into())
+        );
+        assert_eq!(
+            start(
+                "spring",
+                &[("pom.xml", "<artifactId>spring-boot-starter</artifactId>")]
+            ),
+            Some((
+                "mvn spring-boot:run".into(),
+                Some("http://localhost:8080".into())
+            ))
+        );
+        assert_eq!(
+            start("static", &[("public/index.html", "<h1>hi</h1>")]).map(|s| s.0),
+            Some("python3 -m http.server 8000 -d public".into())
+        );
+        assert_eq!(start("empty", &[("notes.txt", "")]), None);
     }
 }
