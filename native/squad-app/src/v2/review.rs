@@ -216,7 +216,7 @@ impl Shell {
                                 "Approve now, and it merges the moment every check is green.",
                             )),
                     )
-                    .child(super::prefs::switch(on))
+                    .child(super::prefs::switch(("merge-green", id), on))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(j) = this.crew.store.job_mut(id) {
                             j.merge_on_green = !on;
@@ -498,7 +498,7 @@ impl Shell {
                                 "Approve now, and it merges the moment every check is green.",
                             )),
                     )
-                    .child(super::prefs::switch(on))
+                    .child(super::prefs::switch(("merge-green-card", id), on))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(j) = this.crew.store.job_mut(id) {
                             j.merge_on_green = !on;

@@ -87,29 +87,34 @@ fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
 }
 
 /// A small on/off switch: lime with a dark knob when on, a quiet track
-/// with a white knob when off.
-pub(super) fn switch(on: bool) -> Div {
+/// with a white knob when off. Flipped, the knob glides across and the track
+/// takes its new colour along the way. `key` tells this switch from others.
+pub(super) fn switch(key: impl std::hash::Hash, on: bool) -> Div {
+    use super::motion::mix;
+    let k = super::motion::glide(
+        super::motion::key(("switch", key)),
+        if on { 1. } else { 0. },
+        super::motion::BASE,
+    )
+    .clamp(0., 1.);
+    let edge_on = super::theme::mix(ui::pick_fill(), ui::ink(), 0.25);
     div()
         .w(px(30.))
         .h(px(18.))
         .flex_none()
         .rounded_full()
-        .bg(c(if on { ui::pick_fill() } else { ui::off() }))
+        .bg(mix(c(ui::off()), c(ui::pick_fill()), k))
         .border_1()
-        .border_color(c(if on {
-            super::theme::mix(ui::pick_fill(), ui::ink(), 0.25)
-        } else {
-            ui::line_hi()
-        }))
+        .border_color(mix(c(ui::line_hi()), c(edge_on), k))
         .relative()
         .child(
             div()
                 .absolute()
                 .top(px(2.))
-                .left(px(if on { 14. } else { 2. }))
+                .left(px(2. + 12. * k))
                 .size(px(12.))
                 .rounded_full()
-                .bg(c(if on { ui::pick_on() } else { 0xFFFFFF })),
+                .bg(mix(c(0xFFFFFF), c(ui::pick_on()), k)),
         )
 }
 
@@ -750,7 +755,7 @@ impl Shell {
                 div()
                     .id(id)
                     .cursor_pointer()
-                    .child(switch(on))
+                    .child(switch(id, on))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         save(cx, |st| {
                             set(st, !on);
@@ -842,7 +847,7 @@ impl Shell {
                 div()
                     .id(id)
                     .cursor_pointer()
-                    .child(switch(on))
+                    .child(switch(id, on))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         save(cx, |st| set(st, !on));
                         if let (false, Some(cue)) = (on, cue) {
@@ -890,7 +895,7 @@ impl Shell {
                     div()
                         .id("set-sounds")
                         .cursor_pointer()
-                        .child(switch(sounds_on))
+                        .child(switch("set-sounds", sounds_on))
                         .on_click(cx.listener(move |_, _, _, cx| {
                             save(cx, |st| st.sounds = !sounds_on);
                             if !sounds_on {
@@ -1341,7 +1346,7 @@ impl Shell {
             div()
                 .id("see-through")
                 .cursor_pointer()
-                .child(switch(on))
+                .child(switch("see-through", on))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let clear = this.clear_slider.read(cx).value().end().round() as u8;
                     theme::set_see_through(!on, clear);
@@ -1411,7 +1416,7 @@ impl Shell {
             div()
                 .id("glass-popovers")
                 .cursor_pointer()
-                .child(switch(pops))
+                .child(switch("glass-popovers", pops))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let clear = this.pop_slider.read(cx).value().end().round() as u8;
                     theme::set_glass_popovers(!pops, clear);
@@ -1846,7 +1851,7 @@ impl Shell {
             div()
                 .id("pattern-sidebar")
                 .cursor_pointer()
-                .child(switch(sidebar_on))
+                .child(switch("pattern-sidebar", sidebar_on))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     save(cx, |st| st.pattern_panels = !sidebar_on);
                     apply(cx.global::<AppSettings>());

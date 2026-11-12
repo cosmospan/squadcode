@@ -66,7 +66,7 @@ fn row(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
                 d.border_1()
                     .border_color(transparent_black())
                     .text_color(c(ui::muted()))
-                    .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                    .map(|d| super::motion::hover_wash(d, ui::hover(), Some(ui::ink())))
             }
         })
 }
@@ -126,7 +126,7 @@ fn rail_btn(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
                 d.bg(c(ui::hover())).text_color(c(ui::ink()))
             } else {
                 d.text_color(c(ui::muted()))
-                    .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                    .map(|d| super::motion::hover_wash(d, ui::hover(), Some(ui::ink())))
             }
         })
 }
@@ -143,7 +143,7 @@ fn small_btn(id: impl Into<ElementId>, icon: IconName) -> Stateful<Div> {
         .rounded(px(6.))
         .text_color(c(ui::faint()))
         .cursor_pointer()
-        .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+        .map(|d| super::motion::hover_wash(d, ui::hover(), Some(ui::ink())))
         .child(Icon::new(icon).size(px(14.)))
 }
 
@@ -703,7 +703,7 @@ impl Shell {
                         .px(px(4.))
                         .rounded(px(4.))
                         .cursor_pointer()
-                        .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                        .map(|d| super::motion::hover_wash(d, ui::hover(), Some(ui::ink())))
                         .child(w.to_uppercase()),
                     None => small_btn(("side-add", key.len()), IconName::Plus).size(px(20.)),
                 };
@@ -860,22 +860,29 @@ impl Shell {
             } else {
                 (String::new(), ui::faint())
             };
+            let bot_row = row(("side-bot", who.key() as usize), on)
+                .child(div().flex_none().child(face))
+                .child(div().flex_1().min_w_0().truncate().child(who.name()))
+                .when(!word.is_empty(), |d| {
+                    let lead = tint == ui::faint();
+                    d.child(row_note(word, (!lead).then_some(tint)))
+                })
+                .on_mouse_down(
+                    MouseButton::Right,
+                    self.on_menu(super::menu::Ctx::Bot(who), cx),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.go(Place::Chat(who), cx)));
+            // The row's own hover fades its tint, so the card that shows the
+            // bot listens on a wrapper round it.
             list = list.child(
-                row(("side-bot", who.key() as usize), on)
-                    .child(div().flex_none().child(face))
-                    .child(div().flex_1().min_w_0().truncate().child(who.name()))
-                    .when(!word.is_empty(), |d| {
-                        let lead = tint == ui::faint();
-                        d.child(row_note(word, (!lead).then_some(tint)))
-                    })
+                div()
+                    .id(("side-bot-hover", who.key() as usize))
+                    .flex()
+                    .flex_col()
                     .on_hover(
                         cx.listener(move |this, on: &bool, _, cx| this.hover_bot(who, *on, cx)),
                     )
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        self.on_menu(super::menu::Ctx::Bot(who), cx),
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| this.go(Place::Chat(who), cx))),
+                    .child(bot_row),
             );
         }
         let all_open = self.side_folds.get("crew-all").copied().unwrap_or(false);
@@ -1327,7 +1334,9 @@ impl Shell {
                                     .cursor_pointer()
                                     .text_color(c(if right_open { ui::ink() } else { ui::muted() }))
                                     .when(right_open, |d| d.bg(c(ui::press())))
-                                    .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                                    .map(|d| {
+                                        super::motion::hover_wash(d, ui::hover(), Some(ui::ink()))
+                                    })
                                     .child(
                                         Icon::new(if right_open {
                                             IconName::PanelRightClose

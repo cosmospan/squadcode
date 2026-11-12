@@ -708,7 +708,11 @@ impl Shell {
             .border_1()
             .border_color(c(ui::line()))
             .cursor_pointer()
-            .child(div().mt(px(2.)).child(super::prefs::switch(auto)))
+            .child(
+                div()
+                    .mt(px(2.))
+                    .child(super::prefs::switch("peek-auto-merge", auto)),
+            )
             .child(
                 div()
                     .flex_1()
@@ -1347,11 +1351,20 @@ impl Shell {
                     .cursor_pointer()
                     .map(|d| {
                         if on {
+                            // The underline grows out from the middle of a
+                            // newly picked tab.
+                            let k = super::motion::shown(
+                                super::motion::key(("ws-tab-on", t as usize)),
+                                super::motion::BASE,
+                                0.,
+                            );
+                            let side = relative(0.5 * (1. - k.clamp(0., 1.)));
                             d.text_color(c(ui::ink())).child(
                                 div()
                                     .absolute()
-                                    .left(px(8.))
-                                    .right(px(8.))
+                                    .left(side)
+                                    .right(side)
+                                    .mx(px(8. * k))
                                     .bottom(px(-1.))
                                     .h(px(2.))
                                     .bg(c(ui::accent_bar())),
@@ -1483,7 +1496,19 @@ impl Shell {
                     .flex_col()
                     .bg(c(ui::panel()))
                     .child(tabs)
-                    .child(div().flex_1().min_h_0().child(body)),
+                    // A tab's page fades in as you switch to it.
+                    .child({
+                        let k = super::motion::shown(
+                            super::motion::key(("ws-body", id, tab as usize)),
+                            super::motion::BASE,
+                            0.,
+                        );
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .when(k < 1., |d| d.opacity(0.25 + 0.75 * k))
+                            .child(body)
+                    }),
             )
             .into_any_element()
     }

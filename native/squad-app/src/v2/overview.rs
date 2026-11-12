@@ -1005,7 +1005,7 @@ impl Shell {
                                 div()
                                     .id("ov-close-issues")
                                     .cursor_pointer()
-                                    .child(super::prefs::switch(close))
+                                    .child(super::prefs::switch("ov-close-issues", close))
                                     .on_click(cx.listener(move |_, _, _, cx| {
                                         super::issues::set_close_on_merge(!close);
                                         cx.update_global::<crate::settings::AppSettings, _>(

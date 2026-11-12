@@ -697,7 +697,11 @@ impl Shell {
                     .text_size(px(13.))
                     .text_color(c(ui::ink()))
                     .child(line)
-                    .child(div().ml_auto().child(super::prefs::switch(true)))
+                    .child(
+                        div()
+                            .ml_auto()
+                            .child(super::prefs::switch(("setup-belt", n), true)),
+                    )
                     .tooltip(|window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(
                             "Always on, for every bot and every project",
