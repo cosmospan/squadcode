@@ -470,7 +470,12 @@ impl Job {
     /// else the first line of what the person typed.
     pub fn label(&self) -> &str {
         if self.short.is_empty() {
-            self.title.lines().next().unwrap_or("").trim()
+            split_reply(&self.title)
+                .1
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
         } else {
             &self.short
         }
@@ -2231,5 +2236,103 @@ mod tests {
         // One summary per thread, found again rather than made twice.
         s.summary_mut(f, 0);
         assert_eq!(s.summaries.len(), 1);
+    }
+}
+
+/// How a reply to a message starts: who said it and what they said, then a
+/// blank line, then your words. It travels in the message itself, so the bot
+/// answering, and every later turn that reads the thread, sees what you meant.
+const REPLY_HEAD: &str = "> Replying to ";
+
+/// The most of the quoted message a reply carries.
+const REPLY_QUOTE: usize = 1000;
+
+/// A message's words as one line, cut to what a reply carries.
+pub fn reply_quote(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() > REPLY_QUOTE {
+        format!(
+            "{}\u{2026}",
+            flat.chars().take(REPLY_QUOTE).collect::<String>()
+        )
+    } else {
+        flat
+    }
+}
+
+/// `words` as a reply to what `who` said.
+pub fn with_reply(who: &str, said: &str, words: &str) -> String {
+    format!(
+        "{REPLY_HEAD}{who}: {}\n\n{}",
+        reply_quote(said),
+        words.trim()
+    )
+}
+
+/// A message split into the message it replies to, (who, what they said), if
+/// it is a reply, and your own words.
+pub fn split_reply(text: &str) -> (Option<(String, String)>, &str) {
+    let Some(rest) = text.strip_prefix(REPLY_HEAD) else {
+        return (None, text);
+    };
+    let Some((head, body)) = rest.split_once("\n\n") else {
+        return (None, text);
+    };
+    match head.split_once(": ") {
+        Some((who, said)) if !head.contains('\n') && !who.is_empty() => {
+            (Some((who.to_string(), said.to_string())), body)
+        }
+        _ => (None, text),
+    }
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+
+    #[test]
+    fn a_reply_reads_back_as_the_quote_and_your_words() {
+        let sent = with_reply(
+            "Explainer",
+            "Best bets:\n\n1. Notes helper\n2. Sleep coach",
+            "go deeper on 2",
+        );
+        assert_eq!(
+            sent,
+            "> Replying to Explainer: Best bets: 1. Notes helper 2. Sleep coach\n\ngo deeper on 2"
+        );
+        let (quote, words) = split_reply(&sent);
+        assert_eq!(
+            quote,
+            Some((
+                "Explainer".to_string(),
+                "Best bets: 1. Notes helper 2. Sleep coach".to_string()
+            ))
+        );
+        assert_eq!(words, "go deeper on 2");
+    }
+
+    #[test]
+    fn plain_words_and_quotes_of_your_own_are_not_replies() {
+        assert_eq!(split_reply("hello").0, None);
+        assert_eq!(split_reply("> a quote\n\nmy words").0, None);
+        assert_eq!(split_reply("> Replying to nobody").0, None);
+    }
+
+    #[test]
+    fn a_long_message_is_cut_once() {
+        let long = "word ".repeat(400);
+        let q = reply_quote(&long);
+        assert!(q.ends_with('\u{2026}'));
+        assert_eq!(reply_quote(&q), q);
+    }
+
+    #[test]
+    fn a_reply_job_is_labelled_by_your_words() {
+        let job = Job {
+            title: with_reply("Explainer", "the answer", "make it so"),
+            ..Default::default()
+        };
+        assert_eq!(job.label(), "make it so");
     }
 }

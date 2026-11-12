@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Changed
+
+- Reply on a bot's message replies to that message. It's quoted above the box with who said it (× or Esc drops it), what you send goes to that bot without typing an @, and the bot gets the quoted message with your words, so it knows which answer you mean. The sent message shows the quote above your words, with the whole message on hover. Edit and send again brings the quote back.
+
 ## [2.0.0-alpha.12] - 2026-11-12
 
 ### Added

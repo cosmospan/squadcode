@@ -285,7 +285,12 @@ pub enum Verdict {
 
 /// The commit message for an approved job.
 pub fn message(job: &Job) -> String {
-    let title = job.title.lines().next().unwrap_or("").trim();
+    let title = super::store::split_reply(&job.title)
+        .1
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim();
     let title: String = title.chars().take(72).collect();
     let mut msg = if title.is_empty() {
         format!("Squad Code job {}", job.id)

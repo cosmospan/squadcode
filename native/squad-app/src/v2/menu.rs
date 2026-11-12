@@ -76,7 +76,8 @@ enum Act {
     StopJob(u64),
     RunAgain(u64),
     JobTerminal(u64),
-    Reply(Reply),
+    /// Reply on a message, with its words for the quote.
+    Reply(Reply, String),
     Edit(String),
     Quote(String),
     Copy(String, &'static str),
@@ -499,7 +500,11 @@ impl Shell {
                     Act::Copy(copy.clone(), "message"),
                 )];
                 if let Some(r) = reply {
-                    v.push(item("Reply", IconName::MessageSquareText, Act::Reply(*r)));
+                    v.push(item(
+                        "Reply",
+                        IconName::MessageSquareText,
+                        Act::Reply(*r, copy.clone()),
+                    ));
                 }
                 v.push(item(
                     "Quote in reply",
@@ -681,12 +686,8 @@ impl Shell {
                     self.toggle_term(id, window, cx);
                 }
             }
-            Act::Reply(Reply::Job(id)) => self.reply_open = Some(id),
-            Act::Reply(Reply::Bot(who)) if self.dm() == Some(who) => {
-                self.put_in_box(String::new(), window, cx)
-            }
-            Act::Reply(Reply::Bot(who)) => self.put_in_box(format!("@{} ", who.name()), window, cx),
-            Act::Edit(text) => self.put_in_box(text, window, cx),
+            Act::Reply(reply, said) => self.reply_to(reply, said, window, cx),
+            Act::Edit(text) => self.edit_again(text, window, cx),
             Act::Quote(text) => {
                 let quoted: String = text
                     .trim()

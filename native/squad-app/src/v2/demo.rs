@@ -550,6 +550,27 @@ pub fn seed() -> Store {
             )),
             at: t - 1_500,
             choices: Vec::new(),
+        },
+        super::store::Talk {
+            id: 2,
+            folder: folder.path.clone(),
+            thread: 1,
+            bot: Member::Explainer,
+            question: super::store::with_reply(
+                "Explainer",
+                "In src/checkout/total.ts: totalWithTax() adds it after discounts, \
+                 so gift cards and coupons come off before tax is worked out.",
+                "@Explainer Is that right for gift cards? They're a payment, not a discount.",
+            ),
+            answer: Some(super::store::Said::bot(
+                "Good catch: a gift card is a payment, so tax should be worked out \
+                 before it comes off. Today totalWithTax() treats it as a discount, \
+                 which undercharges tax on every order paid partly by gift card."
+                    .into(),
+                "Claude Code \u{b7} 7s".into(),
+            )),
+            at: t - 1_450,
+            choices: Vec::new(),
         }],
         folders: vec![folder.clone(), other("api"), other("docs-site")],
         current: 0,
