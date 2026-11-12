@@ -14,6 +14,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use super::home::cost;
+use super::popover::Pop;
 use super::store::{self, Store};
 use super::ui::{self, c, ca};
 use super::{Pane, Place, Shell};
@@ -131,10 +132,9 @@ fn popover_left(view: f32, w: f32) -> f32 {
 
 impl Shell {
     /// Opens or closes the engines popover.
-    fn toggle_usage(&mut self, cx: &mut Context<Self>) {
-        self.usage_open = !self.usage_open;
+    fn toggle_usage(&mut self, e: &ClickEvent, cx: &mut Context<Self>) {
         // A fresh read of the plans each time it opens, unless one ran lately.
-        if self.usage_open && !self.crew.store.demo {
+        if self.toggle_pop(Pop::Usage, e) && !self.crew.store.demo {
             crate::usage::refresh(false);
         }
         cx.notify();
@@ -152,7 +152,7 @@ impl Shell {
         let days = engines_today(st, &self.crew.store);
         let spend: f64 = days.iter().map(|d| d.spend).sum::<f64>() + 0.0;
         let tokens: u64 = days.iter().map(|d| d.tokens).sum();
-        let open = self.usage_open;
+        let open = self.pop_open(Pop::Usage);
 
         // One item on the right: a dot per engine (ready, near its limit, or
         // missing), the plan window closest to its limit, then today's cost.
@@ -278,7 +278,7 @@ impl Shell {
                     )
                     .child("today"),
             )
-            .on_click(cx.listener(|this, _, _, cx| this.toggle_usage(cx)));
+            .on_click(cx.listener(|this, e: &ClickEvent, _, cx| this.toggle_usage(e, cx)));
 
         // Where the crew runs: this computer, and your server once there is
         // one. A click opens Machines.
@@ -753,7 +753,7 @@ impl Shell {
             .child(
                 link("usage-engines", IconName::Settings, "Engines").on_click(cx.listener(
                     |this, _, _, cx| {
-                        this.usage_open = false;
+                        this.close_pop();
                         this.go(Place::Settings(Pane::Engines), cx)
                     },
                 )),
@@ -761,64 +761,51 @@ impl Shell {
             .child(
                 link("usage-page", IconName::ChartColumn, "Usage details").on_click(cx.listener(
                     |this, _, _, cx| {
-                        this.usage_open = false;
+                        this.close_pop();
                         this.go(Place::Settings(super::Pane::Usage), cx)
                     },
                 )),
             );
 
-        div()
-            .absolute()
-            .inset_0()
-            // A click anywhere else puts it away.
-            .child(
-                div()
-                    .id("usage-backdrop")
-                    .absolute()
-                    .inset_0()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.usage_open = false;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("usage-popover")
-                    .absolute()
-                    .left(px(self.usage_left()))
-                    .bottom(px(36.))
-                    .w(px(USAGE_W))
-                    .max_h(px(620.))
-                    .flex()
-                    .flex_col()
-                    .rounded(px(12.))
-                    .bg(c(ui::float()))
-                    .border_1()
-                    .border_color(c(ui::line_hi()))
-                    .shadow(vec![BoxShadow {
-                        color: ca(0x000000, 0.5 * ui::float_shadow()),
-                        offset: point(px(0.), px(12.)),
-                        blur_radius: px(32.),
-                        spread_radius: px(0.),
-                        inset: false,
-                    }])
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .child(head)
-                    // The header and the buttons stay put; the middle scrolls
-                    // when there are many engines.
-                    .child(
-                        div()
-                            .id("usage-scroll")
-                            .flex_1()
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .pb(px(4.))
-                            .child(totals)
-                            .child(caption)
-                            .child(list),
-                    )
-                    .child(foot),
-            )
+        // A click anywhere else puts it away, and still lands where it went.
+        let panel = self.pop_panel(Pop::Usage, div().id("usage-popover"), cx);
+        div().absolute().inset_0().child(
+            panel
+                .absolute()
+                .left(px(self.usage_left()))
+                .bottom(px(36.))
+                .w(px(USAGE_W))
+                .max_h(px(620.))
+                .flex()
+                .flex_col()
+                .rounded(px(12.))
+                .bg(c(ui::float()))
+                .border_1()
+                .border_color(c(ui::line_hi()))
+                .shadow(vec![BoxShadow {
+                    color: ca(0x000000, 0.5 * ui::float_shadow()),
+                    offset: point(px(0.), px(12.)),
+                    blur_radius: px(32.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }])
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .child(head)
+                // The header and the buttons stay put; the middle scrolls
+                // when there are many engines.
+                .child(
+                    div()
+                        .id("usage-scroll")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .pb(px(4.))
+                        .child(totals)
+                        .child(caption)
+                        .child(list),
+                )
+                .child(foot),
+        )
     }
 }
 
