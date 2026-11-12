@@ -52,6 +52,7 @@ fn here() -> store::Folder {
             .unwrap_or_default(),
         path: dir,
         ship: String::new(),
+        ..Default::default()
     }
 }
 

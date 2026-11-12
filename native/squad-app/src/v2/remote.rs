@@ -2356,6 +2356,7 @@ mod sync_tests {
                 name: "shop".into(),
                 path: here_s.clone(),
                 ship: String::new(),
+                ..Default::default()
             },
             branch: iso.branch.clone(),
             remote_dir: iso.worktree.clone(),

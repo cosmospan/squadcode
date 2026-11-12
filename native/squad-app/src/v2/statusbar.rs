@@ -132,7 +132,7 @@ fn popover_left(view: f32, w: f32) -> f32 {
 
 impl Shell {
     /// Opens or closes the engines popover.
-    fn toggle_usage(&mut self, e: &ClickEvent, cx: &mut Context<Self>) {
+    pub(super) fn toggle_usage(&mut self, e: &ClickEvent, cx: &mut Context<Self>) {
         // A fresh read of the plans each time it opens, unless one ran lately.
         if self.toggle_pop(Pop::Usage, e) && !self.crew.store.demo {
             crate::usage::refresh(false);

@@ -45,6 +45,7 @@ pub fn seed() -> Store {
         name: "shop".into(),
         path: std::env::temp_dir().to_string_lossy().into_owned(),
         ship: String::new(),
+        ..Default::default()
     };
     let base = |id: u64, bot: Member, mode: Mode, title: &str, ago: u64, secs: u64| Job {
         id,
@@ -445,6 +446,7 @@ pub fn seed() -> Store {
         name: name.into(),
         path: format!("/demo/{name}"),
         ship: String::new(),
+        ..Default::default()
     };
     Store {
         format: super::store::FORMAT,

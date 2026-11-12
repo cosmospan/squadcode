@@ -337,6 +337,12 @@ pub fn keeps_running(cmd: &str) -> bool {
         || c.ends_with("npm start")
 }
 
+/// A run with no message or job to show its card under: the project's app
+/// started from Run app, or a command run from a direct message or a file.
+fn loose(spec: &RunSpec) -> bool {
+    !spec.setup && spec.talk.is_none() && spec.job.is_none()
+}
+
 impl Shell {
     /// Starts `spec` in a hidden shell of its own and shows its card. The
     /// same command already running in the same folder isn't started twice:
@@ -353,7 +359,11 @@ impl Shell {
         {
             r.spec.talk = spec.talk.or(r.spec.talk);
             r.spec.job = spec.job.or(r.spec.job);
-            return Ok(r.id);
+            let id = r.id;
+            if loose(&spec) {
+                self.run_pop = Some(id);
+            }
+            return Ok(id);
         }
         // A finished run of the same command gives its place to the new one.
         self.runs
@@ -361,6 +371,7 @@ impl Shell {
         self.next_run += 1;
         let id = self.next_run;
         let sh = spawn(id, &spec)?;
+        let pop = loose(&spec);
         self.runs.push(Run {
             id,
             url: spec.hint.clone(),
@@ -375,6 +386,11 @@ impl Shell {
             read_at: None,
             open: false,
         });
+        // A run with no message or job to show under opens its card beside
+        // the sidebar's run pill, once; it tucks back in when you move on.
+        if pop {
+            self.run_pop = Some(id);
+        }
         cx.notify();
         Ok(id)
     }
@@ -610,6 +626,7 @@ impl Shell {
         let has_job = r.spec.job.is_some();
         let keeps = r.spec.keeps;
         let typing = self.run_typing == Some(id) && state.live();
+        let popped = self.run_pop == Some(id);
         let shown: Vec<String> = {
             let n = if open { FULL } else { TAIL };
             lines[lines.len().saturating_sub(n)..].to_vec()
@@ -668,7 +685,23 @@ impl Shell {
                     .text_size(px(11.5))
                     .text_color(c(ui::faint()))
                     .child(since),
-            );
+            )
+            .when(popped, |d| {
+                d.child(
+                    ui::icon_btn(("run-tuck", id as usize), IconName::Minus)
+                        .size(px(24.))
+                        .tooltip(|window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new(
+                                "Tuck it into the sidebar; it keeps running",
+                            )
+                            .build(window, cx)
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.run_pop = None;
+                            cx.notify();
+                        })),
+                )
+            });
 
         // Where it serves: the address, and opening it.
         let address = url.clone().map(|u| {
@@ -873,114 +906,289 @@ impl Shell {
         )
     }
 
-    /// The apps running in this folder, one line each over the composer, so
-    /// they're never lost up the thread: what's running, its address, and
-    /// Stop. `except` are runs whose card is in view at the bottom already.
-    pub(super) fn runs_strip(
-        &mut self,
-        folder: &str,
-        except: &[u64],
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        // A command run from somewhere with no place for its card (a direct
-        // message, a file) shows its whole card here.
-        let loose: Vec<u64> = self
-            .runs
+    /// The run the sidebar's pill stands for in `folder`: the project's app
+    /// while it runs (not a job's copy of it), else one that crashed, so you
+    /// see that it did.
+    pub(super) fn app_run(&self, folder: &str) -> Option<u64> {
+        let mine = |r: &&Run| {
+            r.spec.folder == folder && !r.spec.setup && r.spec.job.is_none() && r.spec.keeps
+        };
+        self.runs
             .iter()
-            .filter(|r| {
-                r.spec.folder == folder
-                    && !r.spec.setup
-                    && r.spec.talk.is_none()
-                    && r.spec.job.is_none()
+            .filter(mine)
+            .find(|r| r.live())
+            .or_else(|| {
+                self.runs
+                    .iter()
+                    .filter(mine)
+                    .filter(|r| r.state() == State::Failed)
+                    .max_by_key(|r| r.id)
             })
             .map(|r| r.id)
-            .collect();
-        let rows: Vec<(u64, String, Option<String>, State, bool)> = self
-            .runs
-            .iter()
-            .filter(|r| r.spec.folder == folder && r.live() && r.spec.keeps)
-            .filter(|r| !except.contains(&r.id) && !loose.contains(&r.id))
-            .map(|r| (r.id, r.spec.cmd.clone(), r.url.clone(), r.state(), r.up))
-            .collect();
-        if rows.is_empty() && loose.is_empty() {
-            return None;
+    }
+
+    /// What Run app would start in `folder`, read from the project now and
+    /// then rather than on every frame. None when Squad can't tell.
+    fn run_guess(&mut self, folder: &str) -> Option<String> {
+        let fresh = self
+            .run_guess
+            .as_ref()
+            .is_some_and(|(f, at, _)| f == folder && at.elapsed() < Duration::from_secs(5));
+        if !fresh {
+            let cmd = super::work::start_command(folder, 0).map(|(cmd, _)| cmd);
+            self.run_guess = Some((folder.to_string(), Instant::now(), cmd));
         }
-        let mut strip = div().flex().flex_col().gap(px(4.));
-        for id in loose {
-            strip = strip.children(self.run_card(id, cx));
+        self.run_guess.as_ref().and_then(|g| g.2.clone())
+    }
+
+    /// Opens run `id`'s card beside the sidebar's pill, or tucks it away.
+    pub(super) fn toggle_run_pop(&mut self, id: u64, cx: &mut Context<Self>) {
+        // The click outside that just tucked it away was on the pill: leave
+        // it tucked rather than opening it again.
+        if self
+            .run_pop_shut
+            .take()
+            .is_some_and(|at| at.elapsed() < Duration::from_millis(250))
+        {
+            return;
         }
-        for (id, cmd, url, state, up) in rows {
-            let (word, tone) = state.words(true);
-            strip = strip.child(
-                div()
-                    .h(px(34.))
-                    .px(px(10.))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .rounded(px(10.))
-                    .bg(c(ui::panel()))
-                    .border_1()
-                    .border_color(c(ui::line()))
-                    .text_size(px(12.5))
-                    .child(div().size(px(7.)).rounded_full().bg(c(tone)))
+        self.run_pop = if self.run_pop == Some(id) {
+            None
+        } else {
+            Some(id)
+        };
+        cx.notify();
+    }
+
+    /// The sidebar's run pill, under the project's name: Run app (and what
+    /// it would run) when nothing runs; while the app runs, its command,
+    /// port, Open and a chevron that brings its card out beside the
+    /// sidebar. The card opens there by itself the first time, and tucks
+    /// back into the pill when you go elsewhere or click outside it. Nothing
+    /// of it stays pinned over the composer.
+    pub(super) fn run_pill(&mut self, folder: &str, cx: &mut Context<Self>) -> Div {
+        let tip = |text: &'static str| {
+            move |window: &mut Window, cx: &mut App| {
+                gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
+            }
+        };
+        let base = div()
+            .id("side-run")
+            .h(px(32.))
+            .pl(px(10.))
+            .pr(px(5.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(5.))
+            .bg(c(ui::raised()))
+            .border_1()
+            .border_color(c(ui::line()))
+            .text_size(px(12.5))
+            .cursor_pointer()
+            .hover(|s| s.border_color(c(ui::line_hi())));
+        let shown = self
+            .app_run(folder)
+            .and_then(|id| self.runs.iter().find(|r| r.id == id))
+            .map(|r| {
+                let state = r.state();
+                let port = r
+                    .url
+                    .as_deref()
+                    .filter(|_| state.live())
+                    .and_then(super::rich::local_port)
+                    .map(|(p, _)| p);
+                (r.id, state, r.spec.cmd.clone(), port, r.up)
+            });
+        let pill = match shown {
+            None => {
+                let guess = self.run_guess(folder);
+                let known = guess.is_some();
+                base.text_color(c(ui::muted()))
+                    .child(Icon::new(IconName::Play).size(px(13.)))
+                    .child(div().flex_none().child("Run app"))
                     .child(
                         div()
-                            .text_color(c(tone))
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(word),
-                    )
-                    .child(
-                        div()
+                            .flex_1()
                             .min_w_0()
-                            .truncate()
-                            .font_family(ui::MONO)
-                            .text_size(px(12.))
-                            .text_color(c(ui::ink()))
-                            .child(cmd),
+                            .flex()
+                            .justify_end()
+                            .child(match guess {
+                                Some(cmd) => div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .font_family(ui::MONO)
+                                    .text_size(px(11.))
+                                    .text_color(c(ui::faint()))
+                                    .child(cmd),
+                                None => div()
+                                    .mr(px(5.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c(ui::accent_text()))
+                                    .child("Set up"),
+                            }),
                     )
-                    .children(url.filter(|_| up).map(|u| {
-                        let short = u
-                            .trim_start_matches("http://")
-                            .trim_end_matches('/')
-                            .to_string();
-                        div()
-                            .id(("strip-url", id as usize))
-                            .flex()
-                            .items_center()
-                            .gap(px(4.))
-                            .font_family(ui::MONO)
-                            .text_size(px(12.))
-                            .text_color(c(ui::t_blue()))
-                            .cursor_pointer()
-                            .hover(|s| s.underline())
-                            .child(Icon::new(IconName::Globe).size(px(12.)))
-                            .child(short)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open_run(id, false, window, cx)
-                            }))
+                    .tooltip(tip(if known {
+                        "Start this project's app here in Squad"
+                    } else {
+                        "Squad can't tell how to start this app yet: tell it in Setup"
                     }))
-                    .child(div().flex_1())
-                    .child(
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        if this.run_app(None, None, cx).is_none() {
+                            this.go(super::Place::Overview, cx);
+                            this.open_project_setup(window, cx);
+                            this.say(
+                                "Squad can't tell how to start this app. Add its run command in Setup and it'll know.",
+                            );
+                            cx.notify();
+                        }
+                    }))
+            }
+            Some((id, state, cmd, port, up)) => {
+                let (word, tone) = state.words(true);
+                let open = self.run_pop == Some(id);
+                let end = match state {
+                    State::Up if up && port.is_some() => Some(
                         div()
-                            .id(("strip-stop", id as usize))
-                            .h(px(24.))
-                            .px(px(8.))
+                            .id("side-run-open")
+                            .size(px(22.))
+                            .flex_none()
                             .flex()
                             .items_center()
-                            .gap(px(4.))
-                            .rounded(px(6.))
-                            .text_size(px(12.))
-                            .text_color(c(ui::RED))
-                            .cursor_pointer()
+                            .justify_center()
+                            .rounded(px(4.))
+                            .text_color(c(ui::accent_text()))
                             .hover(|s| s.bg(c(ui::hover())))
-                            .child(Icon::new(IconName::CircleStop).size(px(13.)))
-                            .child("Stop")
-                            .on_click(cx.listener(move |this, _, _, cx| this.stop_run(id, cx))),
+                            .child(Icon::new(IconName::ExternalLink).size(px(13.)))
+                            .tooltip(tip("Open the running app in your browser"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.open_run(id, true, window, cx);
+                            })),
                     ),
-            );
-        }
-        Some(strip)
+                    State::Starting | State::Failed => Some(
+                        div()
+                            .id("side-run-word")
+                            .flex_none()
+                            .text_size(px(12.))
+                            .text_color(c(tone))
+                            .when(state == State::Failed, |d| {
+                                d.font_weight(FontWeight::SEMIBOLD)
+                            })
+                            .child(if state == State::Starting {
+                                "starting\u{2026}".to_string()
+                            } else {
+                                word.to_string()
+                            }),
+                    ),
+                    _ => None,
+                };
+                base.when(state == State::Failed, |d| {
+                    d.border_color(ca(ui::t_red(), 0.45))
+                })
+                .when(open, |d| d.border_color(c(ui::accent_bar())))
+                .child(div().size(px(7.)).rounded_full().flex_none().bg(c(tone)))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .font_family(ui::MONO)
+                                .text_size(px(12.))
+                                .text_color(c(ui::ink()))
+                                .child(cmd),
+                        )
+                        .when_some(port, |d, p| {
+                            d.child(
+                                div()
+                                    .flex_none()
+                                    .font_family(ui::MONO)
+                                    .text_size(px(11.5))
+                                    .text_color(c(ui::faint()))
+                                    .child(format!(":{p}")),
+                            )
+                        }),
+                )
+                .children(end)
+                .child(
+                    div()
+                        .size(px(22.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(4.))
+                        .bg(c(ui::hover()))
+                        .child(
+                            Icon::new(if open {
+                                IconName::ChevronUp
+                            } else {
+                                IconName::ChevronDown
+                            })
+                            .size(px(12.))
+                            .text_color(c(ui::ink())),
+                        ),
+                )
+                .tooltip(tip(if open {
+                    "Tuck its card away"
+                } else {
+                    "Show its output, Restart and Stop"
+                }))
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_run_pop(id, cx)))
+            }
+        };
+        div()
+            .mx(px(2.))
+            .mb(px(10.))
+            .relative()
+            .child(pill)
+            .children(self.run_popover(cx))
+    }
+
+    /// The card of the run that's open beside the sidebar, floating over
+    /// the page next to the run pill.
+    fn run_popover(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+        let id = self.run_pop?;
+        let Some(card) = self.run_card(id, cx) else {
+            self.run_pop = None;
+            return None;
+        };
+        let pop = div()
+            .id("run-pop")
+            .w(px(460.))
+            .rounded(px(9.))
+            .shadow(vec![BoxShadow {
+                color: ca(0x000000, 0.16 * ui::float_shadow()),
+                offset: point(px(0.), px(12.)),
+                blur_radius: px(32.),
+                spread_radius: px(-6.),
+                inset: false,
+            }])
+            .occlude()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                if this.run_pop.take().is_some() {
+                    this.run_pop_shut = Some(Instant::now());
+                    cx.notify();
+                }
+            }))
+            .child(card.mt(px(0.)));
+        Some(
+            div()
+                .absolute()
+                .top(px(-6.))
+                .left(relative(1.))
+                .pl(px(16.))
+                .child(
+                    deferred(anchored().snap_to_window_with_margin(px(8.)).child(pop))
+                        .with_priority(3),
+                ),
+        )
     }
 
     /// A key typed into a run's output: sent to it, for a prompt it shows.
