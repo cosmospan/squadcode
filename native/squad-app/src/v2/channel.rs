@@ -899,28 +899,6 @@ impl Shell {
             self.thread_settle -= 1;
             self.thread_scroll.scroll_to_bottom();
         }
-        // Apps whose card is at the bottom of the thread already don't need
-        // their line over the composer too.
-        let near: Vec<u64> = {
-            let (talks, jobs): (Vec<u64>, Vec<u64>) = shown
-                .iter()
-                .rev()
-                .take(3)
-                .map(|e| match e {
-                    Entry::Talk(t) => (t.id, 0),
-                    Entry::Job(j) => (0, j.id),
-                    Entry::Plan(_) => (0, 0),
-                })
-                .unzip();
-            self.runs
-                .iter()
-                .filter(|r| {
-                    r.spec.talk.is_some_and(|t| talks.contains(&t))
-                        || (r.spec.talk.is_none() && r.spec.job.is_some_and(|j| jobs.contains(&j)))
-                })
-                .map(|r| r.id)
-                .collect()
-        };
         let empty = shown.is_empty();
         // Is anything open on the right? The Jobs panel, or a job's own
         // conversation beside the thread. Then the chat narrows back.
@@ -1048,7 +1026,6 @@ impl Shell {
                             .flex()
                             .flex_col()
                             .gap(px(8.))
-                            .children(self.runs_strip(&folder.path, &near, cx))
                             .children(self.waiting_strip(&folder.path, thread, cx))
                             .children(offer)
                             .children(self.slash_strip(cx))
