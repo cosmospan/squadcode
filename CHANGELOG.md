@@ -4,12 +4,19 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+## [2.0.0-alpha.12] - 2026-11-12
+
 ### Added
 
+- A project switcher at the head of the sidebar shows the project's emblem, name, folder, branch and state, and drops every project with what waits or runs there; ⌥⌘1–9 (Ctrl+Alt+1–9 off a Mac) jumps to one. Each project gets its own shape and colour, so no two look alike, and Change emblem… on its right-click menu picks from 28 shapes and 8 colours.
 - The terminal drawer holds several shells as tabs. + (or Cmd+T, Ctrl+Shift+T off a Mac) opens another shell in the same project or job, each tab is named by what its shell says it's doing, and its × (or Cmd+W) ends that shell. Side by side (Cmd+D) shows up to three of them next to each other, the one taking your keys marked in the accent; Fill the page (Cmd+Shift+Enter) lets the terminal take the page's place and fit itself to the height, and the same button puts it back. The job workspace's Terminal tab has the tabs and Side by side too.
 
 ### Changed
 
+- The rail holds places only, as icons named on hover: Inbox, Overview, Jobs and Crew, with the night shift, today's usage as a thin bar (amber at 75%, red at 90%; click it for the engines), Machines and Settings at its foot. The project tiles left the rail for the switcher.
+- With the right side closed, a thread's messages fill the width instead of keeping to a narrow column.
+- A new app icon: Peek peeking over a terminal, in graphite and lime.
+- The README covers the switcher, Run app, the terminal drawer, Run it later and the new themes, with fresh screenshots.
 - The Run it later menu lines up: each time has an icon, its name over why you'd pick it, and when it starts in a column on the right, the clock over the day ("11:00 PM", "today"), so both lines of every row share an edge.
 - A running app no longer sits pinned over the composer. Run app turns into a small pill under the project's name with its command, port, an Open button and a chevron; its card (output, Restart, Stop) opens beside the sidebar the first time and tucks back into the pill when you go to another page or click outside it. Click the pill, or its line under Running now, to bring the card back. A crashed app shows red in the pill.
 - Run app says what it will run before you press it, and opens Setup when Squad can't tell, instead of doing nothing.
