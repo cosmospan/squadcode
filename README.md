@@ -46,7 +46,7 @@ and you approve, send it back or throw it away right in the thread.
 
 <br />
 
-<img src="docs/images/thread.png" alt="Squad Code's main window: the icon rail on the far left, the project switcher and Run app at the head of the sidebar with the project's threads and bots under them, and the #checkout thread with a race of three tries, Peek's four-step plan waiting to start and a job queued to run later" width="920" />
+<img src="docs/images/thread.png" alt="Squad Code's main window: the icon rail on the far left, the project switcher and Run app at the head of the sidebar with the project's threads and bots under them, and the #checkout thread with a race of three tries, Peek's four-step plan card ready to start and a job queued to run later" width="920" />
 
 </div>
 
