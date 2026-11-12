@@ -23,6 +23,9 @@ struct Shared {
     /// The CSS size of the page the frame shows.
     css: (f32, f32),
     url: String,
+    /// The address that couldn't be loaded, while the page is Chrome's
+    /// error page for it ("This site can't be reached").
+    unreachable: String,
     loading: bool,
     session: String,
     cdp: Option<Arc<Cdp>>,
@@ -257,6 +260,14 @@ impl Viewer {
         self.locked().loading
     }
 
+    /// Some when the page is Chrome's own error page, not the app's: the
+    /// address it couldn't reach (empty when Chrome didn't say), most often
+    /// a local server that has since stopped.
+    pub fn unreachable(&self) -> Option<String> {
+        let sh = self.locked();
+        is_error_page(&sh.url).then(|| sh.unreachable.clone())
+    }
+
     fn send(&self, method: &str, params: Value) {
         let (cdp, session) = {
             let sh = self.locked();
@@ -432,7 +443,13 @@ fn watch(
                 v.fetch_add(1, Ordering::Relaxed);
             }
             "Page.frameNavigated" if ours && p["frame"]["parentId"].is_null() => {
-                lock().url = p["frame"]["url"].as_str().unwrap_or_default().to_string();
+                let mut sh = lock();
+                sh.url = p["frame"]["url"].as_str().unwrap_or_default().to_string();
+                sh.unreachable = p["frame"]["unreachableUrl"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                drop(sh);
                 v.fetch_add(1, Ordering::Relaxed);
             }
             "Page.navigatedWithinDocument" if ours => {
@@ -471,6 +488,16 @@ fn watch(
         sh.cdp = Some(cdp.clone());
     }
     cdp.call("Page.enable", json!({}), &session)?;
+    // Where the page really is: the target's address stays the one asked
+    // for even when Chrome shows its error page for it.
+    if let Ok(t) = cdp.call("Page.getFrameTree", json!({}), &session) {
+        let f = &t["frameTree"]["frame"];
+        let mut sh = shared.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(url) = f["url"].as_str() {
+            sh.url = url.to_string();
+        }
+        sh.unreachable = f["unreachableUrl"].as_str().unwrap_or_default().to_string();
+    }
     cdp.send(
         "Page.addScriptToEvaluateOnNewDocument",
         json!({"source": crate::browser_engine::IN_PLACE_JS}),
@@ -494,6 +521,11 @@ fn watch(
     shared.lock().unwrap_or_else(|e| e.into_inner()).state = Some(State::Live);
     version.fetch_add(1, Ordering::Relaxed);
     Ok(())
+}
+
+/// Chrome's own page for an address it couldn't load.
+pub fn is_error_page(url: &str) -> bool {
+    url.starts_with("chrome-error://")
 }
 
 #[cfg(test)]
@@ -607,6 +639,76 @@ mod live {
         wait("the bot sees it", || {
             crate::browse::bot::with(d, |b| b.look("typed", "", 1000))
                 .is_ok_and(|t| t.contains("typed hi"))
+        });
+        drop(v);
+        crate::browse::host::close(d);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A little app on a port of its own, answering until it's dropped.
+    fn app() -> (String, std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://localhost:{}/", l.local_addr().unwrap().port());
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let s = stop.clone();
+        std::thread::spawn(move || {
+            for c in l.incoming() {
+                if s.load(Ordering::Relaxed) {
+                    break;
+                }
+                let Ok(mut c) = c else { continue };
+                let mut buf = [0u8; 2048];
+                let _ = c.read(&mut buf);
+                let body = "<title>App</title><h1>Hello</h1>";
+                let _ = write!(
+                    c,
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        (url, stop)
+    }
+
+    /// Stops `app`: its port refuses from now on.
+    fn stop(url: &str, flag: &std::sync::atomic::AtomicBool) {
+        flag.store(true, Ordering::Relaxed);
+        // Wake the accept loop so it lets go of the port.
+        let _ =
+            std::net::TcpStream::connect(url.trim_start_matches("http://").trim_end_matches('/'));
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    #[test]
+    #[ignore]
+    fn says_which_address_it_couldnt_reach() {
+        let home = std::env::temp_dir().join(format!("squad-dead-{}", std::process::id()));
+        std::env::set_var("SQUADCODE_HOME", &home);
+        let dir = home.join("job");
+        std::fs::create_dir_all(&dir).unwrap();
+        let d = dir.to_str().unwrap();
+        // The bot tests the app, stops it, and the page is reloaded after:
+        // all before you look.
+        let (first, flag) = app();
+        crate::browse::bot::with(d, |b| b.open(&first)).unwrap();
+        stop(&first, &flag);
+        let _ = crate::browse::bot::with(d, |b| b.eval_js("location.reload()"));
+        std::thread::sleep(Duration::from_millis(500));
+        let e = crate::browse::host::ensure(d).unwrap();
+        let v = Viewer::connect(e.port, e.path.clone(), None);
+        wait("live", || v.state() == State::Live);
+        assert!(is_error_page(&v.url()), "{}", v.url());
+        assert_eq!(v.unreachable().as_deref(), Some(first.as_str()));
+        // And one that stops answering while you watch.
+        let (next, flag) = app();
+        v.navigate(&next);
+        wait("the app", || v.url() == next);
+        assert_eq!(v.unreachable(), None);
+        stop(&next, &flag);
+        v.reload();
+        wait("the next one", || {
+            v.unreachable().as_deref() == Some(next.as_str())
         });
         drop(v);
         crate::browse::host::close(d);

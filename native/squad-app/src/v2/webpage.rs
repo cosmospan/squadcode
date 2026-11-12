@@ -67,6 +67,9 @@ pub(super) struct Web {
     picking: Option<Receiver<Result<view::Picked, String>>>,
     /// What was picked, for the bar asking what should change about it.
     picked: Option<view::Picked>,
+    /// You pressed Start the app on a page that couldn't be reached: open it
+    /// again once the app answers.
+    app_wait: Option<Instant>,
 }
 
 impl Web {
@@ -108,6 +111,7 @@ impl Web {
                 pointing: false,
                 picking: None,
                 picked: None,
+                app_wait: None,
             },
             sub,
         )
@@ -117,6 +121,7 @@ impl Web {
         self.pointing = false;
         self.picking = None;
         self.picked = None;
+        self.app_wait = None;
         self.view = None;
         self.tunnel = None;
         self.opening = None;
@@ -276,6 +281,25 @@ impl Shell {
                 Err(_) => {}
             }
         }
+        // The app you started for a page that couldn't be reached is up:
+        // show the page again.
+        if let Some(at) = self.web.app_wait {
+            let app = self.job_app(self.web.job);
+            if at.elapsed() > Duration::from_secs(90) || app.as_ref().is_some_and(|a| !a.0) {
+                self.web.app_wait = None;
+                cx.notify();
+            } else if let Some((_, true, served)) = app {
+                self.web.app_wait = None;
+                if let Some(v) = &self.web.view {
+                    let failed = v.unreachable().filter(|u| !u.is_empty());
+                    match failed.or(served) {
+                        Some(u) => v.navigate(&u),
+                        None => v.reload(),
+                    }
+                }
+                cx.notify();
+            }
+        }
         // While you watch a job's browser here it isn't idle.
         if self.web.touched.elapsed() > Duration::from_secs(60) {
             self.web.touched = Instant::now();
@@ -424,8 +448,25 @@ impl Shell {
             (None, None) if !self.web.err.is_empty() => State::Closed(self.web.err.clone()),
             (None, None) => State::Closed("Not open.".into()),
         };
-        let url = self.web.view.as_ref().map(|v| v.url()).unwrap_or_default();
+        // Chrome's "This site can't be reached" page: most often the app the
+        // bot tested has stopped. Shown as that, not as Chrome's page.
+        let dead = self
+            .web
+            .view
+            .as_ref()
+            .filter(|_| state == State::Live)
+            .and_then(|v| v.unreachable());
+        let url = match &dead {
+            Some(failed) => failed.clone(),
+            None => self.web.view.as_ref().map(|v| v.url()).unwrap_or_default(),
+        };
         let loading = self.web.view.as_ref().is_some_and(|v| v.loading());
+        // A bot is on the job, so it may be driving this page right now.
+        let driving = job
+            .as_ref()
+            .is_some_and(|j| j.status == super::store::Status::Running);
+        let app = self.job_app(self.web.job);
+        let app_starting = self.web.app_wait.is_some() || app.as_ref().is_some_and(|a| a.0 && !a.1);
         // The address follows the page, unless you're typing a new one.
         if url != self.web.shown
             && !self
@@ -452,6 +493,7 @@ impl Shell {
             ),
             State::Connecting => (ui::t_amber(), "Starting its browser…".to_string()),
             State::Live if loading => (ui::t_amber(), "Loading…".to_string()),
+            State::Live if dead.is_some() => (ui::t_amber(), String::new()),
             State::Live => (ui::t_green(), String::new()),
             State::Closed(why) => (ui::t_red(), why.clone()),
         };
@@ -548,22 +590,33 @@ impl Shell {
             )
             // A page here can open in your own browser too; one on the server
             // is only reachable through Squad.
-            .when(!remote && !url.is_empty() && url != "about:blank", |d| {
-                let u = url.clone();
-                d.child(
-                    square("web-outside", IconName::ExternalLink)
-                        .tooltip(|window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new("Open in your browser")
-                                .build(window, cx)
-                        })
-                        .on_click(move |_, _, cx| cx.open_url(&u)),
-                )
-            });
+            .when(
+                !remote && dead.is_none() && !url.is_empty() && url != "about:blank",
+                |d| {
+                    let u = url.clone();
+                    d.child(
+                        square("web-outside", IconName::ExternalLink)
+                            .tooltip(|window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new("Open in your browser")
+                                    .build(window, cx)
+                            })
+                            .on_click(move |_, _, cx| cx.open_url(&u)),
+                    )
+                },
+            );
         let face = bot.map(|b| self.avatar(b, 16.));
-        let (word, word_col) = match &state {
-            State::Live if !loading => ("Live".to_string(), ui::t_green()),
-            State::Closed(_) => ("Closed".to_string(), ui::t_red()),
-            _ => ("Starting".to_string(), ui::t_amber()),
+        // Live only while a bot is on the job and the page is really there:
+        // a finished job's browser is just the page it left.
+        let word = match &state {
+            State::Live if dead.is_some() && app_starting => {
+                Some(("App starting".to_string(), ui::t_amber()))
+            }
+            State::Live if dead.is_some() => Some(("App stopped".to_string(), ui::muted())),
+            State::Live if loading => Some(("Starting".to_string(), ui::t_amber())),
+            State::Live if driving => Some(("Live".to_string(), ui::t_green())),
+            State::Live => None,
+            State::Closed(_) => Some(("Closed".to_string(), ui::t_red())),
+            State::Connecting => Some(("Starting".to_string(), ui::t_amber())),
         };
         let who = div()
             .flex_none()
@@ -580,11 +633,17 @@ impl Shell {
                         .text_color(c(ui::ink()))
                         .child(b.name().to_string()),
                 )
-                .child("is testing the page")
+                .child(if driving {
+                    "is testing the page"
+                } else {
+                    "tested the page"
+                })
             })
-            .child(div().ml(px(6.)).child(ui::mono_status(word_col, &word)))
+            .when_some(word, |d, (word, col)| {
+                d.child(div().ml(px(6.)).child(ui::mono_status(col, &word)))
+            })
             .child(div().flex_1())
-            .when(!closed, |d| {
+            .when(!closed && dead.is_none(), |d| {
                 let on = self.web.pointing;
                 d.child(
                     ui::dbtn_i(
@@ -729,7 +788,14 @@ impl Shell {
                 .child(text)
         };
         let blank = url.is_empty() || url == "about:blank";
-        area = match (&self.web.img, &state) {
+        if let Some(failed) = &dead {
+            let name = bot
+                .map(|b| b.name().to_string())
+                .unwrap_or_else(|| "The bot".into());
+            area =
+                area.child(self.web_unreachable(failed, &name, driving, remote, app_starting, cx));
+        } else {
+            area = match (&self.web.img, &state) {
             (_, State::Live) if blank => area.child(empty(
                 "No page yet. When the bot tries the app, it shows up here. You can open one yourself above, like localhost:3000.".into(),
             )),
@@ -744,6 +810,7 @@ impl Shell {
             (None, State::Closed(_)) => area.child(empty(line.clone())),
             (None, _) => area.child(empty("Waiting for the first picture…".into())),
         };
+        }
         div()
             .size_full()
             .flex()
@@ -766,6 +833,109 @@ impl Shell {
             .children(self.pick_bar(cx))
             .child(div().flex_none().h(px(4.)))
             .into_any_element()
+    }
+
+    /// What the page shows instead of Chrome's error page when the address
+    /// can't be reached: what that means, and a way to bring the app back.
+    fn web_unreachable(
+        &mut self,
+        failed: &str,
+        bot: &str,
+        driving: bool,
+        remote: bool,
+        starting: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let id = self.web.job;
+        let place = failed
+            .split_once("://")
+            .map_or(failed, |(_, rest)| rest)
+            .trim_end_matches('/');
+        let local = place.starts_with("localhost") || place.starts_with("127.0.0.1");
+        let title = if place.is_empty() {
+            "This page can't be reached".to_string()
+        } else if local {
+            format!("Nothing is running at {place}")
+        } else {
+            format!("{place} can't be reached")
+        };
+        let body = if starting {
+            "Starting the app. The page shows up here as soon as it answers.".to_string()
+        } else if driving {
+            format!(
+                "The page didn't load. If {bot} is still starting the app, try again in a moment."
+            )
+        } else if local && remote {
+            format!("{bot} started the app on your server to test it and stopped it when it was done, so there's nothing left to show.")
+        } else if local {
+            format!("{bot} started the app to test it and stopped it when it was done, so there's nothing left to show. Start it again to see the page here, or in your own browser at {place}.")
+        } else {
+            "The browser couldn't load this address.".to_string()
+        };
+        let failed = failed.to_string();
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(8.))
+            .px(px(40.))
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(ui::ink()))
+                    .child(title),
+            )
+            .child(
+                div()
+                    .max_w(px(420.))
+                    .text_center()
+                    .text_size(px(12.5))
+                    .line_height(px(19.))
+                    .text_color(c(ui::muted()))
+                    .child(body),
+            )
+            .child(
+                div()
+                    .mt(px(8.))
+                    .flex()
+                    .gap(px(8.))
+                    .when(local && !remote && !starting, |d| {
+                        d.child(
+                            ui::dbtn_i("web-start-app", IconName::Play, "Start the app", ui::Btn::Primary)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    if this.run_app(Some(id), None, cx).is_some() {
+                                        this.web.app_wait = Some(Instant::now());
+                                    } else {
+                                        this.go(Place::Overview, cx);
+                                        this.open_project_setup(window, cx);
+                                        this.say(
+                                            "Squad can't tell how to start this app. Add its run command in Setup and it'll know.",
+                                        );
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                    })
+                    .when(!starting, |d| {
+                        d.child(
+                            ui::dbtn_i("web-retry", IconName::RotateCw, "Try again", ui::Btn::Plain)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(v) = &this.web.view {
+                                        if failed.is_empty() {
+                                            v.reload();
+                                        } else {
+                                            v.navigate(&failed);
+                                        }
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                    }),
+            )
     }
 
     /// The bar under the page while pointing or once something is picked.
