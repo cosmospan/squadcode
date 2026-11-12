@@ -96,7 +96,7 @@ pub fn parse_when<Tz: TimeZone>(text: &str, now: DateTime<Tz>) -> Option<(u64, S
             let eleven = at_clock(&now, 23, 0, 0)?;
             // Already late: start now; in the small hours "tonight" is now too.
             let late = now.clone().naive_local().time() >= NaiveTime::from_hms_opt(23, 0, 0)?
-                || now.clone().naive_local().time() < NaiveTime::from_hms_opt(5, 0, 0)?;
+                || small_hours(&now);
             let at = if late {
                 now.timestamp().max(0) as u64
             } else {
@@ -106,6 +106,8 @@ pub fn parse_when<Tz: TimeZone>(text: &str, now: DateTime<Tz>) -> Option<(u64, S
         }
         "tomorrow" => {
             // "tomorrow 7am" or "tomorrow at 7am"; plain "tomorrow" is 9 AM.
+            // Still up in the small hours, tomorrow morning is this one.
+            let days = if small_hours(&now) { 0 } else { 1 };
             let mut used = 1;
             let mut clock = (9, 0);
             let mut i = 1;
@@ -116,7 +118,7 @@ pub fn parse_when<Tz: TimeZone>(text: &str, now: DateTime<Tz>) -> Option<(u64, S
                 clock = c;
                 used = i + 1;
             }
-            (at_clock(&now, clock.0, clock.1, 1)?, used)
+            (at_clock(&now, clock.0, clock.1, days)?, used)
         }
         "in" => {
             let (secs, used) = wait_of(&low[1..])?;
@@ -138,6 +140,12 @@ pub fn parse_when<Tz: TimeZone>(text: &str, now: DateTime<Tz>) -> Option<(u64, S
     let rest = words.get(used..)?.join(" ");
     let rest = rest.trim().to_string();
     (!rest.is_empty()).then_some((at, rest))
+}
+
+/// Before 5 AM: still last night, as far as people go.
+fn small_hours<Tz: TimeZone>(now: &DateTime<Tz>) -> bool {
+    use chrono::Timelike;
+    now.clone().naive_local().hour() < 5
 }
 
 /// "2am", "9pm", "14:30", "1:30am", "9" as hours and minutes.
@@ -228,6 +236,32 @@ pub fn when_words(at: u64, now: u64) -> String {
         Some((clock, day)) => format!("on {} at {clock}", day.format("%a %-d %b")),
         None => "later".into(),
     }
+}
+
+/// A start time as the Run it later menu shows it: the clock ("11:00 PM")
+/// and the day under it ("today", "tomorrow", "Sat 14 Nov"); "now" and
+/// nothing when it would start straight away.
+pub fn clock_and_day<Tz: TimeZone>(at: u64, now: &DateTime<Tz>) -> (String, String)
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let now_s = now.timestamp().max(0) as u64;
+    if at <= now_s + 60 {
+        return ("now".into(), String::new());
+    }
+    let Some(t) = now.timezone().timestamp_opt(at as i64, 0).single() else {
+        return (String::new(), String::new());
+    };
+    let today = now.clone().naive_local().date();
+    let day = t.naive_local().date();
+    let word = if day == today {
+        "today".to_string()
+    } else if Some(day) == today.succ_opt() {
+        "tomorrow".to_string()
+    } else {
+        day.format("%a %-d %b").to_string()
+    };
+    (t.format("%-I:%M %p").to_string(), word)
 }
 
 /// When a job ran out of its engine's plan: Some with the reset time when
@@ -334,6 +368,38 @@ mod tests {
         let (t, rest) = parse_when("tomorrow at 7am tidy up", now).unwrap();
         assert_eq!(clock(t), (9, 7, 0));
         assert_eq!(rest, "tidy up");
+    }
+
+    #[test]
+    fn tomorrow_in_the_small_hours_is_this_morning() {
+        let (t, _) = parse_when("tomorrow tidy up", at(0, 30)).unwrap();
+        assert_eq!(clock(t), (8, 9, 0));
+        let (t, _) = parse_when("tomorrow 7am tidy up", at(4, 0)).unwrap();
+        assert_eq!(clock(t), (8, 7, 0));
+        let (t, _) = parse_when("tomorrow tidy up", at(5, 0)).unwrap();
+        assert_eq!(clock(t), (9, 9, 0));
+    }
+
+    #[test]
+    fn the_menu_shows_a_clock_and_a_day() {
+        let now = at(14, 0);
+        let (t, _) = parse_when("tonight x", now).unwrap();
+        assert_eq!(clock_and_day(t, &now), ("11:00 PM".into(), "today".into()));
+        let (t, _) = parse_when("tomorrow x", now).unwrap();
+        assert_eq!(
+            clock_and_day(t, &now),
+            ("9:00 AM".into(), "tomorrow".into())
+        );
+        let (t, _) = parse_when("in 2h x", now).unwrap();
+        assert_eq!(clock_and_day(t, &now), ("4:00 PM".into(), "today".into()));
+        let far = now.timestamp() as u64 + 3 * 86400;
+        assert_eq!(
+            clock_and_day(far, &now),
+            ("2:00 PM".into(), "Wed 11 Nov".into())
+        );
+        let late = at(23, 30);
+        let (t, _) = parse_when("tonight x", late).unwrap();
+        assert_eq!(clock_and_day(t, &late), ("now".into(), String::new()));
     }
 
     #[test]

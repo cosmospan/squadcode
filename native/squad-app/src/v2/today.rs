@@ -10,6 +10,7 @@ use gpui_kit::*;
 use squad_holo::{Framing, Mood};
 
 use super::data::Mode;
+use super::popover::Pop;
 use super::store::{self, Status};
 use super::ui::{self, c, ca};
 use super::Pane;
@@ -446,15 +447,15 @@ impl Shell {
                     .size(px(14.))
                     .text_color(c(ui::faint())),
             )
-            .on_click(cx.listener(|this, _, _, cx| {
+            .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
                 if this.crew.store.folders.is_empty() {
                     this.pick_folder(cx);
                 } else {
-                    this.folder_menu = !this.folder_menu;
+                    this.toggle_pop(Pop::Folder, e);
                     cx.notify();
                 }
             }));
-        let menu = self.folder_menu.then(|| {
+        let menu = self.pop_open(Pop::Folder).then(|| {
             let mut list = div()
                 .absolute()
                 .top(px(38.))
@@ -531,7 +532,7 @@ impl Shell {
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.crew.store.current = i;
-                            this.folder_menu = false;
+                            this.close_pop();
                             this.crew.store.save();
                             cx.notify();
                         })),
@@ -555,6 +556,7 @@ impl Shell {
                         .on_click(cx.listener(|this, _, _, cx| this.pick_folder(cx))),
                 )
         });
+        let menu = menu.map(|m| self.pop_panel(Pop::Folder, m, cx));
         div()
             .relative()
             .child(folder_chip)

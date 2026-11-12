@@ -40,6 +40,7 @@ mod myserver;
 mod overview;
 mod palette;
 mod peek;
+mod popover;
 mod prefs;
 mod project;
 mod race;
@@ -469,7 +470,11 @@ pub struct Shell {
     maker: (squad_holo::Tint, squad_holo::fin::Outfit),
     /// Which jobs History shows: 0 all, 1 running, 2 done, 3 problems.
     history_filter: usize,
-    folder_menu: bool,
+    /// The floating menu that's open (Run it later, the project picker, a
+    /// Settings drop-down, the engines popover), and where the click that
+    /// last put one away went down.
+    pop: Option<popover::Pop>,
+    pop_shut: Option<(popover::Pop, Point<Pixels>)>,
     /// The sidebar shows only its icon rail.
     side_slim: bool,
     /// The thread on screen and when you last looked at it before opening it,
@@ -535,8 +540,6 @@ pub struct Shell {
     setup_more: bool,
     /// The bot maker is open on Crew.
     maker_open: bool,
-    /// The engines popover over the status bar is open.
-    usage_open: bool,
     /// The agent picked on Engines.
     engine_sel: Option<usize>,
     /// Engines shows each bot's brain rather than the engines themselves.
@@ -599,6 +602,15 @@ pub struct Shell {
     /// Typing into a run's output, for a prompt it shows.
     run_focus: FocusHandle,
     run_typing: Option<u64>,
+    /// The run whose card is open beside the sidebar's run pill; it tucks
+    /// back into the pill when you go elsewhere or click outside it.
+    run_pop: Option<u64>,
+    /// When that card was last tucked away by a click outside it, so the
+    /// same click landing on the pill doesn't open it again.
+    run_pop_shut: Option<Instant>,
+    /// What Run app would start in a folder, looked up now and then rather
+    /// than on every frame: (folder, when, command).
+    run_guess: Option<(String, Instant, Option<String>)>,
     /// Where a command clicked in a message was said: Peek's message, the
     /// job. Its card shows there.
     act_from: (Option<u64>, Option<u64>),
@@ -661,8 +673,6 @@ pub struct Shell {
     memory_hint: Option<String>,
     /// How many days Settings > Usage looks back: 7, 14 or 30.
     usage_days: u64,
-    /// The Settings drop-down that is open, by its id.
-    select_open: Option<&'static str>,
     /// Job folders whose changed files' folders were opened once already.
     files_seeded: std::collections::HashSet<String>,
     /// The picked file as read: its path, lines, and the lines the job
@@ -786,8 +796,6 @@ pub struct Shell {
     racing: usize,
     /// A job from Today's box is a goal to split into jobs.
     splitting: bool,
-    /// The Run it later menu by the send button is open.
-    later_menu: bool,
     /// A DM's box starts a job (Do) instead of asking (Ask).
     dm_do: bool,
     /// When the next job sent from the thread's box starts, as /later words
@@ -797,14 +805,18 @@ pub struct Shell {
     issue_list: Option<IssueList>,
     /// A rewind waiting for its OK: the job and the point.
     rewind_ask: Option<(u64, usize)>,
-    /// Terminal drawers' shells, by job, and the job whose drawer is open.
-    terms: HashMap<u64, crate::pty::Shell>,
+    /// Terminal drawers (their tabs of shells), by job, project or server,
+    /// and the one whose drawer is open.
+    terms: HashMap<u64, term::Drawer>,
     term_open: Option<u64>,
     term_focus: FocusHandle,
     term_focused: bool,
     /// Frames left to keep handing focus to a drawer that just opened.
     term_grab: u8,
     term_cols: u16,
+    /// How tall the open drawer's shells were last drawn, for fitting them
+    /// when it fills its space.
+    term_h: std::rc::Rc<std::cell::Cell<f32>>,
     /// The window's width, for fitting the terminal to it.
     view_w: f32,
     /// How see-through the window is, under Settings > Appearance.
@@ -1394,7 +1406,8 @@ impl Shell {
             streak: None,
             maker: (squad_holo::Tint::VIOLET, squad_holo::fin::ROLES[6].outfit),
             history_filter: 0,
-            folder_menu: false,
+            pop: None,
+            pop_shut: None,
             side_slim: false,
             new_mark: (String::new(), 0, 0),
             reply_open: None,
@@ -1413,7 +1426,6 @@ impl Shell {
             setup_step: 0,
             setup_more: false,
             maker_open: false,
-            usage_open: false,
             engine_sel: None,
             engines_all: false,
             settings_pane: Pane::Work,
@@ -1444,6 +1456,9 @@ impl Shell {
             next_run: 0,
             run_focus: cx.focus_handle(),
             run_typing: None,
+            run_pop: None,
+            run_pop_shut: None,
+            run_guess: None,
             act_from: (None, None),
             warmed_at: None,
             run_wanted: None,
@@ -1489,7 +1504,6 @@ impl Shell {
             usage_days: 7,
             chat_hint: None,
             memory_hint: None,
-            select_open: None,
             files_seeded: Default::default(),
             job_view: None,
             server_input,
@@ -1554,7 +1568,6 @@ impl Shell {
             diff_text: String::new(),
             racing: 0,
             splitting: false,
-            later_menu: false,
             dm_do: false,
             later_pick: None,
             issue_list: None,
@@ -1565,6 +1578,7 @@ impl Shell {
             term_focused: false,
             term_grab: 0,
             term_cols: 100,
+            term_h: Default::default(),
             view_w: 1280.,
             clear_slider,
             pop_slider,
@@ -1590,7 +1604,9 @@ impl Shell {
                 shell.list_git = true;
             }
             // The status bar's usage popover, open.
-            Ok("usage-open") => shell.usage_open = true,
+            Ok("usage-open") => shell.open_pop(popover::Pop::Usage),
+            // The Run it later menu by a thread's send button, open.
+            Ok("later-open") => shell.open_pop(popover::Pop::Later),
             // The project switcher dropped from the head of the panel.
             Ok("switcher") => shell.menu = Some((point(px(64.), px(98.)), menu::Ctx::Projects)),
             // The emblem picker for the project you're in.
@@ -1600,6 +1616,19 @@ impl Shell {
                 }
             }
             Ok("palette") => shell.open_palette(window, cx),
+            // The project's app started from the sidebar, its card open
+            // beside the run pill; "run-app:tucked" with the card tucked away.
+            Ok(p) if p.starts_with("run-app") => {
+                shell.run_app(None, None, cx);
+                if p.ends_with(":tucked") {
+                    shell.run_pop = None;
+                }
+            }
+            // The Overview with its Setup form open.
+            Ok("project-setup") => {
+                shell.place = Place::Overview;
+                shell.open_project_setup(window, cx);
+            }
             // "job:9:files" opens job #9's workspace on its Files tab.
             Ok(p) if p.starts_with("job:") && p.matches(':').count() == 2 => {
                 let tab = p.rsplit(':').next().unwrap_or_default();
@@ -1771,11 +1800,14 @@ impl Shell {
                 self.side_job = true;
             }
             self.place = place;
+            // A run's card open beside the sidebar tucks back into its pill.
+            self.run_pop = None;
             if let Place::Settings(pane) = place {
                 self.settings_pane = pane;
             }
             self.entered = Instant::now();
-            self.folder_menu = false;
+            // A menu from the page you left doesn't follow you.
+            self.close_pop();
         }
     }
 
@@ -1846,7 +1878,7 @@ impl Shell {
 
     /// Asks for a folder and makes it the one the crew works in.
     fn pick_folder(&mut self, cx: &mut Context<Self>) {
-        self.folder_menu = false;
+        self.close_this_pop(popover::Pop::Folder);
         let rx = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -2947,7 +2979,7 @@ impl Shell {
             self.crew.store.current = self.crew.store.current.saturating_sub(1);
         }
         if self.crew.store.folders.is_empty() {
-            self.folder_menu = false;
+            self.close_this_pop(popover::Pop::Folder);
         }
         self.crew.store.save();
         self.say(format!(
@@ -3960,6 +3992,9 @@ impl Render for Shell {
         });
         let setup = self.place == Place::Welcome;
         let project_drawer = self.project_drawer(cx);
+        // A project's or the server's terminal filling the page takes the
+        // page's place.
+        let term_fills = self.shared_term_max() && !setup;
         let root = div()
             .size_full()
             .relative()
@@ -3983,6 +4018,12 @@ impl Render for Shell {
             .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                 let m = &e.keystroke.modifiers;
                 let key = e.keystroke.key.as_str();
+                // Esc puts a floating menu away before anything else hears it.
+                if key == "escape" && this.close_pop() {
+                    cx.notify();
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.menu.is_some() && !m.platform && !m.control {
                     if this.menu_key(key, window, cx) {
                         cx.stop_propagation();
@@ -4136,30 +4177,32 @@ impl Render for Shell {
                             .when(setup, |d| d.h_full())
                             .when(!setup, |d| d.bg(c(ui::bg())))
                             .relative()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .w_full()
-                                    .relative()
-                                    .overflow_hidden()
-                                    // The pattern lies under the page only, not the top bar:
-                                    // the bar is a plain strip of the page's own ground, so
-                                    // the pattern never runs into the bar's edge and no grid
-                                    // line lands a few pixels off it.
-                                    .when(!setup, |d| {
-                                        d.children(ui::pattern(crate::pattern::Area::Content))
-                                    })
-                                    .child(div().size_full().child(body))
-                                    .children(self.file_view(cx)),
-                            )
+                            .when(!term_fills, |d| {
+                                d.child(
+                                    div()
+                                        .flex_1()
+                                        .min_h_0()
+                                        .w_full()
+                                        .relative()
+                                        .overflow_hidden()
+                                        // The pattern lies under the page only, not the top bar:
+                                        // the bar is a plain strip of the page's own ground, so
+                                        // the pattern never runs into the bar's edge and no grid
+                                        // line lands a few pixels off it.
+                                        .when(!setup, |d| {
+                                            d.children(ui::pattern(crate::pattern::Area::Content))
+                                        })
+                                        .child(div().size_full().child(body))
+                                        .children(self.file_view(cx)),
+                                )
+                            })
                             .when(!setup, |d| d.children(project_drawer))
                             .when(!setup, |d| d.child(self.statusbar(cx))),
                     ),
             )
             .children(toast_el)
             // Deferred, so it paints over the crew's frames too.
-            .when(self.usage_open && !setup, |d| {
+            .when(self.pop_open(popover::Pop::Usage) && !setup, |d| {
                 // Positioned after the motion: it makes what it moves
                 // relative, and this has to stay over the window.
                 d.child(

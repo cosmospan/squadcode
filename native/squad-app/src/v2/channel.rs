@@ -13,6 +13,7 @@ use squad_holo::{Framing, Mood};
 use super::data::{Member, Mode};
 use super::goal::{Goal, State};
 use super::home::status_of;
+use super::popover::Pop;
 use super::store::{self, Item, Job, Status};
 use super::ui::{self, c, ca};
 use super::{Place, Shell};
@@ -36,8 +37,24 @@ pub(super) const COMMANDS: [(&str, &str); 9] = [
     ("/delete", "Delete this thread; its jobs move to #general"),
 ];
 
-/// How wide the chat column reads at most.
+/// How wide the composer reads at most, and the chat while a side panel
+/// is open beside the thread.
 const COLUMN: f32 = 760.;
+
+/// How wide the chat reads at most when no side panel is open: messages
+/// and job cards stretch into the room the panel would take, while the
+/// composer keeps to `COLUMN`.
+const COLUMN_WIDE: f32 = 1440.;
+
+/// How wide the chat may read: wide with the right side closed, back to
+/// the composer's width when the Jobs panel or a job's pane is open.
+fn feed_width(side_open: bool) -> f32 {
+    if side_open {
+        COLUMN
+    } else {
+        COLUMN_WIDE
+    }
+}
 
 /// How many entries a thread shows at first, and adds with each "Show earlier".
 const THREAD_PAGE: usize = 30;
@@ -883,32 +900,21 @@ impl Shell {
             self.thread_settle -= 1;
             self.thread_scroll.scroll_to_bottom();
         }
-        // Apps whose card is at the bottom of the thread already don't need
-        // their line over the composer too.
-        let near: Vec<u64> = {
-            let (talks, jobs): (Vec<u64>, Vec<u64>) = shown
-                .iter()
-                .rev()
-                .take(3)
-                .map(|e| match e {
-                    Entry::Talk(t) => (t.id, 0),
-                    Entry::Job(j) => (0, j.id),
-                    Entry::Plan(_) => (0, 0),
-                })
-                .unzip();
-            self.runs
-                .iter()
-                .filter(|r| {
-                    r.spec.talk.is_some_and(|t| talks.contains(&t))
-                        || (r.spec.talk.is_none() && r.spec.job.is_some_and(|j| jobs.contains(&j)))
-                })
-                .map(|r| r.id)
-                .collect()
-        };
         let empty = shown.is_empty();
+        // Is anything open on the right? The Jobs panel, or a job's own
+        // conversation beside the thread. Then the chat narrows back.
+        let side_open = self.jobs_open
+            || self
+                .reply_open
+                .and_then(|id| self.crew.store.job(id))
+                .is_some_and(|j| {
+                    j.folder.path == folder.path
+                        && self.crew.store.thread_for(&folder.path, j.thread) == thread
+                });
+        let wide = feed_width(side_open);
         let mut feed = div()
             .w_full()
-            .max_w(px(COLUMN))
+            .max_w(px(wide))
             .flex()
             .flex_col()
             .child(self.thread_intro(thread, &name, empty, total));
@@ -992,7 +998,7 @@ impl Shell {
             .flex()
             .flex_col()
             .child(head)
-            .children(self.about_thread(&folder.path, thread, cx))
+            .children(self.about_thread(&folder.path, thread, wide, cx))
             .children(catch_up.map(|bar| self.catch_up_line(bar, cx)))
             .child(
                 div()
@@ -1021,7 +1027,6 @@ impl Shell {
                             .flex()
                             .flex_col()
                             .gap(px(8.))
-                            .children(self.runs_strip(&folder.path, &near, cx))
                             .children(self.waiting_strip(&folder.path, thread, cx))
                             .children(offer)
                             .children(self.slash_strip(cx))
@@ -1120,7 +1125,13 @@ impl Shell {
     /// "About this thread": what the thread is for in one line, opening to
     /// the whole summary bots read, the person's pinned notes (each can go),
     /// and Rewrite now. Nothing until the thread has something in it.
-    fn about_thread(&mut self, folder: &str, thread: u64, cx: &mut Context<Self>) -> Option<Div> {
+    fn about_thread(
+        &mut self,
+        folder: &str,
+        thread: u64,
+        wide: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
         let sum = self.crew.store.summary(folder, thread).cloned();
         let said = self.crew.store.said_in(folder, thread).len();
         let writing = self.crew.summing(folder, thread);
@@ -1148,7 +1159,7 @@ impl Shell {
         let _ = line;
         let mut body = div()
             .w_full()
-            .max_w(px(COLUMN))
+            .max_w(px(wide))
             .mx_auto()
             .px(px(28.))
             .py(px(12.))
@@ -2136,11 +2147,119 @@ impl Shell {
             .filter(|s| {
                 s.job != 0
                     && jobs.iter().any(|j| {
-                        j.id == s.job && matches!(j.status, Status::Done | Status::Shipped)
+                        j.id == s.job
+                            && matches!(j.status, Status::Done | Status::Shipping | Status::Shipped)
                     })
             })
             .count();
         let n = g.steps.iter().filter(|s| !s.skipped).count();
+
+        // The plan card, the way the job cards look: a mono PLAN mark, the
+        // goal and its count, how it stands in mono capitals; a bar with a
+        // segment per step once it runs; numbered steps with their bot; and
+        // a hairline foot with the buttons that matter now.
+        let state_of = |s: &super::goal::Step| -> Option<Status> {
+            jobs.iter()
+                .find(|j| j.id == s.job && s.job != 0)
+                .map(|j| j.status)
+        };
+        let stuck = g.steps.iter().position(|s| {
+            !s.skipped
+                && matches!(
+                    state_of(s),
+                    Some(Status::Failed | Status::Stopped | Status::Interrupted)
+                )
+        });
+        let ready = g.state == State::Ready;
+        let (word, col, mark) = match g.state {
+            State::Planning => ("Planning".to_string(), ui::faint(), ui::faint()),
+            State::Ready => (
+                "Ready to start".to_string(),
+                ui::accent_text(),
+                ui::accent_bar(),
+            ),
+            State::Running => (
+                format!("Working \u{b7} {done}/{n} done"),
+                ui::t_blue(),
+                ui::t_blue(),
+            ),
+            State::Paused => (
+                match stuck {
+                    Some(k) => format!("Paused \u{b7} step {}", k + 1),
+                    None => "Paused".to_string(),
+                },
+                ui::t_amber(),
+                ui::t_amber(),
+            ),
+            State::Done => (format!("Done \u{b7} {n}/{n}"), ui::t_green(), ui::t_green()),
+            State::Failed => ("Stopped".to_string(), ui::t_red(), ui::t_red()),
+        };
+        let head = div()
+            .px(px(14.))
+            .pt(px(11.))
+            .pb(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(9.))
+            .child(
+                div()
+                    .flex_none()
+                    .font_family(ui::MONO)
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(c(ui::accent_text()))
+                    .child("PLAN"),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(ui::ink()))
+                    .child(g.text.clone()),
+            )
+            .when(n > 0, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .font_family(ui::MONO)
+                        .text_size(px(11.5))
+                        .text_color(c(ui::faint()))
+                        .child(format!("{n} {}", if n == 1 { "step" } else { "steps" })),
+                )
+            })
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .font_family(ui::MONO)
+                    .text_size(px(10.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(col))
+                    .child(div().size(px(6.)).flex_none().bg(c(mark)))
+                    .child(word.to_uppercase()),
+            );
+
+        // One segment per step that counts: green when done, a dashed blue
+        // while it runs, amber to review, red when it stopped.
+        let started = !matches!(g.state, State::Planning | State::Ready);
+        let mut segs = div().mx(px(14.)).mt(px(4.)).mb(px(2.)).flex().gap(px(3.));
+        for s in g.steps.iter().filter(|s| !s.skipped) {
+            let seg = div().flex_1().h(px(3.)).overflow_hidden();
+            segs = segs.child(match state_of(s) {
+                Some(Status::Done | Status::Shipped | Status::Shipping) => seg.bg(c(ui::t_green())),
+                Some(Status::Running) => seg.child(dashed_bar(1., ui::t_blue())),
+                Some(Status::Review) => seg.bg(c(ui::t_amber())),
+                Some(Status::Failed | Status::Stopped | Status::Interrupted) => {
+                    seg.bg(c(ui::t_red()))
+                }
+                _ => seg.bg(c(ui::line())),
+            });
+        }
 
         let mut steps = div().px(px(14.)).py(px(4.)).flex().flex_col();
         for (k, s) in g.steps.iter().enumerate() {
@@ -2148,147 +2267,184 @@ impl Shell {
             let bot = job
                 .map(|j| j.bot)
                 .unwrap_or_else(|| Member::doer_for(s.mode).unwrap_or(Member::for_mode(s.mode)));
-            let (mark, fill, edge) = match job.map(|j| j.status) {
-                _ if s.skipped => ("", ui::raised(), ui::line_hi()),
-                Some(Status::Done | Status::Shipped) => ("\u{2713}", ui::t_green(), ui::t_green()),
-                Some(Status::Running | Status::Shipping) => ("", ui::BLUE, ui::BLUE),
-                Some(Status::Review) => ("!", ui::AMBER, ui::AMBER),
-                Some(Status::Failed) => ("\u{2717}", ui::t_red(), ui::t_red()),
-                _ => ("", ui::raised(), ui::line_hi()),
+            let status = job.map(|j| j.status);
+            let finished = matches!(
+                status,
+                Some(Status::Done | Status::Shipped | Status::Shipping)
+            );
+            // Before it starts, the step's number leads in the accent; once
+            // it runs, a small box says how the step stands.
+            let lane = if started {
+                let (glyph, fill, edge): (Option<IconName>, Option<u32>, u32) = match status {
+                    _ if s.skipped => (None, None, ui::line()),
+                    Some(Status::Done | Status::Shipped | Status::Shipping) => {
+                        (Some(IconName::Check), Some(ui::t_green()), ui::t_green())
+                    }
+                    Some(Status::Running) => (None, None, ui::t_blue()),
+                    Some(Status::Review) => (None, Some(ui::t_amber()), ui::t_amber()),
+                    Some(Status::Failed | Status::Stopped | Status::Interrupted) => {
+                        (Some(IconName::X), Some(ui::t_red()), ui::t_red())
+                    }
+                    _ => (None, None, ui::line_hi()),
+                };
+                let running = status == Some(Status::Running) && !s.skipped;
+                let review = status == Some(Status::Review) && !s.skipped;
+                Some(
+                    div()
+                        .size(px(14.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(3.))
+                        .border(px(1.5))
+                        .border_color(c(edge))
+                        .when_some(fill, |d, f| d.bg(c(f)))
+                        .text_color(c(ui::bg()))
+                        .when_some(glyph, |d, i| d.child(Icon::new(i).size(px(10.))))
+                        .when(running, |d| {
+                            d.child(div().size(px(6.)).rounded(px(1.)).bg(c(ui::t_blue())))
+                        })
+                        .when(review, |d| {
+                            d.font_family(ui::MONO)
+                                .text_size(px(10.))
+                                .font_weight(FontWeight::BOLD)
+                                .child("!")
+                        }),
+                )
+            } else {
+                None
             };
-            let face = self.avatar(bot, 18.);
+            let tag = match status {
+                _ if s.skipped => Some(("skipped", ui::faint())),
+                Some(Status::Running) => Some(("working", ui::t_blue())),
+                Some(Status::Review) => Some(("to review", ui::t_amber())),
+                Some(Status::Failed | Status::Stopped | Status::Interrupted) => {
+                    Some(("stopped", ui::t_red()))
+                }
+                _ => None,
+            };
+            let face = self.avatar(bot, 15.);
             let jid = s.job;
             steps = steps.child(
                 div()
                     .id(("plan-step", (id * 100 + k as u64) as usize))
+                    .h(px(32.))
                     .flex()
                     .items_center()
                     .gap(px(10.))
-                    .py(px(7.))
                     .when(k > 0, |d| d.border_t_1().border_color(c(ui::line2())))
                     .when(jid != 0, |d| {
                         d.cursor_pointer()
                             .on_click(cx.listener(move |this, _, _, cx| this.peek_job(jid, cx)))
                     })
+                    .children(lane)
                     .child(
                         div()
-                            .size(px(17.))
+                            .w(px(16.))
                             .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(5.))
-                            .bg(c(fill))
-                            .border_1()
-                            .border_color(c(edge))
+                            .font_family(ui::MONO)
                             .text_size(px(11.))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(c(0xFFFFFF))
-                            .child(mark),
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c(if started {
+                                ui::faint()
+                            } else {
+                                ui::accent_text()
+                            }))
+                            .child(format!("{:02}", k + 1)),
                     )
                     .child(
                         div()
-                            .flex_1()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(13.5))
-                            .text_color(c(if s.skipped { ui::faint() } else { ui::body() }))
+                            .text_size(px(13.))
+                            .text_color(c(if s.skipped {
+                                ui::faint()
+                            } else if finished {
+                                ui::muted()
+                            } else {
+                                ui::ink()
+                            }))
                             .when(s.skipped, |d| d.line_through())
                             .child(s.title.clone()),
                     )
-                    .child(face)
+                    .children(tag.map(|(t, col)| {
+                        div()
+                            .flex_none()
+                            .font_family(ui::MONO)
+                            .text_size(px(10.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c(col))
+                            .child(t)
+                    }))
+                    .child(div().flex_1())
                     .child(
                         div()
-                            .w(px(70.))
+                            .w(px(84.))
                             .flex_none()
-                            .truncate()
-                            .text_size(px(12.))
-                            .text_color(c(ui::muted()))
-                            .child(bot.name()),
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(face)
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(12.))
+                                    .text_color(c(ui::muted()))
+                                    .child(bot.name()),
+                            ),
                     ),
             );
         }
         let mut card = card()
-            .when(g.state == State::Ready, |d| {
-                d.border_color(c(ui::ask_tone().2))
-            })
-            .child(
-                div()
-                    .px(px(14.))
-                    .py(px(11.))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .bg(c(super::theme::mix(ui::raised(), ui::VIOLET, 0.07)))
-                    .child(
-                        Icon::new(IconName::Sparkles)
-                            .size(px(15.))
-                            .text_color(c(ui::t_violet())),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(13.5))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c(ui::ink()))
-                            .child(format!(
-                                "{} \u{b7} {} {}",
-                                g.text,
-                                n,
-                                if n == 1 { "step" } else { "steps" }
-                            )),
-                    )
-                    .when(
-                        matches!(g.state, State::Running | State::Paused | State::Done),
-                        |d| {
-                            d.child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(c(ui::muted()))
-                                    .child(format!("{done} of {n} done")),
-                            )
-                        },
-                    ),
-            );
+            .when(ready, |d| d.border_color(c(ui::accent_bar())))
+            .child(head);
+        if started && n > 0 {
+            card = card.child(segs);
+        }
         if !g.steps.is_empty() {
             card = card.child(steps);
         }
+        let btn = |id: (&'static str, usize), label: SharedString| {
+            ui::ghost(id, label).h(px(28.)).text_size(px(12.5))
+        };
         let footer = match g.state {
             State::Ready => Some(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    .gap(px(6.))
                     .child(
                         div()
                             .flex_1()
-                            .text_size(px(12.))
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(12.5))
                             .text_color(c(ui::faint()))
                             .child("Nothing starts until you say so."),
                     )
                     .child(
-                        ui::ghost(("plan-drop", id as usize), "Discard")
-                            .h(px(28.))
+                        btn(("plan-drop", id as usize), "Discard".into())
+                            .border_color(gpui::transparent_black())
+                            .text_color(c(ui::muted()))
                             .on_click(cx.listener(move |this, _, _, cx| this.drop_goal(id, cx))),
                     )
                     .child(
-                        ui::ghost(("plan-edit", id as usize), "Edit plan")
-                            .h(px(28.))
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.go(Place::Goal(id), cx)),
-                            ),
+                        btn(("plan-edit", id as usize), "Edit plan".into()).on_click(
+                            cx.listener(move |this, _, _, cx| this.go(Place::Goal(id), cx)),
+                        ),
                     )
                     .child(
                         ui::solid(
                             ("plan-start", id as usize),
-                            match g.steps.len() {
+                            match n {
                                 1 => "Start the job".to_string(),
                                 n => format!("Start {n} jobs"),
                             },
                         )
                         .h(px(28.))
+                        .text_size(px(12.5))
                         .on_click(cx.listener(move |this, _, _, cx| this.start_goal(id, cx))),
                     ),
             ),
@@ -2297,30 +2453,33 @@ impl Shell {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    .gap(px(6.))
                     .child(
                         div()
                             .flex_1()
-                            .text_size(px(12.))
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(12.5))
                             .text_color(c(ui::faint()))
-                            .child(format!("Planned {}", when(g.started))),
+                            .child(match when(g.started).as_str() {
+                                "now" => "Planned just now".to_string(),
+                                a => format!("Planned {a} ago"),
+                            }),
                     )
                     .child(
-                        ui::ghost(("plan-open", id as usize), "Open plan")
-                            .h(px(28.))
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.go(Place::Goal(id), cx)),
-                            ),
+                        btn(("plan-open", id as usize), "Open plan".into()).on_click(
+                            cx.listener(move |this, _, _, cx| this.go(Place::Goal(id), cx)),
+                        ),
                     ),
             ),
         };
         if let Some(f) = footer {
             card = card.child(
                 f.px(px(14.))
-                    .py(px(9.))
-                    .bg(c(ui::well()))
+                    .pt(px(8.))
+                    .pb(px(12.))
                     .border_t_1()
-                    .border_color(c(ui::line2())),
+                    .border_color(c(ui::line())),
             );
         }
         let you_lead = !self.continues("You", g.started);
@@ -2964,8 +3123,8 @@ impl Shell {
                                         gpui_kit::component::tooltip::Tooltip::new("Run it later")
                                             .build(window, cx)
                                     })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.later_menu = !this.later_menu;
+                                    .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
+                                        this.toggle_pop(Pop::Later, e);
                                         cx.notify();
                                     })),
                             ),
@@ -3004,15 +3163,33 @@ impl Shell {
 
     /// Run it later: a clock by the send button with the times a job can wait
     /// for. Picking one sends the next job to the night shift.
+    ///
+    /// Each row is on one grid: an icon, the name over why you'd pick it,
+    /// and the time it starts in a right-hand column, the clock over the
+    /// day, so both lines of every row line up.
     fn later_button(&mut self, cx: &mut Context<Self>) -> Div {
-        let mut times: Vec<(String, &str, &str)> = vec![
-            ("tonight".into(), "Tonight", "11 PM, while you sleep"),
+        /// The rows' lines: the name and the clock, then the why and the day.
+        const TOP: f32 = 18.;
+        const UNDER: f32 = 16.;
+        let mut times: Vec<(String, IconName, &str, &str)> = vec![
+            (
+                "tonight".into(),
+                IconName::Moon,
+                "Tonight",
+                "While you sleep",
+            ),
             (
                 "tomorrow".into(),
+                IconName::Sun,
                 "Tomorrow morning",
-                "9 AM, before you start",
+                "Before you start",
             ),
-            ("in 2h".into(), "In 2 hours", "When you're back"),
+            (
+                "in 2h".into(),
+                IconName::Clock,
+                "In 2 hours",
+                "When you're back",
+            ),
         ];
         // When the plan the crew runs on starts over, if the engine said.
         let now_s = store::now() as i64;
@@ -3024,17 +3201,18 @@ impl Shell {
             let mins = ((reset - now_s) / 60 + 1).min(72 * 60);
             times.push((
                 format!("in {mins}m"),
+                IconName::RefreshCw,
                 "When the plan resets",
-                "Its hours start over, so it runs in full",
+                "So it runs on a full plan",
             ));
         }
         let picked = self.later_pick.clone();
-        let open = self.later_menu;
+        let now = chrono::Local::now();
         let mut menu = div()
             .absolute()
             .bottom(px(38.))
             .right(px(0.))
-            .w(px(330.))
+            .w(px(304.))
             .p(px(6.))
             .flex()
             .flex_col()
@@ -3059,23 +3237,31 @@ impl Shell {
                     .text_color(c(ui::faint()))
                     .child("RUN IT LATER"),
             );
-        for (i, (when, name, line)) in times.into_iter().enumerate() {
+        for (i, (when, icon, name, line)) in times.into_iter().enumerate() {
             let on = picked.as_deref() == Some(when.as_str());
-            let at = super::shift::parse_when(&format!("{when} x"), chrono::Local::now())
-                .map(|(at, _)| super::shift::when_words(at, store::now()))
+            let (clock, day) = super::shift::parse_when(&format!("{when} x"), now)
+                .map(|(at, _)| super::shift::clock_and_day(at, &now))
                 .unwrap_or_default();
             menu = menu.child(
                 div()
                     .id(("later-pick", i))
                     .px(px(8.))
-                    .py(px(6.))
+                    .py(px(7.))
                     .rounded(px(6.))
                     .flex()
-                    .items_center()
+                    .items_start()
                     .gap(px(10.))
                     .cursor_pointer()
                     .hover(|s| s.bg(c(ui::hover())))
                     .when(on, |d| d.bg(c(ui::hover())))
+                    // The icon sits on the name's line.
+                    .child(div().flex_none().h(px(TOP)).flex().items_center().child(
+                        Icon::new(icon).size(px(14.)).text_color(c(if on {
+                            ui::accent_text()
+                        } else {
+                            ui::muted()
+                        })),
+                    ))
                     .child(
                         div()
                             .flex_1()
@@ -3084,6 +3270,9 @@ impl Shell {
                             .flex_col()
                             .child(
                                 div()
+                                    .h(px(TOP))
+                                    .flex()
+                                    .items_center()
                                     .text_size(px(13.))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(c(ui::ink()))
@@ -3091,37 +3280,80 @@ impl Shell {
                             )
                             .child(
                                 div()
+                                    .h(px(UNDER))
+                                    .flex()
+                                    .items_center()
                                     .text_size(px(11.5))
                                     .text_color(c(ui::muted()))
                                     .child(line),
                             ),
                     )
+                    // When it starts: the clock over the day, right-aligned.
                     .child(
                         div()
                             .flex_none()
-                            .text_size(px(11.))
-                            .font_family(ui::MONO)
-                            .text_color(c(ui::faint()))
-                            .child(at),
+                            .flex()
+                            .flex_col()
+                            .items_end()
+                            .child(
+                                div()
+                                    .h(px(TOP))
+                                    .flex()
+                                    .items_center()
+                                    .text_size(px(12.))
+                                    .font_family(ui::MONO)
+                                    .text_color(c(ui::body()))
+                                    .child(clock),
+                            )
+                            .child(
+                                div()
+                                    .h(px(UNDER))
+                                    .flex()
+                                    .items_center()
+                                    .text_size(px(11.))
+                                    .text_color(c(ui::faint()))
+                                    .child(day),
+                            ),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.later_pick = if on { None } else { Some(when.clone()) };
-                        this.later_menu = false;
+                        this.close_pop();
                         cx.notify();
                     })),
             );
         }
         menu = menu.child(
             div()
-                .px(px(8.))
-                .pt(px(6.))
+                .mx(px(2.))
+                .px(px(6.))
+                .pt(px(7.))
+                .pb(px(2.))
                 .mt(px(4.))
                 .border_t_1()
                 .border_color(c(ui::line2()))
+                .flex()
+                .items_center()
+                .gap(px(4.))
                 .text_size(px(11.5))
                 .text_color(c(ui::faint()))
-                .child("Or type /later 2am, /later in 3h …"),
+                .child("Or type")
+                .child(
+                    div()
+                        .font_family(ui::MONO)
+                        .text_size(px(11.))
+                        .text_color(c(ui::muted()))
+                        .child("/later 2am"),
+                )
+                .child("or")
+                .child(
+                    div()
+                        .font_family(ui::MONO)
+                        .text_size(px(11.))
+                        .text_color(c(ui::muted()))
+                        .child("/later in 3h"),
+                ),
         );
+        let menu = self.pop_panel(Pop::Later, menu, cx);
         let label = picked.map(|w| match w.as_str() {
             "tonight" => "Tonight".to_string(),
             "tomorrow" => "Tomorrow".to_string(),
@@ -3151,13 +3383,15 @@ impl Shell {
                         .cursor_pointer()
                         .child(Icon::new(IconName::Moon).size(px(13.)))
                         .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.later_menu = !open;
+                        .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
+                            this.toggle_pop(Pop::Later, e);
                             cx.notify();
                         })),
                 )
             })
-            .when(open, |d| d.child(deferred(menu).with_priority(2)))
+            .when(self.pop_open(Pop::Later), |d| {
+                d.child(deferred(menu).with_priority(2))
+            })
     }
 
     /// Sends what's in the composer to the thread you're in.
@@ -3169,9 +3403,11 @@ impl Shell {
         self.composer
             .update(cx, |i, cx| i.set_value("", window, cx));
         // Run it later: the job goes to the night shift for the time picked.
-        self.later_menu = false;
-        if let Some(when) = self.later_pick.take() {
-            if !text.starts_with('/') {
+        // A command of its own (/plan, /race …) runs as typed and leaves the
+        // pick for the next job, rather than dropping it unseen.
+        self.close_this_pop(Pop::Later);
+        if !text.starts_with('/') {
+            if let Some(when) = self.later_pick.take() {
                 text = format!("/later {when} {text}");
             }
         }

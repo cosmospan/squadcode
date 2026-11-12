@@ -12,8 +12,9 @@ use super::store::Status;
 use super::ui::{self, c};
 use super::{Place, Shell};
 
-/// The list's width.
-const LIST_W: f32 = 300.;
+/// The list's width: its right edge lands on a line of the background grid,
+/// like the Crew page's list, so the two don't read as a double line.
+const LIST_W: f32 = 19. * crate::pattern::STEP + 1.;
 
 /// This computer's name in the list.
 pub(super) fn here_name() -> &'static str {

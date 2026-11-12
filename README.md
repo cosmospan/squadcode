@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/icon.png" width="132" alt="Squad Code app icon: Peek, the crew lead, peeking up in violet outline with its ears up" />
+<img src="docs/images/icon.png" width="132" alt="Squad Code app icon: Peek, the crew lead, peeking over a terminal, in graphite and lime" />
 
 <h1>Squad Code</h1>
 
@@ -14,7 +14,7 @@ and you approve, send it back or throw it away right in the thread.
 </p>
 
 <p>
-<a href="https://github.com/hyperhale/squadcode/releases/latest"><img src="https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
+<a href="https://github.com/cosmospan/squadcode/releases"><img src="https://img.shields.io/badge/Download-macOS_·_Windows_·_Linux-000000?style=for-the-badge&logo=github&logoColor=white" alt="Download for macOS, Windows and Linux" /></a>
 &nbsp;
 <a href="#run-from-source"><img src="https://img.shields.io/badge/Build_from_source-b7410e?style=for-the-badge&logo=rust&logoColor=white" alt="Build from source" /></a>
 &nbsp;
@@ -22,8 +22,8 @@ and you approve, send it back or throw it away right in the thread.
 </p>
 
 <p>
-<a href="https://github.com/hyperhale/squadcode/actions/workflows/ci.yml"><img src="https://github.com/hyperhale/squadcode/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-<a href="https://github.com/hyperhale/squadcode/releases"><img src="https://img.shields.io/github/v/release/hyperhale/squadcode?include_prereleases&label=release&color=5b5bd6" alt="Latest release" /></a>
+<a href="https://github.com/cosmospan/squadcode/actions/workflows/ci.yml"><img src="https://github.com/cosmospan/squadcode/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+<a href="https://github.com/cosmospan/squadcode/releases"><img src="https://img.shields.io/github/v/release/cosmospan/squadcode?include_prereleases&label=release&color=5b5bd6" alt="Latest release" /></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
 <img src="https://img.shields.io/badge/built%20with-pure%20Rust-b7410e?logo=rust&logoColor=white" alt="Pure Rust" />
 <img src="https://img.shields.io/badge/no-Electron-47848f?logo=electron&logoColor=white" alt="No Electron" />
@@ -34,6 +34,8 @@ and you approve, send it back or throw it away right in the thread.
 <p>
 <a href="#how-it-works"><b>How it works</b></a> ·
 <a href="#a-tour"><b>Tour</b></a> ·
+<a href="#run-your-app-from-the-sidebar"><b>Run app</b></a> ·
+<a href="#a-terminal-in-every-project"><b>Terminal</b></a> ·
 <a href="#the-crew"><b>The crew</b></a> ·
 <a href="#peek-squads-own-intelligence"><b>Peek</b></a> ·
 <a href="#make-it-yours"><b>Themes</b></a> ·
@@ -44,14 +46,14 @@ and you approve, send it back or throw it away right in the thread.
 
 <br />
 
-<img src="docs/images/thread.png" alt="Squad Code's main window: the project rail on the far left, the sidebar with Needs you, All jobs, threads and direct messages with each bot, and the #checkout thread where Builder's finished job waits for review and Peek has posted a four-step plan to start" width="920" />
+<img src="docs/images/thread.png" alt="Squad Code's main window: the icon rail on the far left, the project switcher and Run app at the head of the sidebar with the project's threads and bots under them, and the #checkout thread with a race of three tries, Peek's four-step plan card ready to start and a job queued to run later" width="920" />
 
 </div>
 
 <br />
 
 > [!NOTE]
-> **Squad Code 2.0 is in alpha** (`v2.0.0-alpha.7`). Expect rough edges, and please [open an issue](https://github.com/hyperhale/squadcode/issues) when you hit one. See [what's missing](#known-gaps) before you download.
+> **Squad Code 2.0 is in alpha** (`v2.0.0-alpha.12`). Expect rough edges, and please [open an issue](https://github.com/cosmospan/squadcode/issues) when you hit one. See [what's missing](#known-gaps) before you download.
 
 ## How it works
 
@@ -59,7 +61,7 @@ If you've used Slack, you already know your way around:
 
 | Slack | Squad Code |
 | --- | --- |
-| Workspaces down the left edge | **Projects**: one per folder, switched from the rail |
+| The workspace switcher | **Projects**: one per folder, each with its own emblem, switched from the top of the sidebar |
 | Channels | **#threads**: one per piece of work, like `#checkout` or `#flaky-tests` |
 | Teammates and DMs | **Bots**: Builder, Fixer, Guard and the rest, each one a message away |
 | The person who runs the channel | **Peek**, the crew lead, in every thread |
@@ -89,17 +91,28 @@ flowchart LR
 
 ### Threads: where the work is talked about
 
-<img src="docs/images/thread.png" alt="The #checkout thread: Builder's Add Apple Pay job card with its branch, +196 -8 across 3 files, 2 checks passed and Compare 3 tries, then Peek's plan card with four steps for Builder, Checker and Guard, and Drop, Edit plan and Start the crew" width="920" />
+<img src="docs/images/thread.png" alt="The #checkout thread: three tries of one job raced side by side with Peek's pick, then Peek's plan card with four steps for Builder, Checker and Guard and Discard, Edit plan and Start 4 jobs, and a receipt email job waiting until Builder is free" width="920" />
 
 Each thread is a chat with the crew about one piece of work. Your asks and the bots' replies read like a conversation, grouped by who said them, with clock times and reactions. Every job arrives as a live card in the thread: its progress while it runs, then its branch, its change and its checks, with the buttons it needs right there. A job that just finished folds down to a single line once you've dealt with it.
 
-The rail on the far left switches projects, and the sidebar lists the project's threads (with unread counts), a direct message with every bot, and what needs you. The status bar along the bottom shows every engine in play today, how much of its plan is left and what the crew has spent; click it for the day's details and the Usage page.
+The rail on the far left holds the places you go: **Inbox**, **Overview**, **Jobs** and **Crew**, with the night shift, today's usage, your machines and **Settings** at its foot. The sidebar starts with the [project switcher](#projects-each-with-its-own-emblem) and [Run app](#run-your-app-from-the-sidebar), then lists the project's threads (with unread counts) and a direct message with every bot. Close the right side and the conversation takes the whole width. The status bar along the bottom shows where work runs, the [terminal](#a-terminal-in-every-project), every engine in play today, how much of its plan is left and what the crew has spent.
+
+### Projects, each with its own emblem
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/switcher.png" alt="The project switcher open at the head of the sidebar: shop with 4 waiting, api and docs-site with their shortcuts, and Add a project" /></td>
+<td width="50%"><img src="docs/images/emblem.png" alt="The emblem picker: a grid of shapes, a row of colours and Let Squad pick" /></td>
+</tr>
+</table>
+
+The switcher at the head of the sidebar shows the project you're in: its emblem, name, folder, branch and state. Click it for every project, with what waits or runs in each, or jump straight there with ⌥⌘1–9 (Ctrl+Alt+1–9 on Windows and Linux). Every project gets its own shape and colour, chosen so no two look alike; right-click the switcher and choose **Change emblem…** to pick from 28 shapes and 8 colours, or let Squad pick. **Add a project…** sits at the end of the list.
 
 ### A job, with everything about it in one sidebar
 
-<img src="docs/images/job.png" alt="A finished job, Stop double charges on retry by Fixer: the seatbelt holding it over a Stripe key left in the code, a Clash ahead warning about job #9, the review card with 2 checks passing and Approve and merge into main, and the right sidebar with its status, time, turns, cost, plan, files changed and Fixer's other jobs" width="920" />
+<img src="docs/images/job.png" alt="Job #4, Stop double charges on retry by Fixer, waiting for review: the conversation with Fixer, the seatbelt holding it over a Stripe key left in pay.ts, a Clash ahead warning about job #9, and the panel beside it on Changes with the two files it touched and Discard, Send back and Approve" width="920" />
 
-Open any job to see what the bot says and does as it happens. The right sidebar has three tabs that share one place: **Details** (time, turns, cost, the plan step by step, and the files it touched while there's no review card listing them), **Jobs** (everything running and waiting in this thread or all of them) and **Git**. The job's **Open** menu has its browser, a terminal and its folder; the terminal opens a real shell in the job's own worktree.
+Open any job to see what the bot says and does as it happens, and keep talking to it in the box below. The panel beside it has **Changes** (the diff, where a comment on any line goes back to the bot), **Checks**, **Browser**, **Terminal** (a real shell in the job's own worktree) and **Files**, with **Discard**, **Send back** and **Approve** along the top. **Race it** tries the same job on other engines.
 
 <table>
 <tr>
@@ -107,16 +120,16 @@ Open any job to see what the bot says and does as it happens. The right sidebar 
 
 ### Git, in the thread
 
-<img src="docs/images/git.png" alt="The Git side of the right sidebar: main with 2 new commits on GitHub and a clean folder, the crew's branches with their commits and how far behind main they are, and watch-outs for a clash between #9 and #4" />
+<img src="docs/images/git.png" alt="The Git tab of a thread's right sidebar, in the dark theme: main with 2 commits to pull and 2 files changed, watch-outs for a clash between #9 and #4, uncommitted files, the crew's branches and recent commits on main" />
 
-Every job card shows its branch, its commits and how far its base has moved ("squad/apple-pay · 3 commits · 2 behind main"). The Git tab shows your branch against GitHub, every branch the crew is working on, and the watch-outs to sort out before approving.
+Every job card shows its branch, its commits and how far its base has moved. A thread's right sidebar has **Jobs**, **Git** and **Files**; the Git tab shows your folder against GitHub, what isn't committed yet, every branch the crew is working on, the latest commits on main, and the watch-outs to sort out before approving.
 
 </td>
 <td width="50%" valign="top">
 
 ### Seatbelt and clash ahead
 
-<img src="docs/images/seatbelt.png" alt="The seatbelt card stopping a push over a Stripe secret key and a leftover console.log, above a Clash ahead card" />
+<img src="docs/images/seatbelt.png" alt="The seatbelt card holding a job over a Stripe secret key and a leftover console.log, with Ask Fixer to remove it, above a Clash ahead card" />
 
 Before Shipper pushes or a job is merged, the **seatbelt** checks the change for secrets, key files and leftover clash markers, and holds it with a card that says what and where. Every 45 seconds Squad test-merges the crew's work in the same project, and when two jobs change the same lines, Peek warns you on both, before either is approved.
 
@@ -124,11 +137,46 @@ Before Shipper pushes or a job is merged, the **seatbelt** checks the change for
 </tr>
 </table>
 
+### Run your app from the sidebar
+
+<img src="docs/images/run-app.png" alt="Run app turned into a pill under the project's name, showing python3 on port 8000 with an Open button, and its card open beside it: Running, localhost:8000 answering, the server's output, Copy output, Restart and Stop" width="620" />
+
+**Run app** starts the project's app and becomes a small pill under the project's name: the command, its port, an **Open** button and a chevron. Its card (the output, **Restart** and **Stop**) opens beside the sidebar and tucks back into the pill when you go elsewhere or click outside it; a crashed app turns the pill red, and **Running now** at the bottom of the sidebar lists what's up. Before you press it, Run app says what it will run, from [`squad.toml`](#the-project-file) or from what it finds in the project, and when it can't tell, it opens **Setup** on the Overview so you can say.
+
+### A terminal in every project
+
+<img src="docs/images/terminal.png" alt="The terminal drawer under the #checkout thread with two shell tabs side by side: ls in one, a Python web server running in the other" width="920" />
+
+**Ctrl+`** opens the terminal drawer: a real shell in the project's folder, or in a job's own worktree from its **Terminal** tab. **+** (or Cmd+T; Ctrl+Shift+T off a Mac) opens another shell, and each tab is named by what its shell is doing. **Side by side** (Cmd+D) shows up to three next to each other, with the one taking your keys marked in the accent, and **Fill the page** (Cmd+Shift+Enter) lets the terminal take over the page until you put it back.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Run it later
+
+<img src="docs/images/later.png" alt="The Run it later menu by the send button: Tonight at 11:00 PM, Tomorrow morning at 9:00 AM, In 2 hours, and When the plan resets, with Or type /later 2am or /later in 3h" />
+
+The chevron by the send button runs a job later: tonight while you sleep, tomorrow morning, in two hours, or when your plan's limit resets so it runs on a full plan. Or type `/later 2am` or `/later in 3h`. Waiting jobs sit above the box until they start, and the moon on the rail is the night shift.
+
+</td>
+<td width="50%" valign="top">
+
+### Usage at a glance
+
+<img src="docs/images/usage.png" alt="The usage popover: $1.99 spent today, 2M tokens and 9 jobs, then Claude Code, Codex and Gemini with their spend and how much of each 5-hour and weekly limit is used" />
+
+The thin bar at the foot of the rail is today's usage, amber at 75% of your plan and red at 90%. Click it for what each engine spent today and how much of its 5-hour and weekly limits is left.
+
+</td>
+</tr>
+</table>
+
 ### A browser the bots can drive, live inside Squad
 
-<img src="docs/images/browser.png" alt="Guard's browser inside Squad Code, open on a local checkout page at localhost:3000, with Back to the job, reload, the address bar and Open outside" width="920" />
+<img src="docs/images/browser.png" alt="Guard's job with its Browser tab open on a local checkout page at localhost:3000, live, with the address bar and Point at it" width="920" />
 
-Each job gets its own headless browser, and its bot drives it with Squad's browser tools: open, look, click, type, screenshot, run JavaScript. Pages are read as a short numbered outline, and each step reports only what changed plus the page's errors, so testing a page costs a few hundred tokens instead of a screenshot every time. Click **Browser** on a job to watch the page live and click, scroll or type into it yourself. `localhost` links in a job's messages open here too. Every engine gets it, through Squad's MCP server or the `squad browser` commands.
+Each job gets its own headless browser, and its bot drives it with Squad's browser tools: open, look, click, type, screenshot, run JavaScript. Pages are read as a short numbered outline, and each step reports only what changed plus the page's errors, so testing a page costs a few hundred tokens instead of a screenshot every time. Open a job's **Browser** tab to watch the page live and click, scroll or type into it yourself, or **Point at it** to show the bot what you mean. `localhost` links in a job's messages open here too. Every engine gets it, through Squad's MCP server or the `squad browser` commands.
 
 <table>
 <tr>
@@ -136,7 +184,7 @@ Each job gets its own headless browser, and its bot drives it with Squad's brows
 
 ### Race it
 
-<img src="docs/images/race.png" alt="A race: Add Apple Pay to checkout tried on Claude Code, Codex and Gemini side by side, each with its time, cost, change and checks, and Keep this one" />
+<img src="docs/images/race.png" alt="A race: Add Apple Pay to checkout tried on Claude Code, Codex and Gemini side by side, each with its time, cost, change and checks, with Keep this one on the try whose checks all pass" />
 
 Try one job on two or three engines at once (`/race`), each on its own branch, and compare them side by side: time, cost, size of change and checks. Keep the one you like; Shipper takes it from there and the others are thrown away.
 
@@ -145,7 +193,7 @@ Try one job on two or three engines at once (`/race`), each on its own branch, a
 
 ### Plans
 
-<img src="docs/images/goal.png" alt="A plan, Let customers save their cart and come back to it, split into four jobs for Builder, Checker and Guard, with Discard and Start 4 jobs" />
+<img src="docs/images/goal.png" alt="A plan, Let customers save their cart and come back to it, split into four jobs for Builder, Checker and Guard, each with Move up and Remove, and Discard and Start 4 jobs" />
 
 Something too big for one job? Peek splits it into two to six jobs, each for the right bot. Remove a step, move it up or hand it to another bot, then start it: the jobs run one after another, each building on the last.
 
@@ -154,11 +202,11 @@ Something too big for one job? Peek splits it into two to six jobs, each for the
 <tr>
 <td width="50%" valign="top">
 
-### Needs you
+### Inbox
 
-<img src="docs/images/needs.png" alt="Needs you: three jobs ready for review and one that failed on the left, and on the right Builder's gift card change with a warning that main moved and two files now clash, and Ask Builder to fix it" />
+<img src="docs/images/needs.png" alt="The Inbox: three jobs ready for review and one that stopped on the left, and on the right Builder's gift card job with a clash warning, its checks and changes, and Discard, Send back and Approve" />
 
-Everything waiting on you, in one two-pane list: finished work to review, bots waiting on your yes, and jobs that stopped. A job that ends badly says what went wrong in plain words, with the one or two things that get it going again.
+Everything waiting on you, in one two-pane list you can work through from the keyboard: finished work to review, bots waiting on your yes, and jobs that stopped. A job that ends badly says what went wrong in plain words, with the one or two things that get it going again.
 
 </td>
 <td width="50%" valign="top">
@@ -175,7 +223,7 @@ Every bot is a DM away. Ask about the code in plain words: the bot reads the fol
 
 ## The crew
 
-<img src="docs/images/crew.png" alt="Your crew: Peek, Builder, Checker, Guard, Fixer and Explainer as cards, each with its line-drawn face, what it does, its engine, skills, tools, jobs, success rate and spend, and Setup, Chat and Give a job" width="920" />
+<img src="docs/images/crew.png" alt="The Crew page: every bot down the left with what it's doing now, and Builder's profile with its engine, its jobs, what waits for review and what shipped, and Edit, Message and Give a job" width="920" />
 
 Every bot is a line-drawn face in its own colour, and its face follows what it's doing: listening, thinking, working, done, stuck or waiting on you.
 
@@ -190,11 +238,11 @@ Every bot is a line-drawn face in its own colour, and its face follows what it's
 | **Explainer** | Reads the code and answers in plain words. | Ask |
 | **Shipper** | Owns git: squashes a job's commits, opens the pull request, watches its checks and merges when you've asked it to. | Ships what the others made |
 
-**Make your own** with **Add a bot**: give it a name, a role, its skills and tools, and an engine. Each bot's **Setup** picks the engine and model it runs on, the skills it uses and the apps it may connect to.
+**Make your own** with **Make a bot**: give it a name, a role, its skills and tools, and an engine. Each bot's profile has its **Brain** (the engine and model it runs on), **Skills**, **Memory** of what it learned in each project, and **Activity**.
 
 ### Engines: any bot on any agent
 
-<img src="docs/images/engines.png" alt="Settings, Engines: engines to install, the agents on this computer (Claude Code, Codex, OpenCode, Gemini and Grok) and Claude Code's command and models" width="920" />
+<img src="docs/images/engines.png" alt="Settings, Engines: the agents on this computer (Claude Code, Codex, OpenCode, Gemini and Grok) with Update and Make default, one to install, and Bot brains, which picks each bot's engine and model" width="920" />
 
 An **engine** is one of the coding agents Squad Code drives and the model it runs on. Each bot can have its own (Builder on Claude Code, Guard on Codex, say) and the rest follow the default. Squad Code detects which agent CLIs are installed and reads their models from the CLI itself, so new releases show up without an update.
 
@@ -219,18 +267,19 @@ Squad Code still decides some things for itself: whether a job runs here or on y
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/aurora.png" alt="The #checkout thread over the Aurora background image, with the sidebar and page letting it show through" /></td>
-<td width="50%"><img src="docs/images/midnight.png" alt="The #checkout thread and the Git sidebar in the Midnight theme" /></td>
+<td width="33%"><img src="docs/images/theme-graphite-dark.png" alt="The #checkout thread in Graphite and lime, dark" /></td>
+<td width="33%"><img src="docs/images/theme-harbour.png" alt="The #checkout thread in Harbour, light" /></td>
+<td width="33%"><img src="docs/images/theme-orchid-dark.png" alt="The #checkout thread in Orchid, dark" /></td>
 </tr>
 </table>
 
-**Settings → Appearance** has eight themes, each with a live preview: **Crew Chat** (the default), **Midnight**, **Graphite**, **Deep sea** and **Daylight**, which are solid, and **Frost**, **Mist** and **Aurora**, frosted glass that lets your desktop show through the window. Pick a **background image** (six ship with the app, or use your own) and tune its blur, dim and how far it shows through. A see-through window and see-through popovers have their own sliders.
+**Settings → Appearance** has three looks: **Graphite and lime** (the default: warm paper and graphite ink, with lime for the one thing to press), **Harbour** (cool slate and navy, with periwinkle) and **Orchid** (warm sand and brown, with orchid pink). Each comes in light and dark, or follows your system as it changes. A **see-through window** lets your desktop show through, blurred, in any theme, with its own sliders for the window and for popovers, and the page can carry a background pattern or image.
 
-<img src="docs/images/appearance.png" alt="Settings, Appearance: the see-through window and popover switches and sliders, and the background image picker with None, Aurora, Dusk, Lagoon, Ember, Meadow, Blush and your own" width="920" />
+<img src="docs/images/appearance.png" alt="Settings, Appearance: the Graphite and lime, Harbour and Orchid themes, Light, Dark and Match the system, the see-through window and popover switches, and the background patterns" width="920" />
 
-**Settings → Appearance → Mascot** sets how the crew is drawn: line weight, colour (crew colour, pastel, two-tone or rainbow) and eyes, and dresses each bot with a role kit, with a large live preview in every mood.
+**Settings → Appearance → Mascot** sets how the crew is drawn: line weight, line colour (crew colour, pastel, two-tone or rainbow) and eyes. Click any bot to dress it with a role, a prop and its own colour.
 
-<img src="docs/images/mascot.png" alt="Settings, Mascot: a large live preview of Guard listening, the mood buttons under it, and the crew look and dress-a-bot options" width="920" />
+<img src="docs/images/mascot.png" alt="Settings, Mascot: the crew in a row, Guard dressed for security with a role, prop and colour, and the crew look's line weight, line colour and eyes" width="920" />
 
 ## The project file
 
@@ -244,6 +293,8 @@ url = "http://localhost:$PORT"
 port = 3100                         # each job's app gets its own port from here
 checks = ["pnpm lint", "pnpm test"] # what Checker runs
 ```
+
+**Run app** starts what `run` says. With no `squad.toml`, Squad works it out from the project: a `dev`, `start`, `serve` or `preview` script in `package.json` (with pnpm, yarn or bun when their lockfile is there), `deno task`, `cargo run`, Django's `manage.py`, a Python `app.py` or `main.py` (FastAPI under uvicorn, Streamlit, Flask; through uv, Poetry or the project's `.venv` when it has one), `go run .`, Flutter, Rails, Laravel, Phoenix, Rack, Spring Boot with Maven or Gradle, `dotnet run`, Hugo, Jekyll, a Procfile's `web:` line, a `dev`, `run`, `serve` or `start` target in a Makefile or justfile, Docker Compose, a Dockerfile, PHP, and last a plain `index.html` (at the top or in `public/`, `docs/` or `dist/`) served as files. When it can't tell, Run app opens Setup on the Overview so you can say.
 
 ## Squad in a terminal
 
@@ -308,33 +359,34 @@ Connecting the desktop app and the phone to a server is coming next; today you d
 
 ### Download
 
-Builds are on the [Releases](https://github.com/hyperhale/squadcode/releases) page:
+Builds are on the [Releases](https://github.com/cosmospan/squadcode/releases) page:
 
 | Platform | File |
 | --- | --- |
 | Mac (Apple silicon) | `SquadCode-<version>-macos-arm64.dmg` or `.zip` |
+| Mac (Intel) | `SquadCode-<version>-macos-x86_64.dmg` or `.zip` |
 | Linux x86_64 and arm64 | `.deb` or `.tar.gz` |
-| Windows x86_64 | `.zip` |
+| Windows x86_64 | `.zip` with `SquadCode.exe` |
 
-Open the disk image and drag **Squad Code** to Applications. Squad Code checks for newer versions and offers to download them; nothing installs on its own.
+On a Mac, open the disk image and drag **Squad Code** to Applications. On Linux, install the `.deb` or unpack the tarball; on Windows, unzip and run `SquadCode.exe`. Squad Code checks for newer versions and offers to download them; nothing installs on its own.
 
 ### Known gaps
 
 > [!WARNING]
 > - **The Mac app is signed ad hoc, not notarized.** The first time, right-click **Squad Code** in Applications and choose **Open**.
-> - **No Intel Mac build yet.** The bundled `llama-server` doesn't link on x86_64 macOS yet. Intel Macs can [build from source](#run-from-source).
-> - **Smart Peek's model has no public download yet**, and the Mac build doesn't bundle `llama-server` yet. The built-in classifier and rules work without it; to try Smart Peek now, point `squad brain install <file.gguf>` at a model you have, or use one you serve with llama-server or Ollama.
+> - **The Windows build is unsigned.** SmartScreen warns the first time; choose **More info → Run anyway**.
+> - **Smart Peek's model has no public download yet.** The built-in classifier and rules work without it; to try Smart Peek now, point `squad brain install <file.gguf>` at a model you have, or use one you serve with llama-server or Ollama.
 > - **The desktop app can't connect to `squad serve` yet.** See [Run the crew on a server](#run-the-crew-on-a-server).
 
 ### First run
 
-<img src="docs/images/welcome.png" alt="Welcome to Squad Code: step one asks whether a coding agent is installed and shows the agents found on this computer, with Check again and Continue" width="920" />
+<img src="docs/images/welcome.png" alt="Welcome to Squad Code: step one of five, Pick a look, with the Graphite and lime, Harbour and Orchid themes, Light, Dark and Match the system, and Continue" width="920" />
 
-A two-step welcome checks which coding agents are installed and asks for a folder; both steps can be skipped. The folder becomes your first project, with a `#general` thread and Peek ready to talk. Until there's work, the page shows what to do first.
+A short welcome walks you through five steps: pick a look, check which coding agents are installed, choose a folder, meet the crew, and say how work runs (how far bots go before asking you, where jobs run and how they ship). Every step can be skipped. The folder becomes your first project, with a `#general` thread and Peek ready to talk. Until there's work, the page shows what to do first.
 
 ### Requirements
 
-- macOS on Apple silicon (Linux and Windows builds are made too, but macOS is the primary platform)
+- macOS on Apple silicon or Intel (Linux and Windows builds are made too, but macOS is the primary platform)
 - `git`
 - At least one agent CLI from [the table above](#engines-any-bot-on-any-agent), installed and signed in
 - Optional: the [GitHub CLI](https://cli.github.com) (`gh`), for Shipper's pull requests
@@ -343,12 +395,12 @@ A two-step welcome checks which coding agents are installed and asks for a folde
 ### Run from source
 
 ```bash
-git clone https://github.com/hyperhale/squadcode
+git clone https://github.com/cosmospan/squadcode
 cd squadcode
 cargo run -p squadcode --release
 ```
 
-Set `SQUADCODE_DEMO=1` to open the app on a made-up crew with threads and jobs in every state, without running anything or saving anything. That's how the screenshots in this README were taken.
+Set `SQUADCODE_DEMO=1` to open the app on a made-up crew with threads and jobs in every state, without running anything or saving anything. That's how the screenshots in this README were taken; `SQUADCODE_PLACE` opens it on a given screen (`crew`, `inbox`, `race`, `switcher`, `later-open` and more).
 
 ### Build the app
 

@@ -272,8 +272,8 @@ impl Shell {
     }
 
     /// The icon rail: the places, icons only, with their names on hover;
-    /// then, at its foot, how things stand: the night shift, today's usage
-    /// and the machines, and Settings. Projects live in the switcher at the
+    /// then, at its foot, the light or dark switch, the machines, and
+    /// Settings. Today's usage is in the status bar. Projects live in the switcher at the
     /// head of the panel.
     fn rail(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let place = self.place;
@@ -308,76 +308,44 @@ impl Shell {
             .on_click(cx.listener(|this, _, _, cx| this.go(Place::History, cx)));
 
         let crew = rail_btn("rail-crew", place == Place::Crew)
-            .child(Icon::new(IconName::Users).size(px(18.)))
+            .child(Icon::new(IconName::Bot).size(px(18.)))
             .tooltip(tip("Crew\nYour bots and what they know"))
             .on_click(cx.listener(|this, _, _, cx| this.go(Place::Crew, cx)));
 
-        // The night shift: a moon, with a violet dot while jobs wait for it.
-        let later = self.crew.store.later.len();
-        let night = rail_btn("rail-night", false)
-            .child(Icon::new(IconName::Moon).size(px(17.)))
-            .when(later > 0, |d| {
-                d.text_color(c(ui::t_violet()))
-                    .child(corner_dot(ui::VIOLET, true))
-            })
-            .tooltip(tip(match later {
-                0 => {
-                    "Night shift\nNothing waiting. Start a job with /later to queue one".to_string()
+        // Light, dark or the system's: one click steps to the next, for the
+        // look in use (or the default look, while an older theme is picked).
+        let follow = super::theme::following();
+        let dark = !super::theme::theme().light;
+        let (icon, now) = match (follow, dark) {
+            (true, _) => (IconName::SunMoon, "Matches your system"),
+            (false, false) => (IconName::Sun, "Light"),
+            (false, true) => (IconName::Moon, "Dark"),
+        };
+        let look = rail_btn("rail-look", false)
+            .child(Icon::new(icon).size(px(17.)))
+            .tooltip(tip(format!(
+                "Appearance: {now}\nClick for {}",
+                match (follow, dark) {
+                    (true, _) => "light",
+                    (false, false) => "dark",
+                    (false, true) => "your system's",
                 }
-                1 => "Night shift\n1 job waiting to start".to_string(),
-                n => format!("Night shift\n{n} jobs waiting to start"),
-            }))
-            .on_click(cx.listener(|this, _, _, cx| this.go(Place::History, cx)));
-
-        // Today's usage: a thin bar that fills with the plan window closest
-        // to its limit. Opens the engines popover.
-        let (plan, spend) = {
-            let st = cx.global::<crate::settings::AppSettings>();
-            super::statusbar::plan_and_spend(st, &self.crew.store)
-        };
-        let used = plan.unwrap_or(0.).clamp(0., 100.);
-        let bar_col = if used >= 90. {
-            ui::RED
-        } else if used >= 75. {
-            ui::AMBER
-        } else {
-            ui::ink()
-        };
-        let mut usage_say = String::from("Usage today");
-        match plan {
-            Some(p) => usage_say.push_str(&format!("\n{p:.0}% of the plan closest to its limit")),
-            None => usage_say.push_str("\nNo plan limits read yet"),
-        }
-        if spend > 0. {
-            usage_say.push_str(&format!("\n${spend:.2} spent today"));
-        }
-        const BAR_H: f32 = 22.;
-        let usage = rail_btn("rail-usage", self.usage_open)
-            .child(
-                div()
-                    .w(px(8.))
-                    .h(px(BAR_H))
-                    .rounded(px(4.))
-                    .bg(c(ui::line()))
-                    .border_1()
-                    .border_color(c(ui::line_hi()))
-                    .flex()
-                    .flex_col()
-                    .justify_end()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .w_full()
-                            .h(px((BAR_H * used / 100.).round().max(if plan.is_some() {
-                                2.
-                            } else {
-                                0.
-                            })))
-                            .bg(c(bar_col)),
-                    ),
-            )
-            .tooltip(tip(usage_say))
-            .on_click(cx.listener(|this, _, _, cx| this.toggle_usage(cx)));
+            )))
+            .on_click(cx.listener(|_, _, window, cx| {
+                let fam = super::theme::family_of(super::theme::theme().id)
+                    .unwrap_or(&super::theme::FAMILIES[0]);
+                let follow = super::theme::following();
+                let dark = !super::theme::theme().light;
+                // Light, then dark, then the system's, then light again.
+                let pref = match (follow, dark) {
+                    (true, _) => fam.light.to_string(),
+                    (false, false) => fam.dark.to_string(),
+                    (false, true) => format!("{}{}", fam.id, super::theme::SYSTEM),
+                };
+                super::theme::set_pref(&pref, super::system_dark(window.appearance()));
+                super::prefs::save(cx, |st| st.v2_theme = pref);
+                cx.notify();
+            }));
 
         // Machines: where the crew runs, with a dot for whether your server
         // answers once there is one.
@@ -431,14 +399,13 @@ impl Shell {
             .pt(px(10.))
             .pb(px(12.))
             .when(!slim, |d| d.border_r_1().border_color(c(ui::line())))
-            .child(inbox)
             .child(overview)
+            .child(inbox)
             .child(jobs)
             .child(crew)
             .child(div().flex_1())
             .children(open)
-            .child(night)
-            .child(usage)
+            .child(look)
             .child(machines)
             .child(div().w(px(20.)).h(px(1.)).my(px(2.)).bg(c(ui::line_hi())))
             .child(settings)
@@ -584,63 +551,8 @@ impl Shell {
                 )
             })
             .collect();
-        // Run the app, or, while it runs, its address and a way to open it.
-        let app = runs.iter().find(|r| r.2.is_some()).cloned();
-        let run_box = folder.is_some().then(|| {
-            let base = div()
-                .id("side-run")
-                .mx(px(2.))
-                .mb(px(10.))
-                .h(px(32.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(5.))
-                .bg(c(ui::raised()))
-                .border_1()
-                .border_color(c(ui::line()))
-                .text_size(px(12.5))
-                .cursor_pointer()
-                .hover(|s| s.border_color(c(ui::line_hi())));
-            match app {
-                Some((_, _, Some(url), up)) => {
-                    let open = url.clone();
-                    base.child(div().size(px(7.)).rounded_full().flex_none().bg(c(if up {
-                        ui::t_green()
-                    } else {
-                        ui::t_amber()
-                    })))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .font_family(ui::MONO)
-                            .text_size(px(12.))
-                            .text_color(c(ui::ink()))
-                            .child(url.trim_start_matches("http://").to_string()),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c(ui::accent_text()))
-                            .child("Open \u{2197}"),
-                    )
-                    .tooltip(tip("Open the running app in your browser"))
-                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&open)))
-                }
-                _ => base
-                    .text_color(c(ui::muted()))
-                    .child(Icon::new(IconName::Play).size(px(13.)))
-                    .child("Run app")
-                    .tooltip(tip("Start this project's app here in Squad"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.run_app(None, None, cx);
-                    })),
-            }
-        });
+        // Run the app, or, while it runs, a pill that brings its card out.
+        let run_box = folder.is_some().then(|| self.run_pill(&here, cx));
         // Everything running, docked at the foot of the panel.
         let dock = (!runs.is_empty()).then(|| {
             let mut d = div()
@@ -689,9 +601,7 @@ impl Shell {
                                     .child(p),
                             )
                         })
-                        .when_some(url, |d, u| {
-                            d.on_click(cx.listener(move |_, _, _, cx| cx.open_url(&u)))
-                        }),
+                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_run_pop(id, cx))),
                 );
             }
             d

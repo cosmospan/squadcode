@@ -21,6 +21,7 @@ use crate::settings::AppSettings;
 
 use super::data::Member;
 use super::mascot;
+use super::popover::Pop;
 use super::theme::{self, Theme};
 use super::ui::{self, c, ca, space};
 use super::{Place, Shell};
@@ -78,7 +79,7 @@ impl Pane {
     }
 }
 
-fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
+pub(super) fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
     cx.update_global::<AppSettings, _>(|st, _| {
         f(st);
         st.save();
@@ -520,7 +521,7 @@ impl Shell {
         set: fn(&mut AppSettings, usize),
         cx: &mut Context<Self>,
     ) -> Div {
-        let open = self.select_open == Some(id);
+        let open = self.pop_open(Pop::Select(id));
         let shown = labels.get(cur).cloned().unwrap_or_default();
         let button = div()
             .id(id)
@@ -548,12 +549,8 @@ impl Shell {
                     .size(px(12.))
                     .text_color(c(ui::body())),
             )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.select_open = if this.select_open == Some(id) {
-                    None
-                } else {
-                    Some(id)
-                };
+            .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+                this.toggle_pop(Pop::Select(id), e);
                 cx.notify();
             }));
         let mut d = div().relative().flex_none().child(button);
@@ -604,11 +601,12 @@ impl Shell {
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             save(cx, |st| set(st, i));
-                            this.select_open = None;
+                            this.close_pop();
                             cx.notify();
                         })),
                 );
             }
+            let list = self.pop_panel(Pop::Select(id), list, cx);
             d = d.child(deferred(list).with_priority(2));
         }
         d
