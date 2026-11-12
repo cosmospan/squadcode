@@ -4,6 +4,16 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Changed
+
+- The Run it later menu lines up: each time has an icon, its name over why you'd pick it, and when it starts in a column on the right, the clock over the day ("11:00 PM", "today"), so both lines of every row share an edge.
+
+### Fixed
+
+- Floating menus (Run it later, the project picker on Today, Settings drop-downs and the engines popover) close when you click anywhere outside them or press Esc, and the click still lands where you aimed it.
+- "Tomorrow" said after midnight and before 5 AM means this morning at 9, not the morning after.
+- A Run it later time picked before typing a /plan or /race stays picked for the next job instead of being dropped without a word.
+
 ## [2.0.0-alpha.11] - 2026-11-11
 
 ### Changed

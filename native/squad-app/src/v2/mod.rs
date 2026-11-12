@@ -39,6 +39,7 @@ mod myserver;
 mod overview;
 mod palette;
 mod peek;
+mod popover;
 mod prefs;
 mod project;
 mod race;
@@ -468,7 +469,11 @@ pub struct Shell {
     maker: (squad_holo::Tint, squad_holo::fin::Outfit),
     /// Which jobs History shows: 0 all, 1 running, 2 done, 3 problems.
     history_filter: usize,
-    folder_menu: bool,
+    /// The floating menu that's open (Run it later, the project picker, a
+    /// Settings drop-down, the engines popover), and where the click that
+    /// last put one away went down.
+    pop: Option<popover::Pop>,
+    pop_shut: Option<(popover::Pop, Point<Pixels>)>,
     /// The sidebar shows only its icon rail.
     side_slim: bool,
     /// The thread on screen and when you last looked at it before opening it,
@@ -534,8 +539,6 @@ pub struct Shell {
     setup_more: bool,
     /// The bot maker is open on Crew.
     maker_open: bool,
-    /// The engines popover over the status bar is open.
-    usage_open: bool,
     /// The agent picked on Engines.
     engine_sel: Option<usize>,
     /// Engines shows each bot's brain rather than the engines themselves.
@@ -660,8 +663,6 @@ pub struct Shell {
     memory_hint: Option<String>,
     /// How many days Settings > Usage looks back: 7, 14 or 30.
     usage_days: u64,
-    /// The Settings drop-down that is open, by its id.
-    select_open: Option<&'static str>,
     /// Job folders whose changed files' folders were opened once already.
     files_seeded: std::collections::HashSet<String>,
     /// The picked file as read: its path, lines, and the lines the job
@@ -785,8 +786,6 @@ pub struct Shell {
     racing: usize,
     /// A job from Today's box is a goal to split into jobs.
     splitting: bool,
-    /// The Run it later menu by the send button is open.
-    later_menu: bool,
     /// A DM's box starts a job (Do) instead of asking (Ask).
     dm_do: bool,
     /// When the next job sent from the thread's box starts, as /later words
@@ -1393,7 +1392,8 @@ impl Shell {
             streak: None,
             maker: (squad_holo::Tint::VIOLET, squad_holo::fin::ROLES[6].outfit),
             history_filter: 0,
-            folder_menu: false,
+            pop: None,
+            pop_shut: None,
             side_slim: false,
             new_mark: (String::new(), 0, 0),
             reply_open: None,
@@ -1412,7 +1412,6 @@ impl Shell {
             setup_step: 0,
             setup_more: false,
             maker_open: false,
-            usage_open: false,
             engine_sel: None,
             engines_all: false,
             settings_pane: Pane::Work,
@@ -1488,7 +1487,6 @@ impl Shell {
             usage_days: 7,
             chat_hint: None,
             memory_hint: None,
-            select_open: None,
             files_seeded: Default::default(),
             job_view: None,
             server_input,
@@ -1553,7 +1551,6 @@ impl Shell {
             diff_text: String::new(),
             racing: 0,
             splitting: false,
-            later_menu: false,
             dm_do: false,
             later_pick: None,
             issue_list: None,
@@ -1589,7 +1586,9 @@ impl Shell {
                 shell.list_git = true;
             }
             // The status bar's usage popover, open.
-            Ok("usage-open") => shell.usage_open = true,
+            Ok("usage-open") => shell.open_pop(popover::Pop::Usage),
+            // The Run it later menu by a thread's send button, open.
+            Ok("later-open") => shell.open_pop(popover::Pop::Later),
             Ok("palette") => shell.open_palette(window, cx),
             // "job:9:files" opens job #9's workspace on its Files tab.
             Ok(p) if p.starts_with("job:") && p.matches(':').count() == 2 => {
@@ -1766,7 +1765,8 @@ impl Shell {
                 self.settings_pane = pane;
             }
             self.entered = Instant::now();
-            self.folder_menu = false;
+            // A menu from the page you left doesn't follow you.
+            self.close_pop();
         }
     }
 
@@ -1837,7 +1837,7 @@ impl Shell {
 
     /// Asks for a folder and makes it the one the crew works in.
     fn pick_folder(&mut self, cx: &mut Context<Self>) {
-        self.folder_menu = false;
+        self.close_this_pop(popover::Pop::Folder);
         let rx = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -2938,7 +2938,7 @@ impl Shell {
             self.crew.store.current = self.crew.store.current.saturating_sub(1);
         }
         if self.crew.store.folders.is_empty() {
-            self.folder_menu = false;
+            self.close_this_pop(popover::Pop::Folder);
         }
         self.crew.store.save();
         self.say(format!(
@@ -3974,6 +3974,12 @@ impl Render for Shell {
             .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                 let m = &e.keystroke.modifiers;
                 let key = e.keystroke.key.as_str();
+                // Esc puts a floating menu away before anything else hears it.
+                if key == "escape" && this.close_pop() {
+                    cx.notify();
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.menu.is_some() && !m.platform && !m.control {
                     if this.menu_key(key, window, cx) {
                         cx.stop_propagation();
@@ -4131,7 +4137,7 @@ impl Render for Shell {
             )
             .children(toast_el)
             // Deferred, so it paints over the crew's frames too.
-            .when(self.usage_open && !setup, |d| {
+            .when(self.pop_open(popover::Pop::Usage) && !setup, |d| {
                 // Positioned after the motion: it makes what it moves
                 // relative, and this has to stay over the window.
                 d.child(

@@ -13,6 +13,7 @@ use squad_holo::{Framing, Mood};
 use super::data::{Member, Mode};
 use super::goal::{Goal, State};
 use super::home::status_of;
+use super::popover::Pop;
 use super::store::{self, Item, Job, Status};
 use super::ui::{self, c, ca};
 use super::{Place, Shell};
@@ -2964,8 +2965,8 @@ impl Shell {
                                         gpui_kit::component::tooltip::Tooltip::new("Run it later")
                                             .build(window, cx)
                                     })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.later_menu = !this.later_menu;
+                                    .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
+                                        this.toggle_pop(Pop::Later, e);
                                         cx.notify();
                                     })),
                             ),
@@ -3004,15 +3005,33 @@ impl Shell {
 
     /// Run it later: a clock by the send button with the times a job can wait
     /// for. Picking one sends the next job to the night shift.
+    ///
+    /// Each row is on one grid: an icon, the name over why you'd pick it,
+    /// and the time it starts in a right-hand column, the clock over the
+    /// day, so both lines of every row line up.
     fn later_button(&mut self, cx: &mut Context<Self>) -> Div {
-        let mut times: Vec<(String, &str, &str)> = vec![
-            ("tonight".into(), "Tonight", "11 PM, while you sleep"),
+        /// The rows' lines: the name and the clock, then the why and the day.
+        const TOP: f32 = 18.;
+        const UNDER: f32 = 16.;
+        let mut times: Vec<(String, IconName, &str, &str)> = vec![
+            (
+                "tonight".into(),
+                IconName::Moon,
+                "Tonight",
+                "While you sleep",
+            ),
             (
                 "tomorrow".into(),
+                IconName::Sun,
                 "Tomorrow morning",
-                "9 AM, before you start",
+                "Before you start",
             ),
-            ("in 2h".into(), "In 2 hours", "When you're back"),
+            (
+                "in 2h".into(),
+                IconName::Clock,
+                "In 2 hours",
+                "When you're back",
+            ),
         ];
         // When the plan the crew runs on starts over, if the engine said.
         let now_s = store::now() as i64;
@@ -3024,17 +3043,18 @@ impl Shell {
             let mins = ((reset - now_s) / 60 + 1).min(72 * 60);
             times.push((
                 format!("in {mins}m"),
+                IconName::RefreshCw,
                 "When the plan resets",
-                "Its hours start over, so it runs in full",
+                "So it runs on a full plan",
             ));
         }
         let picked = self.later_pick.clone();
-        let open = self.later_menu;
+        let now = chrono::Local::now();
         let mut menu = div()
             .absolute()
             .bottom(px(38.))
             .right(px(0.))
-            .w(px(330.))
+            .w(px(304.))
             .p(px(6.))
             .flex()
             .flex_col()
@@ -3059,23 +3079,31 @@ impl Shell {
                     .text_color(c(ui::faint()))
                     .child("RUN IT LATER"),
             );
-        for (i, (when, name, line)) in times.into_iter().enumerate() {
+        for (i, (when, icon, name, line)) in times.into_iter().enumerate() {
             let on = picked.as_deref() == Some(when.as_str());
-            let at = super::shift::parse_when(&format!("{when} x"), chrono::Local::now())
-                .map(|(at, _)| super::shift::when_words(at, store::now()))
+            let (clock, day) = super::shift::parse_when(&format!("{when} x"), now)
+                .map(|(at, _)| super::shift::clock_and_day(at, &now))
                 .unwrap_or_default();
             menu = menu.child(
                 div()
                     .id(("later-pick", i))
                     .px(px(8.))
-                    .py(px(6.))
+                    .py(px(7.))
                     .rounded(px(6.))
                     .flex()
-                    .items_center()
+                    .items_start()
                     .gap(px(10.))
                     .cursor_pointer()
                     .hover(|s| s.bg(c(ui::hover())))
                     .when(on, |d| d.bg(c(ui::hover())))
+                    // The icon sits on the name's line.
+                    .child(div().flex_none().h(px(TOP)).flex().items_center().child(
+                        Icon::new(icon).size(px(14.)).text_color(c(if on {
+                            ui::accent_text()
+                        } else {
+                            ui::muted()
+                        })),
+                    ))
                     .child(
                         div()
                             .flex_1()
@@ -3084,6 +3112,9 @@ impl Shell {
                             .flex_col()
                             .child(
                                 div()
+                                    .h(px(TOP))
+                                    .flex()
+                                    .items_center()
                                     .text_size(px(13.))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(c(ui::ink()))
@@ -3091,37 +3122,80 @@ impl Shell {
                             )
                             .child(
                                 div()
+                                    .h(px(UNDER))
+                                    .flex()
+                                    .items_center()
                                     .text_size(px(11.5))
                                     .text_color(c(ui::muted()))
                                     .child(line),
                             ),
                     )
+                    // When it starts: the clock over the day, right-aligned.
                     .child(
                         div()
                             .flex_none()
-                            .text_size(px(11.))
-                            .font_family(ui::MONO)
-                            .text_color(c(ui::faint()))
-                            .child(at),
+                            .flex()
+                            .flex_col()
+                            .items_end()
+                            .child(
+                                div()
+                                    .h(px(TOP))
+                                    .flex()
+                                    .items_center()
+                                    .text_size(px(12.))
+                                    .font_family(ui::MONO)
+                                    .text_color(c(ui::body()))
+                                    .child(clock),
+                            )
+                            .child(
+                                div()
+                                    .h(px(UNDER))
+                                    .flex()
+                                    .items_center()
+                                    .text_size(px(11.))
+                                    .text_color(c(ui::faint()))
+                                    .child(day),
+                            ),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.later_pick = if on { None } else { Some(when.clone()) };
-                        this.later_menu = false;
+                        this.close_pop();
                         cx.notify();
                     })),
             );
         }
         menu = menu.child(
             div()
-                .px(px(8.))
-                .pt(px(6.))
+                .mx(px(2.))
+                .px(px(6.))
+                .pt(px(7.))
+                .pb(px(2.))
                 .mt(px(4.))
                 .border_t_1()
                 .border_color(c(ui::line2()))
+                .flex()
+                .items_center()
+                .gap(px(4.))
                 .text_size(px(11.5))
                 .text_color(c(ui::faint()))
-                .child("Or type /later 2am, /later in 3h …"),
+                .child("Or type")
+                .child(
+                    div()
+                        .font_family(ui::MONO)
+                        .text_size(px(11.))
+                        .text_color(c(ui::muted()))
+                        .child("/later 2am"),
+                )
+                .child("or")
+                .child(
+                    div()
+                        .font_family(ui::MONO)
+                        .text_size(px(11.))
+                        .text_color(c(ui::muted()))
+                        .child("/later in 3h"),
+                ),
         );
+        let menu = self.pop_panel(Pop::Later, menu, cx);
         let label = picked.map(|w| match w.as_str() {
             "tonight" => "Tonight".to_string(),
             "tomorrow" => "Tomorrow".to_string(),
@@ -3151,13 +3225,15 @@ impl Shell {
                         .cursor_pointer()
                         .child(Icon::new(IconName::Moon).size(px(13.)))
                         .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.later_menu = !open;
+                        .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
+                            this.toggle_pop(Pop::Later, e);
                             cx.notify();
                         })),
                 )
             })
-            .when(open, |d| d.child(deferred(menu).with_priority(2)))
+            .when(self.pop_open(Pop::Later), |d| {
+                d.child(deferred(menu).with_priority(2))
+            })
     }
 
     /// Sends what's in the composer to the thread you're in.
@@ -3169,9 +3245,11 @@ impl Shell {
         self.composer
             .update(cx, |i, cx| i.set_value("", window, cx));
         // Run it later: the job goes to the night shift for the time picked.
-        self.later_menu = false;
-        if let Some(when) = self.later_pick.take() {
-            if !text.starts_with('/') {
+        // A command of its own (/plan, /race …) runs as typed and leaves the
+        // pick for the next job, rather than dropping it unseen.
+        self.close_this_pop(Pop::Later);
+        if !text.starts_with('/') {
+            if let Some(when) = self.later_pick.take() {
                 text = format!("/later {when} {text}");
             }
         }
