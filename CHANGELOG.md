@@ -4,6 +4,11 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Changed
+
+- Every bot is now drawn as Peek the viewfinder: four corner marks round two glowing eyes, like a camera finding focus. Each bot's eyes glow in its colour and its corners are cut its own way (round, sharp, double, notched, bold, long, dotted or chamfered), so the crew reads apart even in greyscale. Peek, the lead, has the round lens, lime eyes and a red record light. Each mood is a move of the corners: they breathe at rest, swing round while thinking with a light orbiting, snap in with a scan line while working, pulse in the bot's colour when it needs you, close into a full frame when done, jitter with one corner red when stuck, and dim when asleep.
+- A new app icon and menu bar glyph to match: the viewfinder's light corners and lime eyes on a graphite tile.
+
 ## [2.0.0-alpha.14] - 2026-11-14
 
 ### Added

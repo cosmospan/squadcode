@@ -1863,7 +1863,7 @@ impl Shell {
             let i = (self.now() / 3.2) as usize % State::ALL.len();
             State::ALL[i]
         });
-        let figure = Figure::Eared(FinPose {
+        let figure = Figure::Viewfinder(FinPose {
             fin,
             state,
             shine: false,

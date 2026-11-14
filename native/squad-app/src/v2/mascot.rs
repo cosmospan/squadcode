@@ -1,8 +1,9 @@
 //! The crew's mascot, and how each bot wears it.
 //!
-//! Every bot is drawn as Peek: the same dark blob for everyone, with the bot's
-//! colour in its eyes and its own shape of ears, which move with its mood.
-//! The crew's lead has oval ears and lime eyes. The looks
+//! Every bot is drawn as Peek the viewfinder: four corner marks round two
+//! glowing eyes. Each bot's eyes glow in its colour and its corners are cut in
+//! its own lens style; the corners move with its mood. The crew's lead has the
+//! round lens, lime eyes and a red record light. The looks
 //! are still saved in the Fin form (a colour and an outfit), so saved choices
 //! carry over. Settings → Mascot changes a bot's colour. Choices live in `AppSettings`
 //! (`fin_line`, `fin_looks`); a parsed copy is kept here so drawing a bot
@@ -139,7 +140,8 @@ pub fn set_look(st: &mut AppSettings, who: Member, tint: Tint, outfit: Outfit) {
     }
 }
 
-/// Only Peek, the crew's lead, wears ears; its ears are the oval ones with lime eyes.
+/// Only Peek, the crew's lead, is drawn as the lead: the round lens, lime eyes
+/// and the record light. (The flag is still called `ears` in the saved Fin form.)
 pub fn has_ears(who: Member) -> bool {
     who == Member::Fin
 }
@@ -157,7 +159,7 @@ pub fn figure_with(who: Member, mood: Mood, gaze: (i8, i8), offset: u8) -> Figur
         .get(&bot_key(who))
         .copied()
         .unwrap_or_else(|| default_look(who));
-    Figure::Eared(
+    Figure::Viewfinder(
         Fin {
             tint,
             line: l.line.unwrap_or_default(),

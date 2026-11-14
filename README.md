@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/icon.png" width="132" alt="Squad Code app icon: Peek, the crew lead, peeking over a terminal, in graphite and lime" />
+<img src="docs/images/icon.png" width="132" alt="Squad Code app icon: Peek, the crew lead, as a viewfinder, four corner marks round two glowing lime eyes on graphite" />
 
 <h1>Squad Code</h1>
 

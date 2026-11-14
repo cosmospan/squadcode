@@ -843,7 +843,7 @@ impl Shell {
         } else {
             let line = Line::from_code(&st.fin_line);
             self.pose_img(
-                squad_holo::Figure::Eared(
+                squad_holo::Figure::Viewfinder(
                     Fin {
                         tint: e.tint,
                         line,
