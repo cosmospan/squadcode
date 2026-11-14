@@ -1872,7 +1872,7 @@ impl Shell {
             let i = (self.now() / 3.2) as usize % State::ALL.len();
             State::ALL[i]
         });
-        let figure = Figure::Termi(FinPose {
+        let figure = Figure::Eared(FinPose {
             fin,
             state,
             shine: false,
@@ -2093,7 +2093,7 @@ impl Shell {
         Self::page(
             "settings-mascot",
             "Mascot",
-            "Termi and the crew's colours. How every bot looks, everywhere in the app.",
+            "Peek and the crew's colours. How every bot looks, everywhere in the app.",
             body,
         )
     }

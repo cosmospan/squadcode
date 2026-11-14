@@ -1,10 +1,10 @@
-//! A contact sheet of Termi: `cargo run --release -p squad-holo --example termi_sheet out.png [t]`.
+//! A contact sheet of the eared Peek: `cargo run --release -p squad-holo --example eared_sheet out.png [t]`.
 //!
 //! The top rows are every state on the big framing; then the crew in their
 //! colours; then avatar sizes along the bottom.
 use squad_holo::bubble::Tint;
 use squad_holo::fin::{Fin, FinPose, Line, Outfit, State};
-use squad_holo::{Framing, TermiRenderer};
+use squad_holo::{EaredRenderer, Framing};
 
 const CREW: [(Tint, bool); 8] = [
     (Tint::VIOLET, true),
@@ -34,7 +34,7 @@ fn pose(tint: Tint, lead: bool, state: State) -> FinPose {
 }
 
 fn main() {
-    let out = std::env::args().nth(1).unwrap_or("termi.png".into());
+    let out = std::env::args().nth(1).unwrap_or("eared.png".into());
     let t: f64 = std::env::args()
         .nth(2)
         .and_then(|s| s.parse().ok())
@@ -57,14 +57,14 @@ fn main() {
     for p in img.chunks_mut(4) {
         p.copy_from_slice(&[0x12, 0x12, 0x17, 0xFF]);
     }
-    let mut r = TermiRenderer::new(cell as u16);
+    let mut r = EaredRenderer::new(cell as u16);
     for (i, p) in cells.iter().enumerate() {
         let px = r.draw(p, t, Framing::Full).to_vec();
         blit(&mut img, w, &px, cell, (i % cols) * cell, (i / cols) * cell);
     }
     let mut x = 10;
     for size in [22usize, 26, 34, 56] {
-        let mut r = TermiRenderer::new(size as u16);
+        let mut r = EaredRenderer::new(size as u16);
         for (tint, lead) in CREW.iter().take(4) {
             let px = r
                 .draw(&pose(*tint, *lead, State::Idle), t, Framing::Bust)
