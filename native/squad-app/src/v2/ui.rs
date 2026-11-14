@@ -24,15 +24,15 @@ pub const VIOLET: u32 = 0x7B4DF5;
 pub const RED: u32 = 0xF2364F;
 pub const MONO: &str = "JetBrains Mono";
 
-/// One of the redesign's looks (Graphite and lime, Harbour, Orchid, Juniper,
-/// Saffron, Lagoon), light or dark: picked things go ink and the look's accent, not
+/// One of the redesign's looks (Graphite and lime, Harbour, Orchid, Sumi, Moss,
+/// Petrol), light or dark: picked things go ink and the look's accent, not
 /// violet.
 fn lime() -> bool {
     super::theme::family_of(theme().id).is_some()
 }
 
 /// The look's accent as text and marks on the page (the design's `--vtx`):
-/// a deep lime, violet, plum, rust, gold or teal that reads on the ground. Violet elsewhere.
+/// a deep lime, violet, plum, vermilion, moss or brass that reads on the ground. Violet elsewhere.
 pub fn accent_text() -> u32 {
     match theme().id {
         "graphite-lime" => 0x4E6A00,
@@ -41,12 +41,12 @@ pub fn accent_text() -> u32 {
         "harbour-dark" => 0xB8B2FF,
         "orchid" => 0x8E2479,
         "orchid-dark" => 0xF4B8EC,
-        "juniper" => 0xA4400F,
-        "juniper-dark" => 0xFFB088,
-        "saffron" => 0x7D5500,
-        "saffron-dark" => 0xFFC94A,
-        "lagoon" => 0x0B6E66,
-        "lagoon-dark" => 0x6EE7D8,
+        "sumi" => 0x9E3520,
+        "sumi-dark" => 0xEE9479,
+        "moss" => 0x3F6146,
+        "moss-dark" => 0xB5CB98,
+        "petrol" => 0x7A5A12,
+        "petrol-dark" => 0xD9B160,
         _ => t_violet(),
     }
 }
@@ -61,12 +61,12 @@ pub fn accent_bar() -> u32 {
         "harbour-dark" => 0x8B7FF0,
         "orchid" => 0xB8399F,
         "orchid-dark" => 0xD45BBE,
-        "juniper" => 0xE8763F,
-        "juniper-dark" => 0xF08A5A,
-        "saffron" => 0xE0A100,
-        "saffron-dark" => 0xE6A92A,
-        "lagoon" => 0x14B8A6,
-        "lagoon-dark" => 0x2DD4BF,
+        "sumi" => 0xB8432B,
+        "sumi-dark" => 0xD9765B,
+        "moss" => 0x5E7F5F,
+        "moss-dark" => 0x8FAA70,
+        "petrol" => 0xB8872E,
+        "petrol-dark" => 0xC9A04C,
         _ => VIOLET,
     }
 }
@@ -292,12 +292,12 @@ pub fn ground() -> u32 {
         "harbour-dark" => Some(0x10151C),
         "orchid" => Some(0xEFE9E1),
         "orchid-dark" => Some(0x191512),
-        "juniper" => Some(0xE8EDE7),
-        "juniper-dark" => Some(0x0D1411),
-        "saffron" => Some(0xEDEAF2),
-        "saffron-dark" => Some(0x130F19),
-        "lagoon" => Some(0xE5EEF0),
-        "lagoon-dark" => Some(0x0A1416),
+        "sumi" => Some(0xEAE6DC),
+        "sumi-dark" => Some(0x15161C),
+        "moss" => Some(0xE5E8DF),
+        "moss-dark" => Some(0x191D1B),
+        "petrol" => Some(0xE6EBEB),
+        "petrol-dark" => Some(0x0B1A20),
         _ => None,
     };
     if let Some(side) = side {
