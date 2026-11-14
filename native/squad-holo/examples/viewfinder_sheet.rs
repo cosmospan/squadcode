@@ -1,10 +1,12 @@
-//! A contact sheet of Termi: `cargo run --release -p squad-holo --example termi_sheet out.png [t]`.
+//! A contact sheet of the viewfinder Peek: `cargo run --release -p squad-holo --example viewfinder_sheet out.png [t]`.
 //!
 //! The top rows are every state on the big framing; then the crew in their
-//! colours; then avatar sizes along the bottom.
+//! colours; then a row of the person's choices (eyes, lights, corners);
+//! then avatar sizes along the bottom.
 use squad_holo::bubble::Tint;
 use squad_holo::fin::{Fin, FinPose, Line, Outfit, State};
-use squad_holo::{Framing, TermiRenderer};
+use squad_holo::viewfinder::{Corners, Eyes, Kit, Lens, Light};
+use squad_holo::{Framing, ViewfinderRenderer};
 
 const CREW: [(Tint, bool); 8] = [
     (Tint::VIOLET, true),
@@ -24,6 +26,7 @@ fn pose(tint: Tint, lead: bool, state: State) -> FinPose {
             line: Line::default(),
             ears: lead,
             outfit: Outfit::PLAIN,
+            kit: Default::default(),
         },
         state,
         shine: false,
@@ -34,7 +37,7 @@ fn pose(tint: Tint, lead: bool, state: State) -> FinPose {
 }
 
 fn main() {
-    let out = std::env::args().nth(1).unwrap_or("termi.png".into());
+    let out = std::env::args().nth(1).unwrap_or("viewfinder.png".into());
     let t: f64 = std::env::args()
         .nth(2)
         .and_then(|s| s.parse().ok())
@@ -51,20 +54,88 @@ fn main() {
     for (tint, lead) in CREW {
         cells.push(pose(tint, lead, State::Done));
     }
+    let k = Kit::default();
+    let kits = [
+        (
+            Tint::BLUE,
+            Kit {
+                eyes: Eyes::Dot,
+                ..k
+            },
+        ),
+        (
+            Tint::ORANGE,
+            Kit {
+                eyes: Eyes::Block,
+                ..k
+            },
+        ),
+        (
+            Tint::TEAL,
+            Kit {
+                eyes: Eyes::Diamond,
+                ..k
+            },
+        ),
+        (
+            Tint::VIOLET,
+            Kit {
+                eyes: Eyes::Visor,
+                ..k
+            },
+        ),
+        (
+            Tint::AMBER,
+            Kit {
+                light: Light::Glow,
+                ..k
+            },
+        ),
+        (
+            Tint::GREEN,
+            Kit {
+                corners: Corners::Tinted,
+                ..k
+            },
+        ),
+        (
+            Tint::RED,
+            Kit {
+                lens: Some(Lens::Round),
+                eyes: Eyes::Visor,
+                light: Light::Rec,
+                ..k
+            },
+        ),
+        (
+            Tint::BLUE,
+            Kit {
+                lens: Some(Lens::Chamfer),
+                eyes: Eyes::Diamond,
+                light: Light::Glow,
+                corners: Corners::Tinted,
+            },
+        ),
+    ];
+    for (tint, kit) in kits {
+        let mut p = pose(tint, false, State::Idle);
+        p.fin.kit = kit;
+        cells.push(p);
+    }
     let rows = cells.len().div_ceil(cols);
     let (w, h) = (cols * cell, rows * cell + 80);
     let mut img = vec![0u8; w * h * 4];
     for p in img.chunks_mut(4) {
         p.copy_from_slice(&[0x12, 0x12, 0x17, 0xFF]);
     }
-    let mut r = TermiRenderer::new(cell as u16);
+    let mut r = ViewfinderRenderer::new(cell as u16);
     for (i, p) in cells.iter().enumerate() {
         let px = r.draw(p, t, Framing::Full).to_vec();
         blit(&mut img, w, &px, cell, (i % cols) * cell, (i / cols) * cell);
     }
     let mut x = 10;
     for size in [22usize, 26, 34, 56] {
-        let mut r = TermiRenderer::new(size as u16);
+        let mut r = ViewfinderRenderer::new(size as u16);
         for (tint, lead) in CREW.iter().take(4) {
             let px = r
                 .draw(&pose(*tint, *lead, State::Idle), t, Framing::Bust)
