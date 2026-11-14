@@ -427,6 +427,7 @@ impl Shell {
                 spread_radius: px(0.),
                 inset: false,
             }])
+            .children(self.reply_bar(cx))
             .child(
                 div()
                     .min_h(px(32.))
@@ -508,6 +509,7 @@ impl Shell {
                                 if !text.is_empty() {
                                     this.chat_input
                                         .update(cx, |i, cx| i.set_value("", window, cx));
+                                    let text = this.wrap_reply(text);
                                     if this.dm_do {
                                         this.job_from_dm(who, text, cx);
                                     } else {

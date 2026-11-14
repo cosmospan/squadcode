@@ -86,6 +86,19 @@ pub(super) enum Reply {
     Bot(Member),
 }
 
+/// The message you're replying to: who said it, what they said, and where,
+/// so the quote stays with the box it was started in.
+#[derive(Clone)]
+pub(super) struct Replying {
+    pub who: Member,
+    pub said: String,
+    /// The DM it was started in, or None for a thread.
+    pub dm: Option<Member>,
+    /// The project folder and thread, for a thread.
+    pub folder: String,
+    pub thread: u64,
+}
+
 /// What a message in a thread is, for what its hover bar offers.
 #[derive(Clone)]
 pub(super) enum Msg {
@@ -311,6 +324,191 @@ impl Shell {
         cx.notify();
     }
 
+    /// Reply on a message: a job's opens its own conversation beside the
+    /// thread; a bot's is quoted above the box, and what you send goes to
+    /// that bot with the quote, so it knows which message you mean.
+    pub(super) fn reply_to(
+        &mut self,
+        reply: Reply,
+        said: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match reply {
+            Reply::Job(id) => {
+                self.reply_open = Some(id);
+                cx.notify();
+            }
+            Reply::Bot(who) => {
+                let folder = self
+                    .crew
+                    .store
+                    .folder()
+                    .map(|f| f.path.clone())
+                    .unwrap_or_default();
+                self.replying = Some(Replying {
+                    who,
+                    said: store::reply_quote(super::live::plain(&said).as_str()),
+                    dm: self.dm(),
+                    folder,
+                    thread: self.crew.store.thread_here(),
+                });
+                // An @ left in the box for this bot isn't needed any more:
+                // the quote says who it goes to.
+                let typed = self.box_text(cx);
+                let at = format!("@{} ", who.name());
+                let rest = typed.strip_prefix(&at).map(str::to_string);
+                match rest {
+                    Some(rest) => self.put_in_box(rest, window, cx),
+                    None => self.focus_box(window, cx),
+                }
+            }
+        }
+    }
+
+    /// The message being replied to, when it was started in the box on screen.
+    pub(super) fn reply_here(&self) -> Option<&Replying> {
+        let r = self.replying.as_ref()?;
+        let here = match r.dm {
+            Some(who) => self.dm() == Some(who),
+            None => {
+                self.place == Place::Today
+                    && self.crew.store.folder().map(|f| f.path.as_str()) == Some(r.folder.as_str())
+                    && self.crew.store.thread_here() == r.thread
+            }
+        };
+        here.then_some(r)
+    }
+
+    /// What you typed, as a reply to the quoted message when there is one:
+    /// in a thread it goes to that bot unless you named another with @. The
+    /// quote is used up either way. A slash command is sent as typed.
+    pub(super) fn wrap_reply(&mut self, text: String) -> String {
+        let Some(r) = self.reply_here().cloned() else {
+            return text;
+        };
+        self.replying = None;
+        if text.starts_with('/') {
+            return text;
+        }
+        let text = if r.dm.is_none() && super::mentioned(&text).is_none() {
+            format!("@{} {text}", r.who.name())
+        } else {
+            text
+        };
+        store::with_reply(r.who.name(), &r.said, &text)
+    }
+
+    /// "Edit and send again": your words back in the box, and the quote back
+    /// above it when they replied to a message.
+    pub(super) fn edit_again(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let (quote, words) = store::split_reply(&text);
+        let who = quote
+            .as_ref()
+            .and_then(|(name, _)| Member::all().into_iter().find(|m| m.name() == name));
+        let (Some((_, said)), Some(who)) = (quote.clone(), who) else {
+            return self.put_in_box(text, window, cx);
+        };
+        let words = match self.dm() {
+            None => words
+                .strip_prefix(&format!("@{} ", who.name()))
+                .unwrap_or(words),
+            Some(_) => words,
+        }
+        .to_string();
+        self.replying = Some(Replying {
+            who,
+            said,
+            dm: self.dm(),
+            folder: self
+                .crew
+                .store
+                .folder()
+                .map(|f| f.path.clone())
+                .unwrap_or_default(),
+            thread: self.crew.store.thread_here(),
+        });
+        self.put_in_box(words, window, cx)
+    }
+
+    /// What's in the box you type in here.
+    fn box_text(&self, cx: &Context<Self>) -> String {
+        if self.dm().is_some() {
+            self.chat_input.read(cx).value().to_string()
+        } else {
+            self.composer.read(cx).value().to_string()
+        }
+    }
+
+    /// Puts the caret in the box you type in here, leaving its words.
+    fn focus_box(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dm().is_some() {
+            self.chat_input.update(cx, |i, cx| i.focus(window, cx));
+        } else {
+            self.composer.update(cx, |i, cx| i.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    /// The quote above the box while you reply to a message: who and what,
+    /// on one line, with × to drop it.
+    pub(super) fn reply_bar(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+        let r = self.reply_here()?.clone();
+        let accent = r.who.accent();
+        Some(
+            div()
+                .w_full()
+                .flex()
+                .items_start()
+                .gap(px(10.))
+                .pl(px(12.))
+                .pr(px(8.))
+                .py(px(8.))
+                .border_b_1()
+                .border_color(c(ui::line()))
+                .child(div().w(px(2.)).h(px(34.)).rounded(px(1.)).bg(c(accent)))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.))
+                        .child(
+                            div()
+                                .flex()
+                                .gap(px(4.))
+                                .text_size(px(11.5))
+                                .text_color(c(ui::faint()))
+                                .child("Replying to")
+                                .child(
+                                    div()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(c(super::theme::mix(accent, ui::ink(), 0.35)))
+                                        .child(r.who.name()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .line_height(px(18.))
+                                .text_color(c(ui::muted()))
+                                .truncate()
+                                .child(r.said.clone()),
+                        ),
+                )
+                .child(
+                    bar_btn("reply-drop")
+                        .child(Icon::new(IconName::Close).size(px(13.)))
+                        .tooltip(tip_of("Don't reply to this (Esc)".into()))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.replying = None;
+                            cx.notify();
+                        })),
+                ),
+        )
+    }
+
     /// `quiet` is the time of a line that carries on a run, without its own
     /// name and time: the time shows in the left margin while you point at it.
     #[allow(clippy::too_many_arguments)]
@@ -399,19 +597,12 @@ impl Shell {
                     bar_btn(("reply", n))
                         .child(Icon::new(IconName::MessageSquareText).size(px(15.)))
                         .tooltip(tip_of("Reply".into()))
-                        .on_click(cx.listener(move |this, _, window, cx| match reply {
-                            Reply::Job(id) => {
-                                this.reply_open = Some(id);
-                                cx.notify();
-                            }
-                            // In its own DM a bot needs no @.
-                            Reply::Bot(who) if this.dm() == Some(who) => {
-                                this.put_in_box(String::new(), window, cx)
-                            }
-                            Reply::Bot(who) => {
-                                this.put_in_box(format!("@{} ", who.name()), window, cx)
-                            }
-                        })),
+                        .on_click({
+                            let said = copy.clone();
+                            cx.listener(move |this, _, window, cx| {
+                                this.reply_to(reply, said.clone(), window, cx)
+                            })
+                        }),
                 )
             })
             .when_some(edit, |d, text| {
@@ -420,7 +611,7 @@ impl Shell {
                         .child(Icon::new(IconName::Pencil).size(px(14.)))
                         .tooltip(tip_of("Edit and send again".into()))
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.put_in_box(text.clone(), window, cx)
+                            this.edit_again(text.clone(), window, cx)
                         })),
                 )
             })
@@ -762,14 +953,80 @@ pub(super) fn mine(text: String, at: u64, lead: bool) -> Div {
         .font_weight(FontWeight::MEDIUM)
         .child(you_letter())
         .into_any_element();
+    let (quote, words) = store::split_reply(&text);
+    // The @ that sent the reply to the bot it quotes says nothing new.
+    let words = match &quote {
+        Some((who, _)) => words
+            .strip_prefix(&format!("@{who} "))
+            .unwrap_or(words)
+            .to_string(),
+        None => words.to_string(),
+    };
     line(
         lead.then(|| (face, byline("You", at))),
         div()
+            .flex()
+            .flex_col()
             .text_size(px(14.))
             .line_height(px(21.))
             .text_color(c(ui::body()))
-            .child(tagged(text)),
+            .children(quote.map(|(who, said)| replied_to(&who, said)))
+            .child(tagged(words)),
     )
+}
+
+/// The message a reply answers, above your words: who said it and the start
+/// of what they said, with all of it on hover.
+fn replied_to(who: &str, said: String) -> impl IntoElement {
+    let accent = Member::all()
+        .into_iter()
+        .find(|m| m.name() == who)
+        .map(|m| m.accent())
+        .unwrap_or_else(ui::accent_text);
+    let id = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (who, &said).hash(&mut h);
+        h.finish() as usize
+    };
+    div()
+        .id(("replied-to", id))
+        .mt(px(3.))
+        .mb(px(5.))
+        .max_w(px(560.))
+        .pl(px(10.))
+        .pr(px(10.))
+        .py(px(5.))
+        .flex()
+        .items_center()
+        .gap(px(7.))
+        .border_l_2()
+        .border_color(c(accent))
+        .rounded_r(px(6.))
+        .bg(ca(accent, 0.07))
+        .text_size(px(12.5))
+        .line_height(px(18.))
+        .child(
+            Icon::new(IconName::Undo2)
+                .size(px(12.))
+                .text_color(c(super::theme::mix(accent, ui::ink(), 0.35))),
+        )
+        .child(
+            div()
+                .flex_none()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(c(super::theme::mix(accent, ui::ink(), 0.35)))
+                .child(who.to_string()),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .text_color(c(ui::muted()))
+                .truncate()
+                .child(said.clone()),
+        )
+        .tooltip(tip_of(said))
 }
 
 /// Your words with @bots and #threads picked out in colour.
@@ -2848,7 +3105,11 @@ impl Shell {
         if !self.mode_pinned && !value.starts_with('/') {
             self.mode = Mode::guess(&value);
         }
-        let named = super::mentioned(&value).map(|(m, _)| m);
+        let replying = self
+            .reply_here()
+            .filter(|_| !value.starts_with('/'))
+            .map(|r| r.who);
+        let named = super::mentioned(&value).map(|(m, _)| m).or(replying);
         // Nobody named: Peek reads it and picks the bot, so no bot is
         // guessed here ahead of it.
         let peek_picks = named.is_none()
@@ -3031,6 +3292,7 @@ impl Shell {
             .bg(c(ui::raised()))
             .border_1()
             .border_color(c(ui::line_hi()))
+            .children(self.reply_bar(cx))
             .children(self.at_strip(cx))
             .child(
                 div()
@@ -3499,6 +3761,7 @@ impl Shell {
         }
         self.composer
             .update(cx, |i, cx| i.set_value("", window, cx));
+        text = self.wrap_reply(text);
         // Run it later: the job goes to the night shift for the time picked.
         // A command of its own (/plan, /race …) runs as typed and leaves the
         // pick for the next job, rather than dropping it unseen.

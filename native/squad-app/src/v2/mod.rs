@@ -482,6 +482,8 @@ pub struct Shell {
     new_mark: (String, u64, u64),
     /// A job's own conversation, open beside its thread like a reply pane.
     reply_open: Option<u64>,
+    /// The message you're replying to, quoted above the box you type in.
+    replying: Option<channel::Replying>,
     /// The sidebar's sections folded open or shut, by name; unset, open.
     side_folds: HashMap<String, bool>,
     toast: Option<(SharedString, Instant)>,
@@ -1180,6 +1182,7 @@ impl Shell {
                     let text = input.read(cx).value().trim().to_string();
                     if let (false, Place::Chat(who)) = (text.is_empty(), this.place) {
                         input.update(cx, |i, cx| i.set_value("", window, cx));
+                        let text = this.wrap_reply(text);
                         if this.dm_do {
                             this.job_from_dm(who, text, cx);
                         } else {
@@ -1411,6 +1414,7 @@ impl Shell {
             side_slim: false,
             new_mark: (String::new(), 0, 0),
             reply_open: None,
+            replying: None,
             side_folds: HashMap::new(),
             // A saved store that couldn't be read in full: say so once.
             toast: store::take_load_note().map(|n| (n.into(), Instant::now())),
@@ -1643,6 +1647,21 @@ impl Shell {
                         }
                     }
                 }
+            }
+            // Thread #1 with Explainer's answer quoted above the box, as a
+            // click on Reply leaves it.
+            Ok("reply") => {
+                shell.crew.store.thread_now = 1;
+                let said = shell
+                    .crew
+                    .store
+                    .talks
+                    .iter()
+                    .find(|t| t.thread == 1)
+                    .and_then(|t| t.answer.as_ref())
+                    .map(|a| a.text.clone())
+                    .unwrap_or_default();
+                shell.reply_to(channel::Reply::Bot(Member::Explainer), said, window, cx);
             }
             // "thread:1" opens thread #1.
             Ok(p) if p.starts_with("thread:") => {
@@ -4053,6 +4072,13 @@ impl Render for Shell {
                     cx.stop_propagation();
                     return;
                 }
+                // Esc drops the quote you're replying to, and keeps your words.
+                if key == "escape" && this.reply_here().is_some() {
+                    this.replying = None;
+                    cx.notify();
+                    cx.stop_propagation();
+                    return;
+                }
                 // Ctrl+` opens and closes a terminal: the job's own on a job,
                 // the project's everywhere else (or when that one is open).
                 if m.control && key == "`" && this.place != Place::Welcome {
@@ -4479,6 +4505,9 @@ mod drop_tests {
 
 /// The first crew bot named with @ in a message, and the message without it.
 fn mentioned(text: &str) -> Option<(Member, String)> {
+    // A reply's quote is someone else's words: an @ in it names nobody, and
+    // it stays at the top of what's passed on.
+    let (quote, text) = store::split_reply(text);
     let crew = Member::all();
     let mut found = None;
     let mut rest = Vec::new();
@@ -4491,7 +4520,11 @@ fn mentioned(text: &str) -> Option<(Member, String)> {
             _ => rest.push(word),
         }
     }
-    found.map(|m| (m, rest.join(" ")))
+    let rest = rest.join(" ");
+    found.map(|m| match quote {
+        Some((who, said)) => (m, store::with_reply(&who, &said, &rest)),
+        None => (m, rest),
+    })
 }
 
 /// The face for a job's latest news: busy while it runs, pleased when it
@@ -4578,4 +4611,34 @@ fn dialog(el: AnyElement, name: &'static str) -> Div {
         0.,
     )
     .absolute()
+}
+
+#[cfg(test)]
+mod mention_tests {
+    use super::{mentioned, store, Member};
+
+    #[test]
+    fn an_at_inside_a_quote_names_nobody() {
+        let quoted = format!("ask @{} to build it", Member::Builder.name());
+        let sent = store::with_reply(Member::Explainer.name(), &quoted, "what does it cost?");
+        assert!(mentioned(&sent).is_none());
+    }
+
+    #[test]
+    fn a_reply_to_a_bot_goes_to_it_with_the_quote() {
+        let words = format!("@{} go deeper on 3", Member::Explainer.name());
+        let sent = store::with_reply(Member::Explainer.name(), "Best bets: ...", &words);
+        let (who, rest) = mentioned(&sent).expect("named");
+        assert_eq!(who, Member::Explainer);
+        assert_eq!(
+            store::split_reply(&rest),
+            (
+                Some((
+                    Member::Explainer.name().to_string(),
+                    "Best bets: ...".to_string()
+                )),
+                "go deeper on 3"
+            )
+        );
+    }
 }

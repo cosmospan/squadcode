@@ -111,7 +111,7 @@ pub fn prompt(job: &Job, said: &str) -> String {
          helpers or commands it's about. If there is no lasting rule, answer exactly NONE. Answer with \
          nothing else. Don't read or change any files.",
         bot = job.bot.name(),
-        title = job.title.lines().next().unwrap_or("").trim(),
+        title = job.label(),
         said = said.trim(),
     )
 }
