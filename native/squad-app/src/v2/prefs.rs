@@ -79,7 +79,7 @@ impl Pane {
     }
 }
 
-fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
+pub(super) fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
     cx.update_global::<AppSettings, _>(|st, _| {
         f(st);
         st.save();

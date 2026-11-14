@@ -954,8 +954,10 @@ impl Shell {
     }
 }
 
-/// The crew list's width.
-const LIST_W: f32 = 300.;
+/// The crew list's width: its right edge, the hairline down the page, lands on
+/// a line of the background grid (19 cells from the page's left, plus the
+/// hairline itself), so the two don't sit side by side as a double line.
+const LIST_W: f32 = 19. * crate::pattern::STEP + 1.;
 
 /// A bot profile's tabs.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
