@@ -107,10 +107,10 @@ pub fn main(args: &[String]) -> Result<String, String> {
                     }
                     return Ok(out);
                 }
-                super::front::Front::Answer { code, .. } => {
+                super::front::Front::Answer { code, by, .. } => {
                     return Ok(format!(
                         "{} answers it, read-only, with no job{}.",
-                        super::front::answerer(&crew).name(),
+                        by.unwrap_or_else(|| super::front::answerer(&crew)).name(),
                         if code { ", reading the project" } else { "" }
                     ))
                 }

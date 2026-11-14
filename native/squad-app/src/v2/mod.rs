@@ -2427,11 +2427,26 @@ impl Shell {
                 says(self, question, choices);
                 cx.notify();
             }
-            brain::front::Front::Answer { question, .. } => {
+            brain::front::Front::Answer { question, by, .. } => {
                 drop_pending(self);
                 if !self.sample_guard(cx) {
-                    let who = self.answer_by.unwrap_or_else(|| self.ask_who());
-                    self.crew.ask_in_thread(&st, who, question);
+                    match (self.answer_by, by) {
+                        (Some(who), _) => self.crew.ask_in_thread(&st, who, question),
+                        // Peek gave it to a bot, like the one whose question
+                        // "1" answers: into its open job here when it has
+                        // one, so the job carries on, else it answers here.
+                        (None, Some(who)) => match self.open_here(who) {
+                            Some(id) => {
+                                self.crew.add_to_job(&st, id, question);
+                                self.crew.store.save();
+                            }
+                            None => self.crew.ask_in_thread(&st, who, question),
+                        },
+                        (None, None) => {
+                            let who = self.ask_who();
+                            self.crew.ask_in_thread(&st, who, question)
+                        }
+                    }
                 }
                 cx.notify();
             }

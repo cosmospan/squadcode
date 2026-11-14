@@ -63,7 +63,7 @@ You read every message the person sends before anyone works on it, and decide wh
 Never tell the person to open a terminal or run something themselves: Squad runs commands and apps for them, inside the app. A command you write in backticks gets a Run button that does that.\n\n\
 Each message to you gives the project, the thread and its summary, the crew, what's running, where jobs run, the conversation, and what the person just wrote. \
 Decide, reading it the way a sharp colleague would: typos, slang and half sentences are normal (\"whoa re you\" is \"who are you\"). \
-A short reply like \"1\", \"yes\" or \"the second\" answers the last question or list of choices in the conversation: act on that choice, and when a bot asked it, carry on with that bot. \
+A short reply like \"1\", \"yes\" or \"the second\" answers the last question or list of choices in the conversation: act on that choice, and when a bot asked it, carry on with that bot: \"hand\" it the work, or \"answer\" with \"bot\" set to it, never answering in its place. \
 Never start work on a guess.\n\
 Not every message is about the code. A thread can be for discussion, planning or talk among the team, and its name often says so. \
 When the person is discussing, planning, brainstorming, or talking about people, teams, process or ideas rather than this project's files, \
@@ -74,8 +74,10 @@ If they say it's a discussion, believe them.\n\
 - \"ask\": you can't tell what they want, or real work is too vague to start. Write one short question, with up to 3 choices if they help. In a discussion, prefer \"reply\".\n\
 - \"stop\": they want what's running stopped or cancelled.\n\
 - \"run\": they want the app started or run so they can see it (\"runthe app\", \"start it up\", \"let me see it\"). Squad Code starts it; no bot is needed.\n\
-- \"answer\": a question about this project's code or files, which needs reading them. A bot answers without changing anything. Not for discussion or general talk.\n\
-- \"hand\": real work on the project. Pick the bot whose role fits best; when the message carries on work a bot has open in this thread, pick that bot, since it goes into its open job. Each bot does one kind of work, so the bot decides it. Say why in one short, friendly sentence in your own voice, like \"Sounds like a bug in the Safari checkout.\" Don't name the bot or say you're bringing it in. \
+- \"answer\": a question about this project's code or files, which needs reading them, or the person's answer to a bot's question. A bot answers without changing anything: set \"bot\" to the one it's for (the bot that asked, when they're answering it), or leave it empty and you answer. Not for discussion or general talk.\n\
+- \"hand\": real work on the project. Pick the bot whose role fits best; when the message carries on work a bot has open in this thread, pick that bot, since it goes into its open job. Each bot does one kind of work, so the bot decides it. \
+Work out the kind first (build: new things; fix: bugs; test: try it for real; review: read the code for problems, security or rules; tidy: clean up). \
+When nobody on the crew does that kind and a bot Squad Code can add does, pick that bot by name: Squad Code asks the person to add it first. Never give it to a bot of another kind instead. Say why in one short, friendly sentence in your own voice, like \"Sounds like a bug in the Safari checkout.\" Don't name the bot or say you're bringing it in. \
 If they want it done on their server (a VPS, the cloud, \"remote\", the server's name), set \"where\" to \"server\": Squad Code copies the project there if it isn't yet and runs the job there, so never say the crew can only work on this computer. If they want it on this computer, \"here\". Otherwise leave it empty. \
 If they want the server but none is connected, \"ask\" them to connect one under Settings, My server.\n\n\
 Reply with JSON only, on one line:\n\
@@ -135,6 +137,25 @@ pub fn turn(text: &str, seen: &Seen, heading: &str, conversation: &[String]) -> 
             )
         })
         .collect();
+    let addable: Vec<String> = missing(seen.crew)
+        .iter()
+        .map(|m| {
+            format!(
+                "- {} ({} work): {}",
+                m.name(),
+                m.mode().label().to_lowercase(),
+                m.role()
+            )
+        })
+        .collect();
+    let addable = if addable.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Not on the crew, but Squad Code can add them:\n{}\n",
+            addable.join("\n")
+        )
+    };
     let running = if seen.running.is_empty() {
         "nothing".to_string()
     } else {
@@ -145,6 +166,7 @@ pub fn turn(text: &str, seen: &Seen, heading: &str, conversation: &[String]) -> 
 Thread: {thread}\n\
 {summary}\
 The crew:\n{crew}\n\
+{addable}\
 Running right now: {running}\n\
 Where jobs run: {server}\n\
 {heading}\n{conversation}\n\n\
@@ -219,6 +241,9 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
         "answer" => Front::Answer {
             question: text.to_string(),
             code: true,
+            // The bot Peek picked to answer, when it's on the crew: the one
+            // whose question a short reply like "1" answers.
+            by: named_bot(&v, crew),
         },
         "hand" => {
             let mode = match v["kind"].as_str().unwrap_or("").trim() {
@@ -229,13 +254,12 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
                 "ask" => Mode::Ask,
                 _ => Mode::Build,
             };
-            let named = v["bot"].as_str().unwrap_or("").trim().to_lowercase();
             // The bot decides the kind of work; the kind only picks a bot
             // when none was named.
-            let bot = crew
-                .iter()
-                .copied()
-                .find(|m| *m != Member::Fin && m.name().to_lowercase() == named)
+            // A built-in bot that isn't on the crew can be picked when nobody
+            // on it does that work: the person is asked to add it first.
+            let bot = named_bot(&v, crew)
+                .or_else(|| named_bot(&v, &missing(crew)))
                 .unwrap_or_else(|| route::doer(mode, crew));
             let r = Route {
                 mode: bot.mode(),
@@ -257,6 +281,34 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
         _ => return None,
     };
     Some((front, say))
+}
+
+/// The built-in bots not on the crew whose kind of work nobody on it does:
+/// Peek can pick one, and the person is asked to add it first.
+pub fn missing(crew: &[Member]) -> Vec<Member> {
+    Member::KINDS
+        .iter()
+        .copied()
+        .filter(|k| {
+            !crew.contains(k)
+                && !crew
+                    .iter()
+                    .any(|m| *m != Member::Fin && m.mode() == k.mode())
+        })
+        .collect()
+}
+
+/// The bot on the crew the decision names, if any; never Peek itself.
+fn named_bot(v: &Value, crew: &[Member]) -> Option<Member> {
+    let named = v["bot"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .trim_start_matches('@')
+        .to_lowercase();
+    crew.iter()
+        .copied()
+        .find(|m| *m != Member::Fin && m.name().to_lowercase() == named)
 }
 
 /// Asks the person's engine to read `text`, on another thread. Err when no
@@ -404,6 +456,60 @@ mod tests {
     }
 
     #[test]
+    fn a_reply_to_a_bots_question_goes_back_to_that_bot() {
+        let c = crew();
+        let reply = r#"{"do": "answer", "say": "Tutors it is.", "bot": "Explainer"}"#;
+        let (f, _) = parse(reply, "1", &c).unwrap();
+        assert!(
+            matches!(
+                f,
+                Front::Answer {
+                    by: Some(Member::Explainer),
+                    ..
+                }
+            ),
+            "{f:?}"
+        );
+        // Peek answering itself, or a bot that isn't there, is Peek's.
+        for bot in ["", "Peek", "Nobody"] {
+            let reply = format!(r#"{{"do": "answer", "say": "", "bot": "{bot}"}}"#);
+            let (f, _) = parse(&reply, "what does main.rs do", &c).unwrap();
+            assert!(matches!(f, Front::Answer { by: None, .. }), "{f:?}");
+        }
+        assert!(RULES.contains("never answering in its place"));
+    }
+
+    #[test]
+    fn peek_can_pick_a_bot_the_crew_lacks_and_have_it_added() {
+        let c: Vec<Member> = crew().into_iter().filter(|m| *m != Member::Guard).collect();
+        assert_eq!(missing(&c), vec![Member::Guard]);
+        assert!(missing(&crew()).is_empty());
+        let seen = Seen {
+            project: "shop",
+            thread: "",
+            summary: "",
+            recent: &[],
+            crew: &c,
+            running: &[],
+            in_thread: &[],
+            server: "",
+            picked: "",
+        };
+        let p = prompt("check the login for security holes", &seen);
+        assert!(p.contains("Not on the crew, but Squad Code can add them:\n- Guard (review work)"));
+        // Picked, it stays Guard: Squad Code offers to add it first.
+        let reply =
+            r#"{"do": "hand", "say": "A security pass on the login.", "bot": "Guard", "kind": ""}"#;
+        match parse(reply, "check the login for security holes", &c) {
+            Some((Front::Hand(r), _)) => assert_eq!(r.bot, Member::Guard),
+            other => panic!("{other:?}"),
+        }
+        // A bot whose work someone on the crew already does isn't offered.
+        let c: Vec<Member> = vec![Member::Fin, Member::Builder];
+        assert!(!missing(&c).contains(&Member::Builder));
+    }
+
+    #[test]
     fn a_chip_pick_is_told_to_peek_not_a_way_around_it() {
         let c = crew();
         let seen = |picked| Seen {
@@ -516,5 +622,167 @@ mod tests {
         assert!(parse("I think you mean hello", "hi", &c).is_none());
         assert!(parse(r#"{"do":"reply","say":""}"#, "hi", &c).is_none());
         assert!(parse(r#"{"do":"dance"}"#, "hi", &c).is_none());
+    }
+}
+
+/// Peek's real decisions in a crew discussion, on the installed Claude Code:
+/// `cargo test -p squadcode discussion_reads -- --ignored --nocapture`.
+/// Prints what Peek decides for each scene, `RUNS` times (3), so a
+/// change to the rules can be checked against the real engine. `SCENE`
+/// runs only the scenes whose name holds it.
+#[cfg(test)]
+#[test]
+#[ignore]
+fn discussion_reads() {
+    use std::process::Command;
+    let runs: usize = std::env::var("RUNS")
+        .ok()
+        .and_then(|r| r.parse().ok())
+        .unwrap_or(3);
+    let all = Member::CREW.to_vec();
+    let no_guard: Vec<Member> = all
+        .iter()
+        .copied()
+        .filter(|m| *m != Member::Guard)
+        .collect();
+    let s = |a: &str, b: &str| (a.to_string(), b.to_string());
+    // (name, thread, conversation, bots with an open job, crew, what the person wrote, what's right)
+    type Scene<'a> = (
+        &'a str,
+        &'a str,
+        Vec<(String, String)>,
+        Vec<Member>,
+        &'a Vec<Member>,
+        &'a str,
+        &'a str,
+    );
+    let scenes: Vec<Scene> = vec![
+        (
+            "talk: 1 answers Explainer's list",
+            "research",
+            vec![
+                s("you", "@Explainer what niches could we sell the booking tool to?"),
+                s("explainer", "A few fit well: people who book recurring sessions and hate back-and-forth. Which niche should we research first?\n1. Tutors\n2. Therapists\n3. Personal trainers"),
+            ],
+            vec![],
+            &all,
+            "1",
+            "answer by Explainer (not Peek)",
+        ),
+        (
+            "job: 2 answers Builder's question",
+            "general",
+            vec![
+                s("you", "add a dark mode toggle"),
+                s("builder", "I've added the theme variables and a toggle component. Where should the toggle live?\n1. In the header\n2. In Settings"),
+            ],
+            vec![Member::Builder],
+            &all,
+            "2",
+            "hand to Builder",
+        ),
+        (
+            "job: 2 with Builder's question hidden (before the fix)",
+            "general",
+            vec![s("you", "add a dark mode toggle")],
+            vec![Member::Builder],
+            &all,
+            "2",
+            "(shows the gap) hand to Builder",
+        ),
+        (
+            "bots: yes after Guard asks Builder",
+            "general",
+            vec![
+                s("you", "build the login page"),
+                s("builder", "@Guard is the session cookie safe to ship?"),
+                s("guard", "No: it's missing httpOnly and SameSite. @Builder can you add both?"),
+                s("peek", "The bots have messaged each other 6 times without you, so they've stopped here."),
+            ],
+            vec![Member::Builder, Member::Guard],
+            &all,
+            "yes go ahead",
+            "hand to Builder",
+        ),
+        (
+            "discussion: opinion, no work",
+            "tech-discussion",
+            vec![s("you", "should the MVP use postgres or sqlite?")],
+            vec![],
+            &all,
+            "honestly i think sqlite is enough for now",
+            "reply",
+        ),
+        (
+            "routing: security review",
+            "general",
+            vec![],
+            vec![],
+            &all,
+            "check the login flow for security holes",
+            "hand to Guard",
+        ),
+        (
+            "routing: security with no Guard on the crew",
+            "general",
+            vec![],
+            vec![],
+            &no_guard,
+            "check the login flow for security holes",
+            "hand (kind review) so Peek offers to add Guard",
+        ),
+        (
+            "turn-taking: general question while Builder works",
+            "general",
+            vec![
+                s("you", "add a dark mode toggle"),
+                s("builder", "Working on it: theme variables are in."),
+            ],
+            vec![Member::Builder],
+            &all,
+            "whats the difference between jwt and session cookies",
+            "reply or answer, not to Builder's job",
+        ),
+        (
+            "small talk",
+            "general",
+            vec![],
+            vec![],
+            &all,
+            "whoa re you",
+            "reply",
+        ),
+    ];
+    let dir = std::env::temp_dir().to_string_lossy().into_owned();
+    let only = std::env::var("SCENE").unwrap_or_default();
+    for (name, thread, recent, open, crew, text, want) in &scenes {
+        if !name.contains(only.as_str()) {
+            continue;
+        }
+        let seen = Seen {
+            project: "booking",
+            thread,
+            summary: "",
+            recent,
+            crew,
+            running: &[],
+            in_thread: open,
+            server: "",
+            picked: "",
+        };
+        let p = prompt(text, &seen);
+        println!("\n## {name}\n   wrote {text:?}; right: {want}");
+        for _ in 0..runs {
+            let out = Command::new("claude")
+                .args(["-p", "--model", "haiku", &p])
+                .current_dir(&dir)
+                .output()
+                .expect("claude");
+            let reply = String::from_utf8_lossy(&out.stdout).to_string();
+            match parse(&reply, text, crew) {
+                Some((f, say)) => println!("   -> {f:?}\n      say: {say}"),
+                None => println!("   -> unparsed: {}", reply.trim()),
+            }
+        }
     }
 }
