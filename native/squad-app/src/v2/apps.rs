@@ -909,6 +909,19 @@ impl Shell {
     /// The run the sidebar's pill stands for in `folder`: the project's app
     /// while it runs (not a job's copy of it), else one that crashed, so you
     /// see that it did.
+    /// Job `job`'s own app, the newest started for it: whether it still
+    /// runs, whether its port answers, and the address it serves on.
+    pub(super) fn job_app(&self, job: u64) -> Option<(bool, bool, Option<String>)> {
+        self.runs
+            .iter()
+            .filter(|r| r.spec.job == Some(job) && r.spec.keeps && !r.spec.setup)
+            .max_by_key(|r| r.id)
+            .map(|r| {
+                let state = r.state();
+                (state.live(), state == State::Up, r.url.clone())
+            })
+    }
+
     pub(super) fn app_run(&self, folder: &str) -> Option<u64> {
         let mine = |r: &&Run| {
             r.spec.folder == folder && !r.spec.setup && r.spec.job.is_none() && r.spec.keeps

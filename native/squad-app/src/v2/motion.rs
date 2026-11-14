@@ -52,6 +52,10 @@ thread_local! {
     /// far it had faded then.
     static HOVERS: RefCell<HashMap<ElementId, (bool, Instant, f32)>> =
         RefCell::new(HashMap::new());
+    /// Each gliding value, by key: where it set off from, where it's going,
+    /// when it set off, and the last frame it was drawn in.
+    static GLIDES: RefCell<HashMap<u64, (f32, f32, Instant, u64)>> =
+        RefCell::new(HashMap::new());
 }
 
 /// The shell starts a frame. `on`: motion is allowed (Animations on and Reduce
@@ -63,6 +67,7 @@ pub fn begin(on: bool) {
     let frame = FRAME.get() + 1;
     FRAME.set(frame);
     SHOWN.with(|s| s.borrow_mut().retain(|_, (_, last)| *last + 1 >= frame));
+    GLIDES.with(|g| g.borrow_mut().retain(|_, e| e.3 + 1 >= frame));
     if !on {
         UNTIL.set(None);
     }
@@ -126,6 +131,65 @@ pub fn shown(key: u64, settle: f64, delay: f64) -> f32 {
         e.0
     });
     ease(at, settle, delay)
+}
+
+/// A value at `key` that glides to `to` over `settle` seconds whenever `to`
+/// changes, like where a switch's highlight sits. The first frame it's drawn
+/// it's at `to` already, so only a change moves it; one that changes again on
+/// the way sets off from wherever it had got to. `to` at once with motion off.
+pub fn glide(key: u64, to: f32, settle: f64) -> f32 {
+    let frame = FRAME.get();
+    let on = live();
+    GLIDES.with(|g| {
+        let mut g = g.borrow_mut();
+        let e = g.entry(key).or_insert((to, to, Instant::now(), frame));
+        e.3 = frame;
+        if !on {
+            *e = (to, to, Instant::now(), frame);
+            return to;
+        }
+        let at = |e: &(f32, f32, Instant, u64)| {
+            let t = e.2.elapsed().as_secs_f64();
+            let k = squad_holo::anim::spring(t, settle) as f32;
+            e.0 + (e.1 - e.0) * k
+        };
+        if e.1 != to {
+            *e = (at(e), to, Instant::now(), frame);
+        }
+        let t = e.2.elapsed().as_secs_f64();
+        if t < settle {
+            hold(settle - t);
+        }
+        at(e)
+    })
+}
+
+/// A floating menu that stays where its own place puts it (an absolute one,
+/// say), eased in: it fades up while settling `dy` pixels into place, from
+/// below for one that opens upward (positive) or from above for one that
+/// drops down (negative). Unlike [`panel`] it leaves the positioning alone.
+pub fn pop<E: Styled>(el: E, key: u64, dy: f32) -> E {
+    let k = shown(key, BASE, 0.0);
+    if k >= 1.0 {
+        return el;
+    }
+    let k = k.clamp(0.0, 1.0);
+    let off = dy * (1. - k);
+    let el = el.opacity(k);
+    if dy >= 0. {
+        el.mb(px(-off))
+    } else {
+        el.mt(px(off))
+    }
+}
+
+/// Words that fade in afresh whenever they change, like a chip's label when
+/// what it names changes. `key` should include the words themselves.
+pub fn fade_swap(key: u64, words: impl IntoElement) -> Div {
+    let k = shown(key, QUICK, 0.0);
+    div()
+        .when(k < 1.0, |d| d.opacity(0.3 + 0.7 * k.clamp(0.0, 1.0)))
+        .child(words)
 }
 
 /// Row `i` of a list, eased in a beat after the row above it.
@@ -302,6 +366,24 @@ pub fn hover_paint(
         })
 }
 
+/// Gives `el` a `tint` background that fades in while the pointer is over it,
+/// and turns its text `ink` then (if given), keeping whatever text colour it
+/// has otherwise. With motion off both are a plain hover style. Uses the
+/// element's hover style and listener: don't add another `hover` or
+/// `on_hover` to it.
+pub fn hover_wash(mut el: Stateful<Div>, tint: u32, ink: Option<u32>) -> Stateful<Div> {
+    if !live() || el.interactivity().element_id.is_none() {
+        return el.hover(move |s| {
+            let s = s.bg(c(tint));
+            match ink {
+                Some(t) => s.text_color(c(t)),
+                None => s,
+            }
+        });
+    }
+    hover_fill(el, None, tint).when_some(ink, |d, t| d.hover(move |s| s.text_color(c(t))))
+}
+
 /// `a` turned `k` of the way to `b`.
 pub fn mix(a: Hsla, b: Hsla, k: f32) -> Hsla {
     if k <= 0.0 {
@@ -358,6 +440,22 @@ mod tests {
         begin(true);
         begin(true);
         assert!(SHOWN.with(|s| !s.borrow().contains_key(&k)));
+    }
+
+    #[test]
+    fn glide_moves_only_on_a_change() {
+        begin(true);
+        let k = key("glide");
+        assert_eq!(glide(k, 10., BASE), 10.);
+        begin(true);
+        let v = glide(k, 50., BASE);
+        assert!(v < 50., "{v}");
+        assert!(settling());
+        // Off: there at once.
+        begin(false);
+        assert_eq!(glide(k, 80., BASE), 80.);
+        begin(true);
+        assert_eq!(glide(k, 80., BASE), 80.);
     }
 
     #[test]

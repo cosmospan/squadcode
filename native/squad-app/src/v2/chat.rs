@@ -353,27 +353,49 @@ impl Shell {
         let face = self.avatar(who, 20.);
         // Ask has the bot answer; Do starts a job, as the design's chips.
         let do_it = self.dm_do;
-        let mut hows = div().flex().items_center().gap(px(2.));
+        // Equal segments, so the lime fill glides between them.
+        const SEG: f32 = 42.;
+        let mut hows = div()
+            .relative()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(2.))
+            .child(
+                ui::seg_glow(
+                    super::motion::key("chat-how"),
+                    do_it as usize,
+                    SEG,
+                    2.,
+                    0.,
+                    26.,
+                )
+                .rounded(px(5.))
+                .bg(c(ui::pick_fill())),
+            );
         for (i, name) in ["Ask", "Do"].into_iter().enumerate() {
             let on = (i == 1) == do_it;
             hows = hows.child(
                 div()
                     .id(("chat-how", i))
+                    .w(px(SEG))
                     .h(px(26.))
-                    .px(px(9.))
                     .flex()
+                    .flex_none()
                     .items_center()
+                    .justify_center()
                     .rounded(px(5.))
                     .text_size(px(12.5))
                     .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
-                    .map(|d| {
-                        if on {
-                            d.bg(c(ui::pick_fill())).text_color(c(ui::pick_on()))
-                        } else {
-                            d.text_color(c(ui::muted()))
-                                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
-                        }
+                    .text_color(ui::seg_ink(
+                        super::motion::key(("chat-how-on", i)),
+                        on,
+                        ui::muted(),
+                        ui::pick_on(),
+                    ))
+                    .when(!on, |d| {
+                        super::motion::hover_wash(d, ui::hover(), Some(ui::ink()))
                     })
                     .child(name)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -420,6 +442,9 @@ impl Shell {
                     .child(
                         div()
                             .id("chat-to")
+                            // One width for any bot's name, so nothing beside
+                            // it shifts.
+                            .w(px(124.))
                             .h(px(26.))
                             .pl(px(5.))
                             .pr(px(9.))
@@ -432,8 +457,14 @@ impl Shell {
                             .text_size(px(12.5))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(c(ui::ink()))
-                            .child(face)
-                            .child(format!("To {}", who.name()))
+                            .child(div().flex_none().child(face))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(format!("To {}", who.name())),
+                            )
                             .tooltip(move |window, cx| {
                                 gpui_kit::component::tooltip::Tooltip::new(if do_it {
                                     format!(

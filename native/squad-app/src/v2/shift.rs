@@ -143,7 +143,7 @@ pub fn parse_when<Tz: TimeZone>(text: &str, now: DateTime<Tz>) -> Option<(u64, S
 }
 
 /// Before 5 AM: still last night, as far as people go.
-fn small_hours<Tz: TimeZone>(now: &DateTime<Tz>) -> bool {
+pub fn small_hours<Tz: TimeZone>(now: &DateTime<Tz>) -> bool {
     use chrono::Timelike;
     now.clone().naive_local().hour() < 5
 }

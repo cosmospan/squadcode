@@ -124,7 +124,7 @@ fn layer(f: impl FnOnce(Bounds<Pixels>, &mut Window) + 'static) -> AnyElement {
 pub const FRAME: f32 = 1.;
 
 /// The grid's pitch.
-const STEP: f32 = 16.;
+pub const STEP: f32 = 16.;
 
 /// The Squad Code window's page area's top-left corner, in window pixels, as last
 /// painted: the sidebar lines its pattern up with it, so the two read as one grid.

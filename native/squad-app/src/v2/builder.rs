@@ -1492,7 +1492,7 @@ fn skill_row(id: (&'static str, usize), on: bool, name: &str, line: &str) -> Sta
         .flex()
         .items_center()
         .gap(px(10.))
-        .child(switch(on))
+        .child(switch(id, on))
         .child(
             div()
                 .flex_1()
@@ -1514,22 +1514,30 @@ fn skill_row(id: (&'static str, usize), on: bool, name: &str, line: &str) -> Sta
         )
 }
 
-/// A small on/off switch.
-fn switch(on: bool) -> Div {
+/// A small on/off switch; flipped, its knob glides across.
+fn switch(key: impl std::hash::Hash, on: bool) -> Div {
+    use super::motion::mix;
+    let k = super::motion::glide(
+        super::motion::key(("builder-switch", key)),
+        if on { 1. } else { 0. },
+        super::motion::BASE,
+    )
+    .clamp(0., 1.);
     div()
         .w(px(28.))
         .h(px(16.))
         .flex_none()
         .rounded_full()
-        .bg(c(if on { ui::pick_fill() } else { ui::line_hi() }))
-        .p(px(2.))
-        .flex()
-        .when(on, |d| d.justify_end())
+        .bg(mix(c(ui::line_hi()), c(ui::pick_fill()), k))
+        .relative()
         .child(
             div()
+                .absolute()
+                .top(px(2.))
+                .left(px(2. + 12. * k))
                 .size(px(12.))
                 .rounded_full()
-                .bg(c(if on { 0xFFFFFF } else { ui::faint() })),
+                .bg(mix(c(ui::faint()), c(0xFFFFFF), k)),
         )
 }
 

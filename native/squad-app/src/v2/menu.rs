@@ -944,6 +944,8 @@ impl Shell {
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_menu(cx)))
             .child(list);
+        // It fades in, settling a few pixels down into place.
+        let menu = super::motion::pop(menu, super::motion::key("context-menu"), -4.);
         Some(
             deferred(
                 anchored()

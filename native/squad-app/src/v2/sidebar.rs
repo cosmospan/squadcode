@@ -66,7 +66,7 @@ fn row(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
                 d.border_1()
                     .border_color(transparent_black())
                     .text_color(c(ui::muted()))
-                    .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                    .map(|d| super::motion::hover_wash(d, ui::hover(), Some(ui::ink())))
             }
         })
 }
@@ -126,7 +126,7 @@ fn rail_btn(id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
                 d.bg(c(ui::hover())).text_color(c(ui::ink()))
             } else {
                 d.text_color(c(ui::muted()))
-                    .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                    .map(|d| super::motion::hover_wash(d, ui::hover(), Some(ui::ink())))
             }
         })
 }
@@ -143,7 +143,7 @@ fn small_btn(id: impl Into<ElementId>, icon: IconName) -> Stateful<Div> {
         .rounded(px(6.))
         .text_color(c(ui::faint()))
         .cursor_pointer()
-        .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+        .map(|d| super::motion::hover_wash(d, ui::hover(), Some(ui::ink())))
         .child(Icon::new(icon).size(px(14.)))
 }
 
@@ -272,8 +272,8 @@ impl Shell {
     }
 
     /// The icon rail: the places, icons only, with their names on hover;
-    /// then, at its foot, how things stand: the night shift, today's usage
-    /// and the machines, and Settings. Projects live in the switcher at the
+    /// then, at its foot, the light or dark switch, the machines, and
+    /// Settings. Today's usage is in the status bar. Projects live in the switcher at the
     /// head of the panel.
     fn rail(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let place = self.place;
@@ -308,76 +308,44 @@ impl Shell {
             .on_click(cx.listener(|this, _, _, cx| this.go(Place::History, cx)));
 
         let crew = rail_btn("rail-crew", place == Place::Crew)
-            .child(Icon::new(IconName::Users).size(px(18.)))
+            .child(Icon::new(IconName::Bot).size(px(18.)))
             .tooltip(tip("Crew\nYour bots and what they know"))
             .on_click(cx.listener(|this, _, _, cx| this.go(Place::Crew, cx)));
 
-        // The night shift: a moon, with a violet dot while jobs wait for it.
-        let later = self.crew.store.later.len();
-        let night = rail_btn("rail-night", false)
-            .child(Icon::new(IconName::Moon).size(px(17.)))
-            .when(later > 0, |d| {
-                d.text_color(c(ui::t_violet()))
-                    .child(corner_dot(ui::VIOLET, true))
-            })
-            .tooltip(tip(match later {
-                0 => {
-                    "Night shift\nNothing waiting. Start a job with /later to queue one".to_string()
+        // Light, dark or the system's: one click steps to the next, for the
+        // look in use (or the default look, while an older theme is picked).
+        let follow = super::theme::following();
+        let dark = !super::theme::theme().light;
+        let (icon, now) = match (follow, dark) {
+            (true, _) => (IconName::SunMoon, "Matches your system"),
+            (false, false) => (IconName::Sun, "Light"),
+            (false, true) => (IconName::Moon, "Dark"),
+        };
+        let look = rail_btn("rail-look", false)
+            .child(Icon::new(icon).size(px(17.)))
+            .tooltip(tip(format!(
+                "Appearance: {now}\nClick for {}",
+                match (follow, dark) {
+                    (true, _) => "light",
+                    (false, false) => "dark",
+                    (false, true) => "your system's",
                 }
-                1 => "Night shift\n1 job waiting to start".to_string(),
-                n => format!("Night shift\n{n} jobs waiting to start"),
-            }))
-            .on_click(cx.listener(|this, _, _, cx| this.go(Place::History, cx)));
-
-        // Today's usage: a thin bar that fills with the plan window closest
-        // to its limit. Opens the engines popover.
-        let (plan, spend) = {
-            let st = cx.global::<crate::settings::AppSettings>();
-            super::statusbar::plan_and_spend(st, &self.crew.store)
-        };
-        let used = plan.unwrap_or(0.).clamp(0., 100.);
-        let bar_col = if used >= 90. {
-            ui::RED
-        } else if used >= 75. {
-            ui::AMBER
-        } else {
-            ui::ink()
-        };
-        let mut usage_say = String::from("Usage today");
-        match plan {
-            Some(p) => usage_say.push_str(&format!("\n{p:.0}% of the plan closest to its limit")),
-            None => usage_say.push_str("\nNo plan limits read yet"),
-        }
-        if spend > 0. {
-            usage_say.push_str(&format!("\n${spend:.2} spent today"));
-        }
-        const BAR_H: f32 = 22.;
-        let usage = rail_btn("rail-usage", self.pop_open(super::popover::Pop::Usage))
-            .child(
-                div()
-                    .w(px(8.))
-                    .h(px(BAR_H))
-                    .rounded(px(4.))
-                    .bg(c(ui::line()))
-                    .border_1()
-                    .border_color(c(ui::line_hi()))
-                    .flex()
-                    .flex_col()
-                    .justify_end()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .w_full()
-                            .h(px((BAR_H * used / 100.).round().max(if plan.is_some() {
-                                2.
-                            } else {
-                                0.
-                            })))
-                            .bg(c(bar_col)),
-                    ),
-            )
-            .tooltip(tip(usage_say))
-            .on_click(cx.listener(|this, e: &ClickEvent, _, cx| this.toggle_usage(e, cx)));
+            )))
+            .on_click(cx.listener(|_, _, window, cx| {
+                let fam = super::theme::family_of(super::theme::theme().id)
+                    .unwrap_or(&super::theme::FAMILIES[0]);
+                let follow = super::theme::following();
+                let dark = !super::theme::theme().light;
+                // Light, then dark, then the system's, then light again.
+                let pref = match (follow, dark) {
+                    (true, _) => fam.light.to_string(),
+                    (false, false) => fam.dark.to_string(),
+                    (false, true) => format!("{}{}", fam.id, super::theme::SYSTEM),
+                };
+                super::theme::set_pref(&pref, super::system_dark(window.appearance()));
+                super::prefs::save(cx, |st| st.v2_theme = pref);
+                cx.notify();
+            }));
 
         // Machines: where the crew runs, with a dot for whether your server
         // answers once there is one.
@@ -431,14 +399,13 @@ impl Shell {
             .pt(px(10.))
             .pb(px(12.))
             .when(!slim, |d| d.border_r_1().border_color(c(ui::line())))
-            .child(inbox)
             .child(overview)
+            .child(inbox)
             .child(jobs)
             .child(crew)
             .child(div().flex_1())
             .children(open)
-            .child(night)
-            .child(usage)
+            .child(look)
             .child(machines)
             .child(div().w(px(20.)).h(px(1.)).my(px(2.)).bg(c(ui::line_hi())))
             .child(settings)
@@ -703,7 +670,7 @@ impl Shell {
                         .px(px(4.))
                         .rounded(px(4.))
                         .cursor_pointer()
-                        .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                        .map(|d| super::motion::hover_wash(d, ui::hover(), Some(ui::ink())))
                         .child(w.to_uppercase()),
                     None => small_btn(("side-add", key.len()), IconName::Plus).size(px(20.)),
                 };
@@ -860,22 +827,29 @@ impl Shell {
             } else {
                 (String::new(), ui::faint())
             };
+            let bot_row = row(("side-bot", who.key() as usize), on)
+                .child(div().flex_none().child(face))
+                .child(div().flex_1().min_w_0().truncate().child(who.name()))
+                .when(!word.is_empty(), |d| {
+                    let lead = tint == ui::faint();
+                    d.child(row_note(word, (!lead).then_some(tint)))
+                })
+                .on_mouse_down(
+                    MouseButton::Right,
+                    self.on_menu(super::menu::Ctx::Bot(who), cx),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.go(Place::Chat(who), cx)));
+            // The row's own hover fades its tint, so the card that shows the
+            // bot listens on a wrapper round it.
             list = list.child(
-                row(("side-bot", who.key() as usize), on)
-                    .child(div().flex_none().child(face))
-                    .child(div().flex_1().min_w_0().truncate().child(who.name()))
-                    .when(!word.is_empty(), |d| {
-                        let lead = tint == ui::faint();
-                        d.child(row_note(word, (!lead).then_some(tint)))
-                    })
+                div()
+                    .id(("side-bot-hover", who.key() as usize))
+                    .flex()
+                    .flex_col()
                     .on_hover(
                         cx.listener(move |this, on: &bool, _, cx| this.hover_bot(who, *on, cx)),
                     )
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        self.on_menu(super::menu::Ctx::Bot(who), cx),
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| this.go(Place::Chat(who), cx))),
+                    .child(bot_row),
             );
         }
         let all_open = self.side_folds.get("crew-all").copied().unwrap_or(false);
@@ -1327,7 +1301,9 @@ impl Shell {
                                     .cursor_pointer()
                                     .text_color(c(if right_open { ui::ink() } else { ui::muted() }))
                                     .when(right_open, |d| d.bg(c(ui::press())))
-                                    .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+                                    .map(|d| {
+                                        super::motion::hover_wash(d, ui::hover(), Some(ui::ink()))
+                                    })
                                     .child(
                                         Icon::new(if right_open {
                                             IconName::PanelRightClose

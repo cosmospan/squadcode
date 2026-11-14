@@ -79,7 +79,7 @@ impl Pane {
     }
 }
 
-fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
+pub(super) fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
     cx.update_global::<AppSettings, _>(|st, _| {
         f(st);
         st.save();
@@ -87,29 +87,34 @@ fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
 }
 
 /// A small on/off switch: lime with a dark knob when on, a quiet track
-/// with a white knob when off.
-pub(super) fn switch(on: bool) -> Div {
+/// with a white knob when off. Flipped, the knob glides across and the track
+/// takes its new colour along the way. `key` tells this switch from others.
+pub(super) fn switch(key: impl std::hash::Hash, on: bool) -> Div {
+    use super::motion::mix;
+    let k = super::motion::glide(
+        super::motion::key(("switch", key)),
+        if on { 1. } else { 0. },
+        super::motion::BASE,
+    )
+    .clamp(0., 1.);
+    let edge_on = super::theme::mix(ui::pick_fill(), ui::ink(), 0.25);
     div()
         .w(px(30.))
         .h(px(18.))
         .flex_none()
         .rounded_full()
-        .bg(c(if on { ui::pick_fill() } else { ui::off() }))
+        .bg(mix(c(ui::off()), c(ui::pick_fill()), k))
         .border_1()
-        .border_color(c(if on {
-            super::theme::mix(ui::pick_fill(), ui::ink(), 0.25)
-        } else {
-            ui::line_hi()
-        }))
+        .border_color(mix(c(ui::line_hi()), c(edge_on), k))
         .relative()
         .child(
             div()
                 .absolute()
                 .top(px(2.))
-                .left(px(if on { 14. } else { 2. }))
+                .left(px(2. + 12. * k))
                 .size(px(12.))
                 .rounded_full()
-                .bg(c(if on { ui::pick_on() } else { 0xFFFFFF })),
+                .bg(mix(c(0xFFFFFF), c(ui::pick_on()), k)),
         )
 }
 
@@ -174,6 +179,18 @@ fn group(title: &'static str, rows: Vec<Div>) -> Div {
                 .child(title.to_uppercase()),
         )
         .child(card)
+}
+
+/// The colour a slider is drawn in. The slider fills up to its knob in this
+/// colour and draws the rest of its track in it at a fifth of its strength, so
+/// a switched-off slider takes the muted ink: the hairline colour all but
+/// vanishes at a fifth, leaving no track to see.
+fn slider_bar(on: bool) -> u32 {
+    if on {
+        ui::pick_fill()
+    } else {
+        ui::muted()
+    }
 }
 
 /// A row of options with one picked, on a sunken track.
@@ -750,7 +767,7 @@ impl Shell {
                 div()
                     .id(id)
                     .cursor_pointer()
-                    .child(switch(on))
+                    .child(switch(id, on))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         save(cx, |st| {
                             set(st, !on);
@@ -842,7 +859,7 @@ impl Shell {
                 div()
                     .id(id)
                     .cursor_pointer()
-                    .child(switch(on))
+                    .child(switch(id, on))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         save(cx, |st| set(st, !on));
                         if let (false, Some(cue)) = (on, cue) {
@@ -890,7 +907,7 @@ impl Shell {
                     div()
                         .id("set-sounds")
                         .cursor_pointer()
-                        .child(switch(sounds_on))
+                        .child(switch("set-sounds", sounds_on))
                         .on_click(cx.listener(move |_, _, _, cx| {
                             save(cx, |st| st.sounds = !sounds_on);
                             if !sounds_on {
@@ -1341,7 +1358,7 @@ impl Shell {
             div()
                 .id("see-through")
                 .cursor_pointer()
-                .child(switch(on))
+                .child(switch("see-through", on))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let clear = this.clear_slider.read(cx).value().end().round() as u8;
                     theme::set_see_through(!on, clear);
@@ -1372,7 +1389,7 @@ impl Shell {
                     div().w(px(180.)).child(
                         gpui_kit::component::slider::Slider::new(&self.clear_slider)
                             .disabled(!on)
-                            .bg(c(if on { ui::pick_fill() } else { ui::line_hi() }))
+                            .bg(c(slider_bar(on)))
                             .text_color(c(ui::pick_on())),
                     ),
                 )
@@ -1411,7 +1428,7 @@ impl Shell {
             div()
                 .id("glass-popovers")
                 .cursor_pointer()
-                .child(switch(pops))
+                .child(switch("glass-popovers", pops))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let clear = this.pop_slider.read(cx).value().end().round() as u8;
                     theme::set_glass_popovers(!pops, clear);
@@ -1436,7 +1453,7 @@ impl Shell {
                     div().w(px(180.)).child(
                         gpui_kit::component::slider::Slider::new(&self.pop_slider)
                             .disabled(!pop_live)
-                            .bg(c(if pop_live { ui::pick_fill() } else { ui::line_hi() }))
+                            .bg(c(slider_bar(pop_live)))
                             .text_color(c(ui::pick_on())),
                     ),
                 )
@@ -1512,12 +1529,21 @@ impl Shell {
                     .object_fit(ObjectFit::Cover)
             })
         };
-        let mut tiles = div().flex().flex_wrap().gap(px(10.));
+        // Tiles share each row's width evenly, at least TILE_MIN wide, so a row
+        // runs edge to edge instead of leaving a gap at the right. Rows are spaced
+        // by each tile's own bottom padding rather than a row gap, so the empty
+        // fillers that keep the last row's tiles the same width add no height.
+        const TILE_MIN: f32 = 96.;
+        let tile = |d: Stateful<Div>| {
+            d.flex_1()
+                .flex_basis(px(TILE_MIN))
+                .min_w(px(TILE_MIN))
+                .pb(px(12.))
+        };
+        let mut tiles = div().flex().flex_wrap().gap_x(px(10.));
         // None: the theme's own ground.
         tiles = tiles.child(
-            div()
-                .id("bg-image-none")
-                .w(px(104.))
+            tile(div().id("bg-image-none"))
                 .flex()
                 .flex_col()
                 .gap(px(6.))
@@ -1591,10 +1617,8 @@ impl Shell {
                 );
             }
             tiles = tiles.child(
-                div()
-                    .id(("bg-image", i))
+                tile(div().id(("bg-image", i)))
                     .group(group)
-                    .w(px(104.))
                     .flex()
                     .flex_col()
                     .gap(px(6.))
@@ -1610,9 +1634,7 @@ impl Shell {
         }
         // Your own: a picture from disk.
         tiles = tiles.child(
-            div()
-                .id("bg-image-add")
-                .w(px(104.))
+            tile(div().id("bg-image-add"))
                 .flex()
                 .flex_col()
                 .gap(px(6.))
@@ -1633,19 +1655,35 @@ impl Shell {
                 .child(caption("Your own".into(), false))
                 .on_click(cx.listener(|this, _, _, cx| this.pick_background(cx))),
         );
+        // Enough zero-height fillers to complete the widest possible last row.
+        for _ in 0..8 {
+            tiles = tiles.child(
+                div()
+                    .flex_1()
+                    .flex_basis(px(TILE_MIN))
+                    .min_w(px(TILE_MIN))
+                    .h_0(),
+            );
+        }
 
+        // Every row's control spans the same width, so the Fit choices and the
+        // sliders' end labels, tracks and values sit in one column.
+        const END_W: f32 = 38.;
+        const TRACK_W: f32 = 180.;
+        const CONTROL_W: f32 = END_W * 3. + TRACK_W + 10. * 3.;
         let fit = Fit::parse(&st.v2_bg_fit);
-        let mut fits = div().flex_none().flex().gap(px(6.));
+        let mut fits = div().flex_none().w(px(CONTROL_W)).flex().gap(px(4.));
         for (i, f) in Fit::ALL.into_iter().enumerate() {
             fits = fits.child(
-                ui::pill(("bg-fit", i), f.label(), f == fit).on_click(cx.listener(
-                    move |_, _, _, cx| {
+                ui::pill(("bg-fit", i), f.label(), f == fit)
+                    .flex_1()
+                    .justify_center()
+                    .on_click(cx.listener(move |_, _, _, cx| {
                         save(cx, |st| st.v2_bg_fit = f.id().to_string());
                         let dim = cx.global::<AppSettings>().v2_bg_dim;
                         wp::set_look(f, dim);
                         cx.notify();
-                    },
-                )),
+                    })),
             );
         }
         let fit_row = row(
@@ -1661,6 +1699,7 @@ impl Shell {
         let label = |text: &'static str| {
             div()
                 .flex_none()
+                .w(px(END_W))
                 .text_size(px(11.5))
                 .text_color(c(ui::faint()))
                 .child(text)
@@ -1676,22 +1715,23 @@ impl Shell {
                 line,
                 div()
                     .flex_none()
+                    .w(px(CONTROL_W))
                     .flex()
                     .items_center()
                     .gap(px(10.))
-                    .child(label(ends.0))
+                    .child(label(ends.0).text_right())
                     .child(
-                        div().w(px(180.)).child(
+                        div().w(px(TRACK_W)).child(
                             gpui_kit::component::slider::Slider::new(slider)
                                 .disabled(!on)
-                                .bg(c(if on { ui::pick_fill() } else { ui::line_hi() }))
+                                .bg(c(slider_bar(on)))
                                 .text_color(c(ui::pick_on())),
                         ),
                     )
                     .child(label(ends.1))
                     .child(
                         div()
-                            .w(px(38.))
+                            .w(px(END_W))
                             .flex_none()
                             .text_right()
                             .font_family(ui::MONO)
@@ -1731,7 +1771,7 @@ impl Shell {
             .map(|r| r.when(!on, |d| d.opacity(0.6)));
         group(
             "BACKGROUND IMAGE",
-            std::iter::once(div().px(px(18.)).pb(px(14.)).child(tiles))
+            std::iter::once(div().px(px(14.)).pt(px(14.)).pb(px(2.)).child(tiles))
                 .chain(rows)
                 .collect(),
         )
@@ -1846,7 +1886,7 @@ impl Shell {
             div()
                 .id("pattern-sidebar")
                 .cursor_pointer()
-                .child(switch(sidebar_on))
+                .child(switch("pattern-sidebar", sidebar_on))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     save(cx, |st| st.pattern_panels = !sidebar_on);
                     apply(cx.global::<AppSettings>());

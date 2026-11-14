@@ -7,6 +7,7 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 ### Changed
 
 - Reply on a bot's message replies to that message. It's quoted above the box with who said it (× or Esc drops it), what you send goes to that bot without typing an @, and the bot gets the quoted message with your words, so it knows which answer you mean. The sent message shows the quote above your words, with the whole message on hover. Edit and send again brings the quote back.
+- The Run it later menu opens right above the send button's chevron, lined up with its right edge, with a small arrow pointing down at it. Late at night its first row says it starts now, and "Tomorrow morning" reads "This morning" until 5 AM.
 
 ## [2.0.0-alpha.12] - 2026-11-12
 
