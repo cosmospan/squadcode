@@ -849,6 +849,7 @@ impl Shell {
                         line,
                         ears: false,
                         outfit: Outfit::PLAIN,
+                        kit: Default::default(),
                     }
                     .pose(Mood::Signature),
                 ),

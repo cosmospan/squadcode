@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 use squad_holo::fin::{Fin, Line, Outfit, Tool};
+use squad_holo::viewfinder::Kit;
 use squad_holo::{Figure, Mood, Tint};
 
 use crate::settings::AppSettings;
@@ -87,6 +88,8 @@ struct Looks {
     line: Option<Line>,
     saved: HashMap<String, String>,
     parsed: HashMap<String, (Tint, Outfit)>,
+    saved_kits: HashMap<String, String>,
+    kits: HashMap<String, Kit>,
 }
 
 static LOOKS: std::sync::LazyLock<RwLock<Looks>> =
@@ -97,7 +100,7 @@ pub fn sync(st: &AppSettings) {
     let line = Line::from_code(&st.fin_line);
     {
         let l = LOOKS.read().unwrap_or_else(|e| e.into_inner());
-        if l.line == Some(line) && l.saved == st.fin_looks {
+        if l.line == Some(line) && l.saved == st.fin_looks && l.saved_kits == st.fin_kits {
             return;
         }
     }
@@ -109,6 +112,30 @@ pub fn sync(st: &AppSettings) {
         .iter()
         .filter_map(|(k, v)| Some((k.clone(), parse(v)?)))
         .collect();
+    l.saved_kits = st.fin_kits.clone();
+    l.kits = st
+        .fin_kits
+        .iter()
+        .map(|(k, v)| (k.clone(), Kit::from_code(v)))
+        .collect();
+}
+
+/// The bot's viewfinder choices as saved, or the plain kit.
+pub fn kit_in(st: &AppSettings, who: Member) -> Kit {
+    st.fin_kits
+        .get(&bot_key(who))
+        .map(|c| Kit::from_code(c))
+        .unwrap_or_default()
+}
+
+/// Saves a bot's viewfinder choices; the plain kit is stored as no entry.
+pub fn set_kit(st: &mut AppSettings, who: Member, kit: Kit) {
+    let key = bot_key(who);
+    if kit == Kit::default() {
+        st.fin_kits.remove(&key);
+    } else {
+        st.fin_kits.insert(key, kit.code());
+    }
 }
 
 /// The bot's look as saved, or its default.
@@ -127,6 +154,7 @@ pub fn fin_in(st: &AppSettings, who: Member) -> Fin {
         line: Line::from_code(&st.fin_line),
         ears: has_ears(who),
         outfit,
+        kit: kit_in(st, who),
     }
 }
 
@@ -159,12 +187,14 @@ pub fn figure_with(who: Member, mood: Mood, gaze: (i8, i8), offset: u8) -> Figur
         .get(&bot_key(who))
         .copied()
         .unwrap_or_else(|| default_look(who));
+    let kit = l.kits.get(&bot_key(who)).copied().unwrap_or_default();
     Figure::Viewfinder(
         Fin {
             tint,
             line: l.line.unwrap_or_default(),
             ears: has_ears(who),
             outfit,
+            kit,
         }
         .pose(mood)
         .looking(gaze)
@@ -176,6 +206,7 @@ pub fn figure_with(who: Member, mood: Mood, gaze: (i8, i8), offset: u8) -> Figur
 mod tests {
     use super::*;
     use squad_holo::fin::ROLES;
+    use squad_holo::viewfinder::{Eyes, Lens};
 
     #[test]
     fn looks_round_trip_and_defaults_are_not_saved() {
@@ -185,6 +216,22 @@ mod tests {
         assert!(st.fin_looks.is_empty());
         set_look(&mut st, Member::Guard, Tint::RED, ROLES[6].outfit);
         assert_eq!(look_in(&st, Member::Guard), (Tint::RED, ROLES[6].outfit));
+    }
+
+    #[test]
+    fn kits_round_trip_and_the_plain_kit_is_not_saved() {
+        let mut st = AppSettings::default();
+        set_kit(&mut st, Member::Guard, Kit::default());
+        assert!(st.fin_kits.is_empty());
+        let k = Kit {
+            lens: Some(Lens::Double),
+            eyes: Eyes::Dot,
+            ..Kit::default()
+        };
+        set_kit(&mut st, Member::Guard, k);
+        assert_eq!(kit_in(&st, Member::Guard), k);
+        assert_eq!(fin_in(&st, Member::Guard).kit, k);
+        assert_eq!(kit_in(&st, Member::Builder), Kit::default());
     }
 
     #[test]

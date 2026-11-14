@@ -39,7 +39,7 @@ const GREY: Rgb = Rgb(0x9A9AA2);
 pub const LIME: Rgb = Rgb(0xC8F04B);
 
 /// How a bot's corner marks are cut. Each crew colour has its own.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Lens {
     /// Rounded ends and joins: Peek's.
     Round,
@@ -57,6 +57,140 @@ pub enum Lens {
     Dot,
     /// The vertex cut off at 45°.
     Chamfer,
+}
+
+/// Generates `ALL`, `id`, `name` and `from_id` for a picker enum.
+macro_rules! choices {
+    ($t:ty { $($v:ident => $id:literal, $name:literal;)* }) => {
+        impl $t {
+            pub const ALL: &'static [$t] = &[$(<$t>::$v),*];
+
+            /// The saved form.
+            pub fn id(self) -> &'static str {
+                match self { $(<$t>::$v => $id),* }
+            }
+
+            /// What the picker calls it.
+            pub fn name(self) -> &'static str {
+                match self { $(<$t>::$v => $name),* }
+            }
+
+            pub fn from_id(id: &str) -> Option<$t> {
+                match id { $($id => Some(<$t>::$v),)* _ => None }
+            }
+        }
+    };
+}
+
+choices!(Lens {
+    Round => "round", "Round";
+    Sharp => "sharp", "Sharp";
+    Double => "double", "Double";
+    Notch => "notch", "Notched";
+    Bold => "bold", "Bold";
+    Long => "long", "Long";
+    Dot => "dot", "Dotted";
+    Chamfer => "chamfer", "Chamfered";
+});
+
+/// The shape of a bot's eyes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Eyes {
+    /// Two tall pills: the default.
+    #[default]
+    Pill,
+    /// Two round dots.
+    Dot,
+    /// Two squared-off blocks.
+    Block,
+    /// Two diamonds.
+    Diamond,
+    /// One wide visor across both.
+    Visor,
+}
+
+choices!(Eyes {
+    Pill => "pill", "Pills";
+    Dot => "dot", "Dots";
+    Block => "block", "Blocks";
+    Diamond => "diamond", "Diamonds";
+    Visor => "visor", "Visor";
+});
+
+/// The small light inside the top-right corner.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Light {
+    /// The lead's red record light; none for the rest.
+    #[default]
+    Auto,
+    Off,
+    /// A red record light.
+    Rec,
+    /// A light in the bot's own colour.
+    Glow,
+}
+
+choices!(Light {
+    Auto => "auto", "Auto";
+    Off => "off", "Off";
+    Rec => "rec", "Record";
+    Glow => "glow", "Own colour";
+});
+
+/// What colour the corner marks are at rest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Corners {
+    /// A soft white.
+    #[default]
+    Light,
+    /// The bot's own colour.
+    Tinted,
+}
+
+choices!(Corners {
+    Light => "light", "Light";
+    Tinted => "tinted", "Own colour";
+});
+
+/// The person's choices for one bot, on top of its colour. The default is
+/// what the colour (and being the lead) gives on its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Kit {
+    /// `None` keeps the colour's own lens.
+    pub lens: Option<Lens>,
+    pub eyes: Eyes,
+    pub light: Light,
+    pub corners: Corners,
+}
+
+impl Kit {
+    /// `lens.eyes.light.corners`, with `auto` for the colour's own lens.
+    pub fn code(self) -> String {
+        format!(
+            "{}.{}.{}.{}",
+            self.lens.map_or("auto", Lens::id),
+            self.eyes.id(),
+            self.light.id(),
+            self.corners.id()
+        )
+    }
+
+    /// Reads [`Kit::code`]; anything it doesn't know is left at its default.
+    pub fn from_code(code: &str) -> Kit {
+        let mut it = code.split('.');
+        let mut next = || it.next().unwrap_or("");
+        Kit {
+            lens: Lens::from_id(next()),
+            eyes: Eyes::from_id(next()).unwrap_or_default(),
+            light: Light::from_id(next()).unwrap_or_default(),
+            corners: Corners::from_id(next()).unwrap_or_default(),
+        }
+    }
+
+    /// The lens a bot of `tint` wears with this kit.
+    pub fn lens_for(self, tint: Tint, lead: bool) -> Lens {
+        self.lens.unwrap_or(kit(tint, lead).1)
+    }
 }
 
 /// The eye colour and lens for a bot of `tint`; the lead is lime with the
@@ -437,21 +571,47 @@ fn arc(x: f64, y: f64, r: f64, up: bool) -> BezPath {
 }
 
 /// The two eyes, centred on `at`, with a soft glow round them when `glow`.
-fn eyes(p: &mut Pen, look: Look, col: Rgb, at: (f64, f64), open: f64, glow: f64, big: bool) {
+#[allow(clippy::too_many_arguments)]
+fn eyes(
+    p: &mut Pen,
+    shape: Eyes,
+    look: Look,
+    col: Rgb,
+    at: (f64, f64),
+    open: f64,
+    glow: f64,
+    big: bool,
+) {
     let k = if big { 1.3 } else { 1.0 };
-    for side in [-1.0, 1.0] {
+    let visor = shape == Eyes::Visor && !matches!(look, Look::Happy | Look::Closed);
+    let sides: &[f64] = if visor { &[0.0] } else { &[-1.0, 1.0] };
+    for &side in sides {
         let x = at.0 + side * 6.0 * k;
         let y = at.1;
         match look {
             Look::Happy => p.stroke(&arc(x, y, 4.2 * k, true), 3.2 * k, col, 1.0),
             Look::Closed => p.stroke(&arc(x, y, 4.0 * k, false), 2.8 * k, col, 0.7),
             _ => {
-                let (w, h, dx, dy) = match look {
+                let (w, h, dx, dy): (f64, f64, f64, f64) = match look {
                     Look::Up => (6.5, 10.0, 2.0, -4.0),
                     Look::Narrow => (10.0, 3.6, 0.0, 0.0),
                     Look::Wide => (7.6, 13.4, 0.0, 0.0),
                     Look::Flat => (9.0, 3.2, 0.0, 1.0),
                     _ => (7.0, 12.0, 0.0, 0.0),
+                };
+                // Each shape reshapes the open eye; slits stay slits.
+                let tall = h > w;
+                let (w, h, corner) = match shape {
+                    Eyes::Pill => (w, h, 0.5),
+                    Eyes::Dot if tall => {
+                        let d = (w + h) * 0.42;
+                        (d, d, 0.5)
+                    }
+                    Eyes::Dot => (w, h, 0.5),
+                    Eyes::Block => (w * 1.1, h * 0.9, 0.16),
+                    Eyes::Diamond if tall => (w * 1.35, h * 0.95, 0.0),
+                    Eyes::Diamond => (w, h, 0.5),
+                    Eyes::Visor => (w + 12.0, (h * 0.55).max(3.0), 0.5),
                 };
                 let (w, h) = (w * k, (h * k * open.max(0.1)).max(1.4));
                 let (cx, cy) = (x + dx, y + dy);
@@ -461,13 +621,23 @@ fn eyes(p: &mut Pen, look: Look, col: Rgb, at: (f64, f64), open: f64, glow: f64,
                         cy - h / 2.0 - g,
                         cx + w / 2.0 + g,
                         cy + h / 2.0 + g,
-                        w.min(h) / 2.0 + g,
+                        w.min(h) * corner + g,
                     )
                 };
                 for (g, a) in [(5.0, 0.06), (3.4, 0.08), (1.8, 0.12)] {
                     p.fill(&pill(g), col, a * glow);
                 }
-                p.fill(&pill(0.0), col, 1.0);
+                if shape == Eyes::Diamond && tall {
+                    let d = path(&[
+                        (cx, cy - h / 2.0),
+                        (cx + w / 2.0, cy),
+                        (cx, cy + h / 2.0),
+                        (cx - w / 2.0, cy),
+                    ]);
+                    p.fill(&d, col, 1.0);
+                } else {
+                    p.fill(&pill(0.0), col, 1.0);
+                }
             }
         }
     }
@@ -492,9 +662,14 @@ fn draw_into(ctx: &mut RenderContext, pose: &FinPose, t: f64, framing: Framing, 
     // no glow, orbit or signs.
     let small = px < 36;
     let lead = pose.fin.ears;
-    let (col, lens) = kit(pose.fin.tint, lead);
+    let style = pose.fin.kit;
+    let col = kit(pose.fin.tint, lead).0;
+    let lens = style.lens_for(pose.fin.tint, lead);
     let (mv, look) = act(pose.state);
-    let r = rig(mv, t, col);
+    let mut r = rig(mv, t, col);
+    if style.corners == Corners::Tinted && matches!(r.ink, LIGHT | MIST) {
+        r.ink = col;
+    }
     let mut p = Pen {
         ctx,
         xf,
@@ -526,7 +701,15 @@ fn draw_into(ctx: &mut RenderContext, pose: &FinPose, t: f64, framing: Framing, 
 
     // The lead's record light, inside the top-right corner: steady at rest,
     // blinking while it works, off while it sleeps.
-    if lead && !small && !matches!(mv, Move::Stuck | Move::Done | Move::Sleep) {
+    let light = match style.light {
+        Light::Auto if lead => Some(REC),
+        Light::Rec => Some(REC),
+        Light::Glow => Some(col),
+        _ => None,
+    };
+    if let Some(lc) =
+        light.filter(|_| !small && !matches!(mv, Move::Stuck | Move::Done | Move::Sleep))
+    {
         let on = if mv == Move::Work {
             if t.rem_euclid(1.0) < 0.6 {
                 1.0
@@ -537,8 +720,8 @@ fn draw_into(ctx: &mut RenderContext, pose: &FinPose, t: f64, framing: Framing, 
             1.0
         };
         let c = (100.0 - r.inset - 7.0, r.inset + 7.0);
-        p.fill(&Circle::new(c, 5.5), REC, 0.18 * on);
-        p.fill(&Circle::new(c, 3.0), REC, on);
+        p.fill(&Circle::new(c, 5.5), lc, 0.18 * on);
+        p.fill(&Circle::new(c, 3.0), lc, on);
     }
 
     let gaze = (
@@ -555,6 +738,7 @@ fn draw_into(ctx: &mut RenderContext, pose: &FinPose, t: f64, framing: Framing, 
     };
     eyes(
         &mut p,
+        style.eyes,
         look,
         eye_col,
         (50.0 + gaze.0, 50.0 + gaze.1),
@@ -644,6 +828,7 @@ mod tests {
             line: Line::default(),
             ears: lead,
             outfit: Outfit::PLAIN,
+            kit: Kit::default(),
         }
         .pose(Mood::Idle);
         p.state = state;
@@ -684,6 +869,53 @@ mod tests {
         let lit = |px: &[u8]| (x.saturating_sub(2)..x + 3).any(|x| px[(y * 100 + x) * 4 + 3] > 128);
         assert!(!lit(&open));
         assert!(lit(&shut));
+    }
+
+    #[test]
+    fn kit_codes_round_trip() {
+        let k = Kit {
+            lens: Some(Lens::Chamfer),
+            eyes: Eyes::Visor,
+            light: Light::Glow,
+            corners: Corners::Tinted,
+        };
+        assert_eq!(Kit::from_code(&k.code()), k);
+        assert_eq!(Kit::from_code(&Kit::default().code()), Kit::default());
+        assert_eq!(Kit::from_code("nonsense"), Kit::default());
+    }
+
+    #[test]
+    fn every_choice_changes_the_drawing() {
+        let mut r = ViewfinderRenderer::new(64);
+        let base = pose(State::Idle);
+        let plain = r.draw(&base, 0.1, Framing::Bust).to_vec();
+        let mut kits = vec![
+            Kit {
+                light: Light::Glow,
+                ..Kit::default()
+            },
+            Kit {
+                corners: Corners::Tinted,
+                ..Kit::default()
+            },
+        ];
+        for &l in Lens::ALL.iter().filter(|&&l| l != Lens::Sharp) {
+            kits.push(Kit {
+                lens: Some(l),
+                ..Kit::default()
+            });
+        }
+        for &e in Eyes::ALL.iter().filter(|&&e| e != Eyes::Pill) {
+            kits.push(Kit {
+                eyes: e,
+                ..Kit::default()
+            });
+        }
+        for k in kits {
+            let mut p = base;
+            p.fin.kit = k;
+            assert_ne!(r.draw(&p, 0.1, Framing::Bust), &plain[..], "{k:?}");
+        }
     }
 
     #[test]

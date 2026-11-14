@@ -1,9 +1,11 @@
 //! A contact sheet of the viewfinder Peek: `cargo run --release -p squad-holo --example viewfinder_sheet out.png [t]`.
 //!
 //! The top rows are every state on the big framing; then the crew in their
-//! colours; then avatar sizes along the bottom.
+//! colours; then a row of the person's choices (eyes, lights, corners);
+//! then avatar sizes along the bottom.
 use squad_holo::bubble::Tint;
 use squad_holo::fin::{Fin, FinPose, Line, Outfit, State};
+use squad_holo::viewfinder::{Corners, Eyes, Kit, Lens, Light};
 use squad_holo::{Framing, ViewfinderRenderer};
 
 const CREW: [(Tint, bool); 8] = [
@@ -24,6 +26,7 @@ fn pose(tint: Tint, lead: bool, state: State) -> FinPose {
             line: Line::default(),
             ears: lead,
             outfit: Outfit::PLAIN,
+            kit: Default::default(),
         },
         state,
         shine: false,
@@ -50,6 +53,74 @@ fn main() {
     }
     for (tint, lead) in CREW {
         cells.push(pose(tint, lead, State::Done));
+    }
+    let k = Kit::default();
+    let kits = [
+        (
+            Tint::BLUE,
+            Kit {
+                eyes: Eyes::Dot,
+                ..k
+            },
+        ),
+        (
+            Tint::ORANGE,
+            Kit {
+                eyes: Eyes::Block,
+                ..k
+            },
+        ),
+        (
+            Tint::TEAL,
+            Kit {
+                eyes: Eyes::Diamond,
+                ..k
+            },
+        ),
+        (
+            Tint::VIOLET,
+            Kit {
+                eyes: Eyes::Visor,
+                ..k
+            },
+        ),
+        (
+            Tint::AMBER,
+            Kit {
+                light: Light::Glow,
+                ..k
+            },
+        ),
+        (
+            Tint::GREEN,
+            Kit {
+                corners: Corners::Tinted,
+                ..k
+            },
+        ),
+        (
+            Tint::RED,
+            Kit {
+                lens: Some(Lens::Round),
+                eyes: Eyes::Visor,
+                light: Light::Rec,
+                ..k
+            },
+        ),
+        (
+            Tint::BLUE,
+            Kit {
+                lens: Some(Lens::Chamfer),
+                eyes: Eyes::Diamond,
+                light: Light::Glow,
+                corners: Corners::Tinted,
+            },
+        ),
+    ];
+    for (tint, kit) in kits {
+        let mut p = pose(tint, false, State::Idle);
+        p.fin.kit = kit;
+        cells.push(p);
     }
     let rows = cells.len().div_ceil(cols);
     let (w, h) = (cols * cell, rows * cell + 80);
