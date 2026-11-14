@@ -1,8 +1,9 @@
 //! The crew's mascot, and how each bot wears it.
 //!
-//! Every bot is drawn as Termi, a little matte computer on a stand: the same
-//! graphite body for everyone, with the bot's colour on its screen and its own
-//! shape of light on the antenna. Peek, the crew's lead, glows lime. The looks
+//! Every bot is drawn as Peek the viewfinder: four corner marks round two
+//! glowing eyes. Each bot's eyes glow in its colour and its corners are cut in
+//! its own lens style; the corners move with its mood. The crew's lead has the
+//! round lens, lime eyes and a red record light. The looks
 //! are still saved in the Fin form (a colour and an outfit), so saved choices
 //! carry over. Settings → Mascot changes a bot's colour. Choices live in `AppSettings`
 //! (`fin_line`, `fin_looks`); a parsed copy is kept here so drawing a bot
@@ -12,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 use squad_holo::fin::{Fin, Line, Outfit, Tool};
+use squad_holo::viewfinder::Kit;
 use squad_holo::{Figure, Mood, Tint};
 
 use crate::settings::AppSettings;
@@ -86,6 +88,8 @@ struct Looks {
     line: Option<Line>,
     saved: HashMap<String, String>,
     parsed: HashMap<String, (Tint, Outfit)>,
+    saved_kits: HashMap<String, String>,
+    kits: HashMap<String, Kit>,
 }
 
 static LOOKS: std::sync::LazyLock<RwLock<Looks>> =
@@ -96,7 +100,7 @@ pub fn sync(st: &AppSettings) {
     let line = Line::from_code(&st.fin_line);
     {
         let l = LOOKS.read().unwrap_or_else(|e| e.into_inner());
-        if l.line == Some(line) && l.saved == st.fin_looks {
+        if l.line == Some(line) && l.saved == st.fin_looks && l.saved_kits == st.fin_kits {
             return;
         }
     }
@@ -108,6 +112,30 @@ pub fn sync(st: &AppSettings) {
         .iter()
         .filter_map(|(k, v)| Some((k.clone(), parse(v)?)))
         .collect();
+    l.saved_kits = st.fin_kits.clone();
+    l.kits = st
+        .fin_kits
+        .iter()
+        .map(|(k, v)| (k.clone(), Kit::from_code(v)))
+        .collect();
+}
+
+/// The bot's viewfinder choices as saved, or the plain kit.
+pub fn kit_in(st: &AppSettings, who: Member) -> Kit {
+    st.fin_kits
+        .get(&bot_key(who))
+        .map(|c| Kit::from_code(c))
+        .unwrap_or_default()
+}
+
+/// Saves a bot's viewfinder choices; the plain kit is stored as no entry.
+pub fn set_kit(st: &mut AppSettings, who: Member, kit: Kit) {
+    let key = bot_key(who);
+    if kit == Kit::default() {
+        st.fin_kits.remove(&key);
+    } else {
+        st.fin_kits.insert(key, kit.code());
+    }
 }
 
 /// The bot's look as saved, or its default.
@@ -126,6 +154,7 @@ pub fn fin_in(st: &AppSettings, who: Member) -> Fin {
         line: Line::from_code(&st.fin_line),
         ears: has_ears(who),
         outfit,
+        kit: kit_in(st, who),
     }
 }
 
@@ -139,7 +168,8 @@ pub fn set_look(st: &mut AppSettings, who: Member, tint: Tint, outfit: Outfit) {
     }
 }
 
-/// Only Peek, the crew's lead, wears ears; as Termi it's the lime one.
+/// Only Peek, the crew's lead, is drawn as the lead: the round lens, lime eyes
+/// and the record light. (The flag is still called `ears` in the saved Fin form.)
 pub fn has_ears(who: Member) -> bool {
     who == Member::Fin
 }
@@ -157,12 +187,14 @@ pub fn figure_with(who: Member, mood: Mood, gaze: (i8, i8), offset: u8) -> Figur
         .get(&bot_key(who))
         .copied()
         .unwrap_or_else(|| default_look(who));
-    Figure::Termi(
+    let kit = l.kits.get(&bot_key(who)).copied().unwrap_or_default();
+    Figure::Viewfinder(
         Fin {
             tint,
             line: l.line.unwrap_or_default(),
             ears: has_ears(who),
             outfit,
+            kit,
         }
         .pose(mood)
         .looking(gaze)
@@ -174,6 +206,7 @@ pub fn figure_with(who: Member, mood: Mood, gaze: (i8, i8), offset: u8) -> Figur
 mod tests {
     use super::*;
     use squad_holo::fin::ROLES;
+    use squad_holo::viewfinder::{Eyes, Lens};
 
     #[test]
     fn looks_round_trip_and_defaults_are_not_saved() {
@@ -183,6 +216,22 @@ mod tests {
         assert!(st.fin_looks.is_empty());
         set_look(&mut st, Member::Guard, Tint::RED, ROLES[6].outfit);
         assert_eq!(look_in(&st, Member::Guard), (Tint::RED, ROLES[6].outfit));
+    }
+
+    #[test]
+    fn kits_round_trip_and_the_plain_kit_is_not_saved() {
+        let mut st = AppSettings::default();
+        set_kit(&mut st, Member::Guard, Kit::default());
+        assert!(st.fin_kits.is_empty());
+        let k = Kit {
+            lens: Some(Lens::Double),
+            eyes: Eyes::Dot,
+            ..Kit::default()
+        };
+        set_kit(&mut st, Member::Guard, k);
+        assert_eq!(kit_in(&st, Member::Guard), k);
+        assert_eq!(fin_in(&st, Member::Guard).kit, k);
+        assert_eq!(kit_in(&st, Member::Builder), Kit::default());
     }
 
     #[test]

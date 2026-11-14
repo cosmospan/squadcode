@@ -45,6 +45,7 @@ fn main() {
                 // Peek, with its ears, on the first row.
                 ears: i == 0,
                 outfit: Outfit::PLAIN,
+                kit: Default::default(),
             };
             cells.push((
                 FinPose {
@@ -65,6 +66,7 @@ fn main() {
             line: Line::default(),
             ears: false,
             outfit: r.outfit,
+            kit: Default::default(),
         };
         cells.push((
             FinPose {
@@ -98,6 +100,7 @@ fn main() {
                 line: Line::default(),
                 ears: false,
                 outfit: Outfit::PLAIN,
+                kit: Default::default(),
             };
             let px = r
                 .draw(
