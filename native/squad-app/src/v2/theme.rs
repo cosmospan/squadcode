@@ -22,7 +22,7 @@ pub const RUNO: u32 = 0x7B4DF5;
 
 pub struct Theme {
     pub id: &'static str,
-    /// Its name and line: the picker shows only the three looks now, but
+    /// Its name and line: the picker shows only the redesign's looks now, but
     /// older themes keep theirs for anyone who still has one picked.
     #[allow(dead_code)]
     pub name: &'static str,
@@ -109,7 +109,7 @@ const fn glass_tones(blue: u32, amber: u32, green: u32, red: u32, grey: u32) -> 
     ]
 }
 
-pub const THEMES: [Theme; 14] = [
+pub const THEMES: [Theme; 20] = [
     // Graphite and lime: the default. A warm paper page, hairline edges, and
     // lime for the one thing to press. Lime is too pale to read as text on
     // paper, so text keeps to ink and the status colours.
@@ -309,6 +309,206 @@ pub const THEMES: [Theme; 14] = [
         add: 0x62D29C,
         del: 0xF27D86,
         tones: tones(0x1E1A17, 0x82ADF7, 0xE6A84C, 0x62D29C, 0xF27D86, 0xD4CABF),
+    },
+    // Juniper: sage-washed paper, pine ink, and apricot to press. The warm
+    // accent against the cool green ground is what sets it apart.
+    Theme {
+        id: "juniper",
+        name: "Juniper",
+        line: "Sage paper and pine ink, with ripe apricot to press.",
+        light: true,
+        frosted: false,
+        bg: 0xF1F4F0,
+        panel: 0xF7F9F6,
+        raised: 0xFFFFFF,
+        hover: 0xE0E7DF,
+        press: 0xD3DCD2,
+        ink: 0x14201A,
+        body: 0x2F3F37,
+        muted: 0x4A5A51,
+        faint: 0x5E6E65,
+        line_c: 0xD0DACF,
+        line2: 0xDFE6DE,
+        line_hi: 0xBFCBBF,
+        fill: 0xFFB088,
+        fill_hover: 0xFFA275,
+        fill_press: 0xF59464,
+        on_fill: 0x2B1206,
+        well: 0xE9EEE8,
+        t_blue: 0x1A50B0,
+        t_amber: 0x7F4D00,
+        t_green: 0x0D6A3F,
+        t_red: 0xA5222F,
+        t_violet: 0x5B3FC4,
+        add: 0x0D6A3F,
+        del: 0xA5222F,
+        tones: tones(0xF1F4F0, 0x2F7BEB, 0xD08A12, 0x1E9E62, 0xE0414F, 0x2F3F37),
+    },
+    // Juniper after dark: a deep pine forest, the same apricot.
+    Theme {
+        id: "juniper-dark",
+        name: "Juniper, dark",
+        line: "Deep pine and apricot",
+        light: false,
+        frosted: false,
+        bg: 0x111A16,
+        panel: 0x141E19,
+        raised: 0x18231E,
+        hover: 0x1F2C26,
+        press: 0x26352E,
+        ink: 0xE5EFE9,
+        body: 0xC3D2C9,
+        muted: 0xA3B5AB,
+        faint: 0x80938A,
+        line_c: 0x26352E,
+        line2: 0x1E2A24,
+        line_hi: 0x33453C,
+        fill: 0xFFB088,
+        fill_hover: 0xFFC2A1,
+        fill_press: 0xF29E73,
+        on_fill: 0x2B1206,
+        well: 0x0D1411,
+        t_blue: 0x82ADF7,
+        t_amber: 0xE6A84C,
+        t_green: 0x62D29C,
+        t_red: 0xF27D86,
+        t_violet: 0xB9A8FF,
+        add: 0x62D29C,
+        del: 0xF27D86,
+        tones: tones(0x111A16, 0x82ADF7, 0xE6A84C, 0x62D29C, 0xF27D86, 0xC3D2C9),
+    },
+    // Saffron: lavender mist and aubergine ink, with marigold to press.
+    Theme {
+        id: "saffron",
+        name: "Saffron",
+        line: "Lavender mist and aubergine ink, with marigold to press.",
+        light: true,
+        frosted: false,
+        bg: 0xF5F3F8,
+        panel: 0xFAF9FC,
+        raised: 0xFFFFFF,
+        hover: 0xE6E2EE,
+        press: 0xDAD5E4,
+        ink: 0x1C1626,
+        body: 0x3B3347,
+        muted: 0x564D63,
+        faint: 0x6B6279,
+        line_c: 0xDAD5E3,
+        line2: 0xE5E1EC,
+        line_hi: 0xC9C2D6,
+        fill: 0xFFC94A,
+        fill_hover: 0xFFC032,
+        fill_press: 0xF5B51F,
+        on_fill: 0x2A1B00,
+        well: 0xEEEBF3,
+        t_blue: 0x1A50B0,
+        t_amber: 0x7F4D00,
+        t_green: 0x0D6A3F,
+        t_red: 0xA5222F,
+        t_violet: 0x5A2DA8,
+        add: 0x0D6A3F,
+        del: 0xA5222F,
+        tones: tones(0xF5F3F8, 0x2F7BEB, 0xD08A12, 0x1E9E62, 0xE0414F, 0x3B3347),
+    },
+    // Saffron after dark: deep aubergine, the same marigold.
+    Theme {
+        id: "saffron-dark",
+        name: "Saffron, dark",
+        line: "Deep aubergine and marigold",
+        light: false,
+        frosted: false,
+        bg: 0x18141F,
+        panel: 0x1C1724,
+        raised: 0x211C2A,
+        hover: 0x292333,
+        press: 0x312A3D,
+        ink: 0xEFEAF6,
+        body: 0xD0C8DC,
+        muted: 0xB2A8C2,
+        faint: 0x8E849F,
+        line_c: 0x312A3D,
+        line2: 0x26202F,
+        line_hi: 0x3F374D,
+        fill: 0xFFC94A,
+        fill_hover: 0xFFD670,
+        fill_press: 0xF0B830,
+        on_fill: 0x2A1B00,
+        well: 0x130F19,
+        t_blue: 0x82ADF7,
+        t_amber: 0xE6A84C,
+        t_green: 0x62D29C,
+        t_red: 0xF27D86,
+        t_violet: 0xCDB8FF,
+        add: 0x62D29C,
+        del: 0xF27D86,
+        tones: tones(0x18141F, 0x82ADF7, 0xE6A84C, 0x62D29C, 0xF27D86, 0xD0C8DC),
+    },
+    // Lagoon: aqua-washed paper and deep teal ink, with bright aqua to press.
+    // One hue from ground to accent, like looking down into clear water.
+    Theme {
+        id: "lagoon",
+        name: "Lagoon",
+        line: "Aqua paper and deep teal ink, with bright lagoon to press.",
+        light: true,
+        frosted: false,
+        bg: 0xEEF5F6,
+        panel: 0xF6FAFA,
+        raised: 0xFFFFFF,
+        hover: 0xDCE8EA,
+        press: 0xCFDEE1,
+        ink: 0x0F2126,
+        body: 0x2A3F45,
+        muted: 0x44595F,
+        faint: 0x587076,
+        line_c: 0xCDDDE0,
+        line2: 0xDCE7E9,
+        line_hi: 0xBACDD1,
+        fill: 0x6EE7D8,
+        fill_hover: 0x5BDDCD,
+        fill_press: 0x48D2C1,
+        on_fill: 0x032824,
+        well: 0xE6EFF1,
+        t_blue: 0x1A50B0,
+        t_amber: 0x7F4D00,
+        t_green: 0x0D6A3F,
+        t_red: 0xA5222F,
+        t_violet: 0x5B3FC4,
+        add: 0x0D6A3F,
+        del: 0xA5222F,
+        tones: tones(0xEEF5F6, 0x2F7BEB, 0xD08A12, 0x1E9E62, 0xE0414F, 0x2A3F45),
+    },
+    // Lagoon after dark: deep teal water, the same bright aqua.
+    Theme {
+        id: "lagoon-dark",
+        name: "Lagoon, dark",
+        line: "Deep teal and aqua",
+        light: false,
+        frosted: false,
+        bg: 0x0E1A1D,
+        panel: 0x111F23,
+        raised: 0x152428,
+        hover: 0x1B2D32,
+        press: 0x22363C,
+        ink: 0xE3F0F2,
+        body: 0xC0D3D7,
+        muted: 0x9FB5BA,
+        faint: 0x7C9399,
+        line_c: 0x22363C,
+        line2: 0x1A2B30,
+        line_hi: 0x2E464D,
+        fill: 0x6EE7D8,
+        fill_hover: 0x8EEEE2,
+        fill_press: 0x55D6C6,
+        on_fill: 0x032824,
+        well: 0x0A1416,
+        t_blue: 0x82ADF7,
+        t_amber: 0xE6A84C,
+        t_green: 0x62D29C,
+        t_red: 0xF27D86,
+        t_violet: 0xB9A8FF,
+        add: 0x62D29C,
+        del: 0xF27D86,
+        tones: tones(0x0E1A1D, 0x82ADF7, 0xE6A84C, 0x62D29C, 0xF27D86, 0xC0D3D7),
     },
     // Crew Chat: the default. A white page, a soft grey sidebar and Jobs panel,
     // and violet for the crew's own voice, so the bots' glowing faces stand out.
@@ -605,6 +805,12 @@ impl Theme {
             "harbour-dark" => 0.60,
             "orchid" => 0.36,
             "orchid-dark" => 0.60,
+            "juniper" => 0.36,
+            "juniper-dark" => 0.60,
+            "saffron" => 0.36,
+            "saffron-dark" => 0.60,
+            "lagoon" => 0.36,
+            "lagoon-dark" => 0.60,
             "crew-chat" => 0.34,
             "midnight" => 0.58,
             "graphite" => 0.60,
@@ -640,8 +846,8 @@ pub struct Family {
     pub dark: &'static str,
 }
 
-/// The three looks of the redesign, in the order Settings shows them.
-pub const FAMILIES: [Family; 3] = [
+/// The redesign's looks, in the order Settings shows them.
+pub const FAMILIES: [Family; 6] = [
     Family {
         id: "graphite-lime",
         name: "Graphite and lime",
@@ -662,6 +868,27 @@ pub const FAMILIES: [Family; 3] = [
         line: "Warm sand and brown ink, with orchid pink to press.",
         light: "orchid",
         dark: "orchid-dark",
+    },
+    Family {
+        id: "juniper",
+        name: "Juniper",
+        line: "Sage paper and pine ink, with ripe apricot to press.",
+        light: "juniper",
+        dark: "juniper-dark",
+    },
+    Family {
+        id: "saffron",
+        name: "Saffron",
+        line: "Lavender mist and aubergine ink, with marigold to press.",
+        light: "saffron",
+        dark: "saffron-dark",
+    },
+    Family {
+        id: "lagoon",
+        name: "Lagoon",
+        line: "Aqua paper and deep teal ink, with bright lagoon to press.",
+        light: "lagoon",
+        dark: "lagoon-dark",
     },
 ];
 
@@ -1283,6 +1510,9 @@ mod tests {
         assert_eq!(system_side("harbour:system", true), Some("harbour-dark"));
         assert_eq!(system_side("harbour:system", false), Some("harbour"));
         assert_eq!(system_side("orchid-dark", false), None);
+        assert_eq!(system_side("juniper:system", true), Some("juniper-dark"));
+        assert_eq!(system_side("saffron:system", false), Some("saffron"));
+        assert_eq!(system_side("lagoon:system", true), Some("lagoon-dark"));
         assert_eq!(system_side("nothing:system", true), None);
     }
 
