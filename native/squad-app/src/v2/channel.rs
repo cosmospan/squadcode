@@ -3111,10 +3111,11 @@ impl Shell {
             .map(|r| r.who);
         let named = super::mentioned(&value).map(|(m, _)| m).or(replying);
         // Nobody named: Peek reads it and picks the bot, so no bot is
-        // guessed here ahead of it.
+        // guessed here ahead of it, even with Ask or Do picked.
         let peek_picks = named.is_none()
             && self.target.is_none()
-            && !self.mode_pinned
+            && self.racing == 0
+            && !self.splitting
             && !value.starts_with('/');
         let target = if let Some(m) = named {
             m

@@ -595,6 +595,9 @@ pub struct Shell {
     /// The bot the message being read named with @: it answers or does the
     /// work, whichever Peek decides.
     reading_for: Option<Member>,
+    /// The kind of work picked with the box's Ask or Do chip for the message
+    /// being read: a hint to Peek, and how it's sent if the engine can't read.
+    reading_mode: Option<Mode>,
     /// While Peek's decision is acted on: the bot named with @, who answers.
     answer_by: Option<Member>,
     /// Apps and commands Squad runs for you, each in a hidden shell of its
@@ -1455,6 +1458,7 @@ impl Shell {
             reading: None,
             reading_since: None,
             reading_for: None,
+            reading_mode: None,
             answer_by: None,
             runs: Vec::new(),
             next_run: 0,
@@ -1995,7 +1999,7 @@ impl Shell {
             && self.reading.is_none()
         {
             self.crew.store.save();
-            return self.peek_reads(rest, Some(who), cx);
+            return self.peek_reads(rest, Some(who), None, cx);
         }
         let (target, mode, pinned) = (self.target, self.mode, self.mode_pinned);
         self.target = Some(who);
@@ -2010,23 +2014,33 @@ impl Shell {
 
     /// Peek reads a message in a thread before anyone works on it: small talk
     /// it answers itself, a question goes to an engine to answer here, a vague
-    /// ask gets a question back, and real work goes to the bot it's for. A
-    /// slash command, a picked bot or a pinned kind of work skips the read.
+    /// ask gets a question back, and real work goes to the bot it's for. Only
+    /// a slash command, a bot picked on purpose (Give a job) or a race or plan
+    /// set up for the next job skips the read. The Ask or Do chip doesn't:
+    /// Peek still reads it, told which one was picked.
     fn read_first(&mut self, text: String, cx: &mut Context<Self>) {
         let skip = text.starts_with('/')
             || self.place != Place::Today
             || self.target.is_some()
-            || self.mode_pinned
+            || self.racing > 0
+            || self.splitting
             || self.crew.store.folder().is_none();
         if skip {
             return self.hand_over_inner(text, cx);
         }
-        self.peek_reads(text, None, cx)
+        let picked = self.mode_pinned.then_some(self.mode);
+        self.peek_reads(text, None, picked, cx)
     }
 
     /// Peek's engine reads `text`; `pinned` is the bot it was addressed to
-    /// with @, if any.
-    fn peek_reads(&mut self, text: String, pinned: Option<Member>, cx: &mut Context<Self>) {
+    /// with @, if any, and `picked` the kind of work chosen with a chip.
+    fn peek_reads(
+        &mut self,
+        text: String,
+        pinned: Option<Member>,
+        picked: Option<Mode>,
+        cx: &mut Context<Self>,
+    ) {
         let st = Self::app_settings(cx);
         let folder = self
             .crew
@@ -2055,6 +2069,7 @@ impl Shell {
             return self.hand_over_inner(text, cx);
         }
         self.reading_for = pinned;
+        self.reading_mode = picked;
         {
             let project = self
                 .crew
@@ -2084,6 +2099,11 @@ impl Shell {
                 running: &running,
                 in_thread: &in_thread,
                 server: &server,
+                picked: match picked {
+                    Some(Mode::Ask) => "Ask",
+                    Some(_) => "Do",
+                    None => "",
+                },
             };
             match brain::think::ask(&st, &folder, &text, &seen) {
                 Ok(rx) => {
@@ -2108,15 +2128,29 @@ impl Shell {
         pending: Option<u64>,
         cx: &mut Context<Self>,
     ) {
-        match self.reading_for.take() {
-            Some(who) => {
+        let picked = self.reading_mode.take();
+        match (self.reading_for.take(), picked) {
+            (Some(who), _) => {
                 if let Some(id) = pending {
                     self.crew.store.talks.retain(|t| t.id != id);
                 }
                 self.crew.ask_in_thread(st, who, text);
                 cx.notify();
             }
-            None => self.engine_missed(st, text, why, pending, cx),
+            // The person said how with a chip: it goes that way, as it did
+            // before Peek read chip-sent messages too.
+            (None, Some(mode)) => {
+                if let Some(id) = pending {
+                    self.crew.store.talks.retain(|t| t.id != id);
+                }
+                let (was, pinned) = (self.mode, self.mode_pinned);
+                self.mode = mode;
+                self.mode_pinned = true;
+                self.hand_over_inner(text, cx);
+                self.mode = was;
+                self.mode_pinned = pinned;
+            }
+            (None, None) => self.engine_missed(st, text, why, pending, cx),
         }
     }
 
@@ -2147,6 +2181,7 @@ impl Shell {
             running: &[],
             in_thread: &in_thread,
             server: &server,
+            picked: "",
         };
         match brain::think::ask(&st, &folder, &text, &seen) {
             Ok(rx) => {
@@ -2323,6 +2358,7 @@ impl Shell {
             Some((f, say)) => {
                 let via = format!("{} \u{b7} {took:.1}s", brain::think::engine_name(&st));
                 let pinned = self.reading_for.take();
+                self.reading_mode = None;
                 let f = match pinned {
                     Some(who) => brain::front::pinned(f, who, &text),
                     None => f,

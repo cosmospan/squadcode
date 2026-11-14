@@ -479,6 +479,7 @@ fn real_reads() {
                 running: &[],
                 in_thread: &[],
                 server: "this computer, or the person's server vps (connected, with claude signed in). It doesn't have this project yet; Squad Code copies it there first, by itself. Squad Code picks where each job runs.",
+                picked: "",
         };
         let turn = |_: bool, shown: &[String]| {
             super::think::turn(text, &seen, "The conversation so far:", shown)

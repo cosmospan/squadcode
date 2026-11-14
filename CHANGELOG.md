@@ -4,6 +4,11 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Fixed
+
+- Peek reads every message in a thread first, even with the Ask or Do chip picked, and decides who takes it or answers itself. Before, a pinned Do (from the chip, Jobs' New job or the palette) sent the message straight to Builder as a job, skipping Peek. The chip is now a hint Peek reads; if Peek's engine can't be reached, the message still goes the way the chip says. Only an @, a reply to a bot, Give a job, a slash command or a set-up race or plan skips Peek.
+- A short answer like "1" to a bot's question reaches Peek with the question. Peek used to see only the first 300 characters of each message, so a long bot message lost the question and choices at its end. Now each message keeps its start and its end, the newest gets up to 2,000 characters, and Peek is told a short reply answers the last question and carries on with the bot that asked it.
+
 ## [2.0.0-alpha.13] - 2026-11-14
 
 ### Changed

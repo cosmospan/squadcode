@@ -42,6 +42,9 @@ pub struct Seen<'a> {
     /// Where jobs can run besides this computer, in a sentence or two;
     /// empty when no server is connected.
     pub server: &'a str,
+    /// How the person chose to send it with the box's chips: "Do" for a job,
+    /// "Ask" for an answer; empty when they left it to Peek.
+    pub picked: &'a str,
 }
 
 fn clip(s: &str, n: usize) -> String {
@@ -60,6 +63,7 @@ You read every message the person sends before anyone works on it, and decide wh
 Never tell the person to open a terminal or run something themselves: Squad runs commands and apps for them, inside the app. A command you write in backticks gets a Run button that does that.\n\n\
 Each message to you gives the project, the thread and its summary, the crew, what's running, where jobs run, the conversation, and what the person just wrote. \
 Decide, reading it the way a sharp colleague would: typos, slang and half sentences are normal (\"whoa re you\" is \"who are you\"). \
+A short reply like \"1\", \"yes\" or \"the second\" answers the last question or list of choices in the conversation: act on that choice, and when a bot asked it, carry on with that bot. \
 Never start work on a guess.\n\
 Not every message is about the code. A thread can be for discussion, planning or talk among the team, and its name often says so. \
 When the person is discussing, planning, brainstorming, or talking about people, teams, process or ideas rather than this project's files, \
@@ -78,15 +82,35 @@ Reply with JSON only, on one line:\n\
 {\"do\": \"reply|ask|stop|run|answer|hand\", \"say\": \"what Peek says\", \"choices\": [], \"bot\": \"a name from the crew, or empty\", \"kind\": \"build|fix|test|review|tidy|ask, only when bot is empty\", \"where\": \"server|here, or empty\"}\n\
 Keep \"say\" warm, plain and short, no markdown: two sentences at most, or up to four when you're taking part in a discussion.";
 
-/// The conversation as the engine reads it: the last few messages, each
-/// clipped, oldest first.
+/// A long message cut down to about `n` characters, keeping its start and
+/// its end: a bot's question or list of choices comes last, so the end is
+/// what a short reply like "1" or "yes" answers.
+fn clip_ends(s: &str, n: usize) -> String {
+    let s = s.trim();
+    let count = s.chars().count();
+    if count <= n {
+        return s.to_string();
+    }
+    let head = n / 3;
+    let tail = n - head;
+    let start: String = s.chars().take(head).collect();
+    let end: String = s.chars().skip(count - tail).collect();
+    format!("{} \u{2026} {}", start.trim_end(), end.trim_start())
+}
+
+/// The conversation as the engine reads it: the last few messages, oldest
+/// first, each clipped at both ends. The newest message gets the most room,
+/// so a question a bot just asked reaches Peek whole.
 pub fn conversation(seen: &Seen) -> Vec<String> {
-    seen.recent
-        .iter()
-        .rev()
-        .take(8)
-        .rev()
-        .map(|(who, said)| format!("{who}: {}", clip(said, 300)))
+    let shown: Vec<&(String, String)> = seen.recent.iter().rev().take(8).rev().collect();
+    let last = shown.len().saturating_sub(1);
+    shown
+        .into_iter()
+        .enumerate()
+        .map(|(i, (who, said))| {
+            let room = if i == last { 2000 } else { 400 };
+            format!("{who}: {}", clip_ends(said, room))
+        })
         .collect()
 }
 
@@ -125,6 +149,7 @@ Running right now: {running}\n\
 Where jobs run: {server}\n\
 {heading}\n{conversation}\n\n\
 The person just wrote: \"{text}\"\n\
+{picked}\
 Reply with the JSON decision only.",
         project = seen.project,
         summary = if seen.summary.trim().is_empty() {
@@ -149,6 +174,11 @@ Reply with the JSON decision only.",
             conversation.join("\n")
         },
         text = clip(text, 2000).replace('"', "'"),
+        picked = match seen.picked {
+            "Do" => "They picked Do: they want it done as a job, so \"hand\" it to the bot it's for, unless it plainly isn't work on the project.\n",
+            "Ask" => "They picked Ask: they want an answer, not a job, so \"reply\" or \"answer\".\n",
+            _ => "",
+        },
     )
 }
 
@@ -337,10 +367,60 @@ mod tests {
                 running: &[],
                 in_thread: &[],
                 server: "",
+                picked: "",
             },
         );
         assert!(p.contains("Thread: #tech-discussion"));
         assert!(p.contains("Don't steer a discussion toward building something"));
+    }
+
+    #[test]
+    fn a_bots_last_question_reaches_peek_whole() {
+        let c = crew();
+        let long = format!(
+            "We're in agreement. {} Which niche should we research first?\n1. Tutors\n2. Therapists",
+            "Some reasoning. ".repeat(60)
+        );
+        let recent = vec![
+            ("explainer".to_string(), long.clone()),
+            ("explainer".to_string(), long),
+        ];
+        let said = conversation(&Seen {
+            project: "shop",
+            thread: "",
+            summary: "",
+            recent: &recent,
+            crew: &c,
+            running: &[],
+            in_thread: &[],
+            server: "",
+            picked: "",
+        });
+        // Even an older long message keeps its question at the end.
+        assert!(said[0].ends_with("2. Therapists"), "{}", said[0]);
+        assert!(said[0].chars().count() < 450);
+        assert!(said[1].contains("Which niche should we research first?"));
+        assert!(said[1].starts_with("explainer: We're in agreement."));
+    }
+
+    #[test]
+    fn a_chip_pick_is_told_to_peek_not_a_way_around_it() {
+        let c = crew();
+        let seen = |picked| Seen {
+            project: "shop",
+            thread: "generaldiscussion",
+            summary: "",
+            recent: &[],
+            crew: &c,
+            running: &[],
+            in_thread: &[],
+            server: "",
+            picked,
+        };
+        let text = "see if you can do live search now";
+        assert!(prompt(text, &seen("Do")).contains("They picked Do"));
+        assert!(prompt(text, &seen("Ask")).contains("They picked Ask"));
+        assert!(!prompt(text, &seen("")).contains("They picked"));
     }
 
     #[test]
@@ -359,6 +439,7 @@ mod tests {
                 running: &running,
                 in_thread: &[Member::Builder],
                 server: "vps: connected, Claude Code signed in.",
+                picked: "",
             },
         );
         for want in [
