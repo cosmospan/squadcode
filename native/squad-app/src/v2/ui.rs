@@ -629,6 +629,30 @@ pub fn sweep(color: u32, _phase: f32) -> Div {
         )
 }
 
+/// The fill behind the picked segment of a switch whose segments are all `w`
+/// wide with `gap` between them, inside a track padded by `inset`. It glides
+/// from the last pick to segment `i` rather than jumping. Put it first in the
+/// track (made `.relative()`), so the segments draw over it.
+pub fn seg_glow(key: u64, i: usize, w: f32, gap: f32, inset: f32, h: f32) -> Div {
+    let x = super::motion::glide(key, i as f32, super::motion::BASE);
+    div()
+        .absolute()
+        .top(px(inset))
+        .left(px(inset + x * (w + gap)))
+        .w(px(w))
+        .h(px(h))
+}
+
+/// A segment's text colour: `on` fades in from `off` as the choice moves to
+/// it, so the words follow the glide; `off` while it isn't picked.
+pub fn seg_ink(key: u64, on: bool, off: u32, to: u32) -> Hsla {
+    if !on {
+        return c(off);
+    }
+    let k = super::motion::shown(key, super::motion::BASE, 0.);
+    super::motion::mix(c(off), c(to), k)
+}
+
 /// Eases an element in: `k` runs 0 → 1, fading it up from a few pixels lower.
 pub fn rise<E: Styled>(el: E, k: f32) -> E {
     super::motion::rise(el, k)

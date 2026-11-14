@@ -79,11 +79,24 @@ impl Shell {
     }
 
     /// Makes `el` the open menu's panel: clicks inside it stay inside, and a
-    /// mouse-down anywhere outside it closes it.
+    /// mouse-down anywhere outside it closes it. It eases in as it opens,
+    /// rising into place for one that opens upward, dropping for one that
+    /// opens downward.
     pub(super) fn pop_panel<E>(&self, pop: Pop, el: E, cx: &mut Context<Self>) -> E
     where
-        E: InteractiveElement,
+        E: InteractiveElement + Styled,
     {
+        // The engines popover eases in where the shell places it.
+        let dy = match pop {
+            Pop::Later => Some(4.),
+            Pop::Folder | Pop::Select(_) => Some(-4.),
+            Pop::Usage => None,
+        };
+        let key = super::motion::key(("pop", format!("{pop:?}")));
+        let el = match dy {
+            Some(dy) => super::motion::pop(el, key, dy),
+            None => el,
+        };
         el.occlude()
             .on_mouse_down_out(cx.listener(move |this, e: &MouseDownEvent, _, cx| {
                 if this.pop == Some(pop) {

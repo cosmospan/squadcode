@@ -40,6 +40,8 @@ pub(super) const COMMANDS: [(&str, &str); 9] = [
 /// How wide the composer reads at most, and the chat while a side panel
 /// is open beside the thread.
 const COLUMN: f32 = 760.;
+/// How wide the composer's "To Peek" chip is, whoever it names.
+const CHIP_W: f32 = 124.;
 
 /// How wide the chat reads at most when no side panel is open: messages
 /// and job cards stretch into the room the panel would take, while the
@@ -233,7 +235,7 @@ fn bar_btn(id: impl Into<ElementId>) -> Stateful<Div> {
         .text_size(px(14.))
         .text_color(c(ui::muted()))
         .cursor_pointer()
-        .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
+        .map(|d| super::motion::hover_wash(d, ui::hover(), Some(ui::ink())))
 }
 
 fn tip_of(text: String) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
@@ -2929,15 +2931,31 @@ impl Shell {
         };
         // One segmented switch, as in the design: a sunk track, an icon per mode,
         // and the lime pill on the one picked, so it reads as a single choice.
+        // The segments are all one width, so the pill glides from one to the
+        // next and nothing beside the switch shifts as the pick changes.
+        const SEG: f32 = 58.;
+        let picked = ["Ask", "Do", "Plan", "Race"]
+            .iter()
+            .position(|n| *n == how)
+            .unwrap_or(0);
         let mut hows = div()
+            .relative()
             .flex()
+            .flex_none()
             .items_center()
             .gap(px(2.))
             .p(px(2.))
             .rounded(px(6.))
             .bg(c(ui::hover()))
             .border_1()
-            .border_color(c(ui::line()));
+            .border_color(c(ui::line()))
+            .child(
+                ui::seg_glow(super::motion::key("compose-how"), picked, SEG, 2., 2., 22.)
+                    .rounded(px(4.))
+                    .bg(c(ui::pick_fill()))
+                    .border_1()
+                    .border_color(ui::ca(ui::ink(), 0.12)),
+            );
         for (i, (name, icon)) in [
             ("Ask", IconName::MessageCircle),
             ("Do", IconName::Play),
@@ -2951,29 +2969,26 @@ impl Shell {
             hows = hows.child(
                 div()
                     .id(("compose-how", i))
+                    .w(px(SEG))
                     .h(px(22.))
-                    .px(px(9.))
                     .flex()
+                    .flex_none()
                     .items_center()
+                    .justify_center()
                     .gap(px(5.))
                     .rounded(px(4.))
                     .text_size(px(12.))
-                    .font_weight(if on {
-                        FontWeight::SEMIBOLD
-                    } else {
-                        FontWeight::MEDIUM
-                    })
+                    // One weight for all, so a pick never changes a width.
+                    .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
-                    .map(|d| {
-                        if on {
-                            d.bg(c(ui::pick_fill()))
-                                .text_color(c(ui::pick_on()))
-                                .border_1()
-                                .border_color(ui::ca(ui::ink(), 0.12))
-                        } else {
-                            d.text_color(c(ui::muted()))
-                                .hover(|s| s.bg(c(ui::raised())).text_color(c(ui::ink())))
-                        }
+                    .text_color(ui::seg_ink(
+                        super::motion::key(("compose-how-on", i)),
+                        on,
+                        ui::muted(),
+                        ui::pick_on(),
+                    ))
+                    .when(!on, |d| {
+                        super::motion::hover_wash(d, ui::raised(), Some(ui::ink()))
                     })
                     .child(Icon::new(icon).size(px(12.)))
                     .child(name)
@@ -3043,6 +3058,10 @@ impl Shell {
                     .child(
                         div()
                             .id("thread-goes-to")
+                            // One width whoever it goes to and however it's
+                            // sent, so the switch beside it never jumps; a
+                            // long one is cut short and its tip says it all.
+                            .w(px(CHIP_W))
                             .h(px(26.))
                             .px(px(9.))
                             .flex()
@@ -3054,8 +3073,13 @@ impl Shell {
                             .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(c(ui::ink()))
-                            .child(face)
-                            .child(chip)
+                            .child(div().flex_none().child(face))
+                            .child(div().flex_1().min_w_0().truncate().child(
+                                super::motion::fade_swap(
+                                    super::motion::key(("thread-goes-to", &chip)),
+                                    chip,
+                                ),
+                            ))
                             .tooltip(move |window, cx| {
                                 gpui_kit::component::tooltip::Tooltip::new(goes_tip.clone())
                                     .build(window, cx)

@@ -661,26 +661,48 @@ impl Shell {
         let face = self.avatar(who, 15.);
         let ask = self.live_ask;
         let sep = || div().w(px(1.)).h(px(16.)).mx(px(2.)).bg(c(ui::line()));
-        let mut hows = div().flex().items_center().gap(px(2.));
+        // Equal segments, so the lime fill glides between them.
+        const SEG: f32 = 40.;
+        let mut hows = div()
+            .relative()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(2.))
+            .child(
+                ui::seg_glow(
+                    super::motion::key("live-how"),
+                    (!ask) as usize,
+                    SEG,
+                    2.,
+                    0.,
+                    26.,
+                )
+                .rounded(px(3.))
+                .bg(c(ui::pick_fill())),
+            );
         for (i, (name, on)) in [("Ask", ask), ("Do", !ask)].into_iter().enumerate() {
             hows = hows.child(
                 div()
                     .id(("live-how", i))
+                    .w(px(SEG))
                     .h(px(26.))
-                    .px(px(9.))
                     .flex()
+                    .flex_none()
                     .items_center()
+                    .justify_center()
                     .rounded(px(3.))
                     .text_size(px(12.))
                     .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
-                    .map(|d| {
-                        if on {
-                            d.bg(c(ui::pick_fill())).text_color(c(ui::pick_on()))
-                        } else {
-                            d.text_color(c(ui::muted()))
-                                .hover(|s| s.bg(c(ui::hover())).text_color(c(ui::ink())))
-                        }
+                    .text_color(ui::seg_ink(
+                        super::motion::key(("live-how-on", i)),
+                        on,
+                        ui::muted(),
+                        ui::pick_on(),
+                    ))
+                    .when(!on, |d| {
+                        super::motion::hover_wash(d, ui::hover(), Some(ui::ink()))
                     })
                     .child(name)
                     .tooltip(move |window, cx| {
@@ -729,6 +751,9 @@ impl Shell {
                     .gap(px(6.))
                     .child(
                         div()
+                            // One width for any bot's name, so the switch
+                            // beside it stays put.
+                            .w(px(124.))
                             .h(px(26.))
                             .px(px(9.))
                             .flex()
@@ -740,8 +765,14 @@ impl Shell {
                             .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(c(ui::ink()))
-                            .child(face)
-                            .child(format!("To {}", who.name())),
+                            .child(div().flex_none().child(face))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(format!("To {}", who.name())),
+                            ),
                     )
                     .child(sep())
                     .child(hows)
