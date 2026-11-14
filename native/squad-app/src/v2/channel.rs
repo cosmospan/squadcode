@@ -1245,7 +1245,7 @@ impl Shell {
                     .items_center()
                     .px(px(28.))
                     .pt(px(20.))
-                    .pb(px(12.))
+                    .pb(px(feed_bottom()))
                     .child(feed),
             );
 
@@ -3111,10 +3111,11 @@ impl Shell {
             .map(|r| r.who);
         let named = super::mentioned(&value).map(|(m, _)| m).or(replying);
         // Nobody named: Peek reads it and picks the bot, so no bot is
-        // guessed here ahead of it.
+        // guessed here ahead of it, even with Ask or Do picked.
         let peek_picks = named.is_none()
             && self.target.is_none()
-            && !self.mode_pinned
+            && self.racing == 0
+            && !self.splitting
             && !value.starts_with('/');
         let target = if let Some(m) = named {
             m
@@ -3482,6 +3483,7 @@ impl Shell {
         const ARROW_H: f32 = 7.;
         const PAST: f32 = 10.;
         const TIP: f32 = PAST + 10.;
+        const RADIUS: f32 = 10.;
         let now = chrono::Local::now();
         // In the small hours "tonight" is now and tomorrow morning is this one.
         let late = super::shift::small_hours(&now);
@@ -3524,6 +3526,50 @@ impl Shell {
                 "So it runs on a full plan",
             ));
         }
+        // The menu and its arrow drawn as one shape: one fill, and one border
+        // running around the body and down both sides of the arrow, so there's
+        // no line across the arrow's base and no seam where a see-through
+        // fill would overlap itself. Painted first, under the rows.
+        let outline = canvas(
+            |_, _, _| (),
+            |b, _, window, _| {
+                let o = b.origin;
+                let w = f32::from(b.size.width);
+                let h = f32::from(b.size.height) - ARROW_H;
+                let tip = w - TIP;
+                let shape = |mut p: PathBuilder, d: f32| {
+                    let at = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+                    let (x0, y0, x1, y1) = (d, d, w - d, h - d);
+                    let r = RADIUS - d;
+                    let k = 0.5523 * r;
+                    p.move_to(at(x0 + r, y0));
+                    p.line_to(at(x1 - r, y0));
+                    p.cubic_bezier_to(at(x1, y0 + r), at(x1 - r + k, y0), at(x1, y0 + r - k));
+                    p.line_to(at(x1, y1 - r));
+                    p.cubic_bezier_to(at(x1 - r, y1), at(x1, y1 - r + k), at(x1 - r + k, y1));
+                    p.line_to(at(tip + ARROW_W / 2., y1));
+                    p.line_to(at(tip, y1 + ARROW_H));
+                    p.line_to(at(tip - ARROW_W / 2., y1));
+                    p.line_to(at(x0 + r, y1));
+                    p.cubic_bezier_to(at(x0, y1 - r), at(x0 + r - k, y1), at(x0, y1 - r + k));
+                    p.line_to(at(x0, y0 + r));
+                    p.cubic_bezier_to(at(x0 + r, y0), at(x0, y0 + r - k), at(x0 + r - k, y0));
+                    p.close();
+                    p
+                };
+                if let Ok(path) = shape(PathBuilder::fill(), 0.).build() {
+                    window.paint_path(path, c(ui::float()));
+                }
+                if let Ok(path) = shape(PathBuilder::stroke(px(1.)), 0.5).build() {
+                    window.paint_path(path, c(ui::line_hi()));
+                }
+            },
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .bottom(px(-ARROW_H));
         let picked = self.later_pick.clone();
         let mut menu = div()
             .absolute()
@@ -3533,10 +3579,7 @@ impl Shell {
             .p(px(6.))
             .flex()
             .flex_col()
-            .rounded(px(10.))
-            .bg(c(ui::float()))
-            .border_1()
-            .border_color(c(ui::line_hi()))
+            .rounded(px(RADIUS))
             .shadow(vec![BoxShadow {
                 color: hsla(0., 0., 0., 0.12),
                 offset: point(px(0.), px(8.)),
@@ -3544,6 +3587,7 @@ impl Shell {
                 spread_radius: px(0.),
                 inset: false,
             }])
+            .child(outline)
             .child(
                 div()
                     .px(px(8.))
@@ -3677,38 +3721,7 @@ impl Shell {
                         .child("/later in 3h"),
                 ),
         );
-        // The arrow: the menu's fill, reaching up over its bottom border so
-        // the two read as one shape, then the border drawn along its two
-        // slanted sides. Stroked rather than layered, so a see-through menu
-        // doesn't show one triangle through the other.
-        let arrow = canvas(
-            |_, _, _| (),
-            |b, _, window, _| {
-                let o = b.origin;
-                let at = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-                let mut fill = PathBuilder::fill();
-                fill.move_to(at(0., 0.));
-                fill.line_to(at(ARROW_W, 0.));
-                fill.line_to(at(ARROW_W / 2., ARROW_H));
-                fill.close();
-                if let Ok(path) = fill.build() {
-                    window.paint_path(path, c(ui::float()));
-                }
-                let mut edge = PathBuilder::stroke(px(1.));
-                edge.move_to(at(0., 0.5));
-                edge.line_to(at(ARROW_W / 2., ARROW_H + 0.5));
-                edge.line_to(at(ARROW_W, 0.5));
-                if let Ok(path) = edge.build() {
-                    window.paint_path(path, c(ui::line_hi()));
-                }
-            },
-        )
-        .absolute()
-        .bottom(px(-(ARROW_H + 1.)))
-        .right(px(TIP - ARROW_W / 2.))
-        .w(px(ARROW_W))
-        .h(px(ARROW_H + 1.));
-        let menu = self.pop_panel(Pop::Later, menu.child(arrow), cx);
+        let menu = self.pop_panel(Pop::Later, menu, cx);
         Some(deferred(menu).with_priority(2).into_any_element())
     }
 
@@ -4071,6 +4084,21 @@ impl Render for BotCard {
     }
 }
 
+/// How tall the fade above the composer is.
+const FEED_FADE: f32 = 56.;
+
+/// Space under the chat's last line. When the fade is on, it's the fade's height
+/// plus a little, so that scrolled to the bottom the newest line sits clear
+/// above the fade, and only lines scrolled past it fade out. The fade lives in
+/// the chat's own box, so this holds however tall the composer grows.
+fn feed_bottom() -> f32 {
+    if super::theme::window_clear() {
+        12.
+    } else {
+        FEED_FADE + 12.
+    }
+}
+
 /// The chat fades out over its last few lines above the composer, as in the
 /// design, so messages don't run hard into the box. Left off when the window is
 /// see-through: there's no solid page under it to fade into.
@@ -4085,7 +4113,7 @@ fn feed_fade() -> Option<AnyElement> {
             .left_0()
             .right_0()
             .bottom_0()
-            .h(px(56.))
+            .h(px(FEED_FADE))
             .bg(linear_gradient(
                 180.,
                 linear_color_stop(ca(page, 0.), 0.),

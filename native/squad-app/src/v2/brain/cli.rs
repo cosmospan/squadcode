@@ -37,6 +37,7 @@ fn decide_here(
         running: &[],
         in_thread: &[],
         server: "",
+        picked: "",
     };
     super::think::decide(st, &f.path, text, &seen)
 }

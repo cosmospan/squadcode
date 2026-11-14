@@ -247,6 +247,9 @@ fn segment_i(
 
 /// One side of a look's preview: its sidebar, a card ringed in its accent,
 /// and the button to press.
+/// How many look cards sit side by side in the theme grid.
+const LOOKS_PER_ROW: usize = 3;
+
 fn look_half(t: &'static Theme) -> Div {
     let bar = |w: f32, col: u32| div().h(px(3.)).w(px(w)).rounded(px(1.)).bg(c(col));
     div()
@@ -1099,40 +1102,27 @@ impl Shell {
         )
     }
 
-    /// The three looks, each light and dark, and whether to match the system.
+    /// The looks, each light and dark, in a grid, and whether to match the system.
     pub(super) fn looks_card(&mut self, cx: &mut Context<Self>) -> Div {
         let current = ui::theme();
         let family = theme::family_of(current.id);
         let follow = theme::following();
         let dark = !current.light;
         let by_id = |id: &str| ui::THEMES.iter().find(|t| t.id == id);
-        let mut cards = div().flex().gap(px(14.));
+        // A grid of compact cards, a few to a row: a small preview of both
+        // sides, the name and one line. Every card keeps the same width, and a
+        // short last row is padded out so its cards don't stretch.
+        let mut tiles: Vec<Stateful<Div>> = Vec::new();
         for f in theme::FAMILIES.iter() {
             let on = family.is_some_and(|x| x.id == f.id);
             let (Some(light), Some(dark_t)) = (by_id(f.light), by_id(f.dark)) else {
                 continue;
             };
-            let mut dots = div().flex().gap(px(6.));
-            for col in [
-                light.bg,
-                light.ink,
-                dark_t.bg,
-                light.hover,
-                light.fill,
-                dark_t.fill,
-            ] {
-                dots = dots.child(
-                    div()
-                        .size(px(11.))
-                        .rounded(px(2.))
-                        .bg(c(col))
-                        .border_1()
-                        .border_color(c(ui::line())),
-                );
-            }
-            cards = cards.child(
+            tiles.push(
                 div()
                     .id(SharedString::from(format!("look-{}", f.id)))
+                    // The line is cut to fit the card; hover for all of it.
+                    .tooltip(move |w, cx| Tooltip::new(f.line).build(w, cx))
                     .flex_1()
                     .min_w_0()
                     .flex()
@@ -1152,7 +1142,7 @@ impl Shell {
                     })
                     .child(
                         div()
-                            .h(px(94.))
+                            .h(px(66.))
                             .flex()
                             .relative()
                             .border_b_1()
@@ -1178,40 +1168,26 @@ impl Shell {
                     )
                     .child(
                         div()
-                            .px(px(12.))
-                            .pt(px(10.))
-                            .pb(px(12.))
+                            .px(px(11.))
+                            .pt(px(8.))
+                            .pb(px(9.))
                             .flex()
                             .flex_col()
-                            .gap(px(5.))
+                            .gap(px(2.))
                             .child(
                                 div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(8.))
-                                    .child(
-                                        div()
-                                            .text_size(px(14.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(c(ui::ink()))
-                                            .child(f.name),
-                                    )
-                                    .child(
-                                        div()
-                                            .ml_auto()
-                                            .text_size(px(10.5))
-                                            .font_family(ui::MONO)
-                                            .text_color(c(ui::faint()))
-                                            .child("LIGHT \u{b7} DARK"),
-                                    ),
+                                    .text_size(px(13.5))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c(ui::ink()))
+                                    .child(f.name),
                             )
                             .child(
                                 div()
-                                    .text_size(px(12.5))
-                                    .text_color(c(ui::body()))
+                                    .text_size(px(12.))
+                                    .text_color(c(ui::muted()))
+                                    .truncate()
                                     .child(f.line),
-                            )
-                            .child(dots.mt(px(4.))),
+                            ),
                     )
                     .on_click(cx.listener(move |_, _, window, cx| {
                         let pref = if follow {
@@ -1226,6 +1202,18 @@ impl Shell {
                         cx.notify();
                     })),
             );
+        }
+        let mut cards = div().flex().flex_col().gap(px(14.));
+        let mut tiles = tiles.into_iter().peekable();
+        while tiles.peek().is_some() {
+            let mut line = div().flex().gap(px(14.));
+            for _ in 0..LOOKS_PER_ROW {
+                line = match tiles.next() {
+                    Some(tile) => line.child(tile),
+                    None => line.child(div().flex_1().min_w_0()),
+                };
+            }
+            cards = cards.child(line);
         }
         // Light, dark or the system's, for the look in use (or the default
         // look, while an older theme is picked).
@@ -1281,7 +1269,10 @@ impl Shell {
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::faint()))
                     .child("THEME")
-                    .child("3 to start, more on the way"),
+                    .child(format!(
+                        "{} looks \u{b7} each light and dark",
+                        theme::FAMILIES.len()
+                    )),
             )
             .child(cards)
             .child(

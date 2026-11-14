@@ -218,11 +218,11 @@ impl Shell {
             .child(next)
     }
 
-    /// 01 Look: the three looks, each light and dark, and whether to follow
+    /// 01 Look: the looks, each light and dark, and whether to follow
     /// the system.
     fn welcome_look(&mut self, cx: &mut Context<Self>) -> Div {
         let looks = self.looks_card(cx);
-        let foot = self.setup_foot(0, "More themes are on the way", None, cx);
+        let foot = self.setup_foot(0, "Six looks, each light and dark", None, cx);
         setup_card(
             "Pick a look",
             "The whole app changes as you pick. Switch any time in Settings.",
