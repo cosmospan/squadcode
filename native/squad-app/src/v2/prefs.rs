@@ -14,7 +14,7 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use squad_holo::fin::{Eyes, FinPose, Ink, Line, Outfit, State, Tool, Weight, ROLES};
+use squad_holo::fin::{FinPose, Outfit, State, ROLES};
 use squad_holo::{Figure, Framing, Tint};
 
 use crate::settings::AppSettings;
@@ -245,31 +245,6 @@ fn segment_i(
         .child(label.into())
 }
 
-fn segment(id: impl Into<ElementId>, label: impl Into<SharedString>, on: bool) -> Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(26.))
-        .px(px(11.))
-        .flex()
-        .items_center()
-        .rounded(px(4.))
-        .text_size(px(12.5))
-        .font_weight(FontWeight::MEDIUM)
-        .cursor_pointer()
-        .map(|d| {
-            if on {
-                d.bg(c(ui::raised()))
-                    .border_1()
-                    .border_color(c(ui::line_hi()))
-                    .text_color(c(ui::ink()))
-            } else {
-                d.text_color(c(ui::muted()))
-                    .hover(|s| s.text_color(c(ui::ink())))
-            }
-        })
-        .child(label.into())
-}
-
 /// One side of a look's preview: its sidebar, a card ringed in its accent,
 /// and the button to press.
 fn look_half(t: &'static Theme) -> Div {
@@ -343,24 +318,6 @@ fn radial_glow(accent: u32) -> Background {
         linear_color_stop(ca(accent, 0.12), 0.),
         linear_color_stop(ca(accent, 0.03), 1.),
     )
-}
-
-/// The icon for a prop.
-fn tool_icon(t: Tool) -> IconName {
-    match t {
-        Tool::None => IconName::Ban,
-        Tool::Shield => IconName::Shield,
-        Tool::Wrench => IconName::Wrench,
-        Tool::Bandage => IconName::Bandage,
-        Tool::Key => IconName::Key,
-        Tool::Pencil => IconName::Pencil,
-        Tool::Compass => IconName::Compass,
-        Tool::Magnifier => IconName::Search,
-        Tool::TestTube => IconName::TestTube,
-        Tool::Branch => IconName::GitBranch,
-        Tool::Baton => IconName::Wand,
-        Tool::Broom => IconName::Brush,
-    }
 }
 
 impl Shell {
@@ -1915,7 +1872,7 @@ impl Shell {
             let i = (self.now() / 3.2) as usize % State::ALL.len();
             State::ALL[i]
         });
-        let figure = Figure::Fin(FinPose {
+        let figure = Figure::Termi(FinPose {
             fin,
             state,
             shine: false,
@@ -2037,18 +1994,6 @@ impl Shell {
                     .on_click(cx.listener(dress(r.tint, r.outfit))),
             );
         }
-        let mut rights = div().flex().flex_wrap().gap(px(6.));
-        for (i, t) in Tool::ALL.iter().copied().enumerate() {
-            let name = t.name();
-            rights = rights.child(
-                chip(("fin-right", i).into(), outfit.right == t)
-                    .w(px(30.))
-                    .px(px(0.))
-                    .child(Icon::new(tool_icon(t)).size(px(14.)))
-                    .tooltip(move |w, cx| Tooltip::new(name).build(w, cx))
-                    .on_click(cx.listener(dress(tint, Outfit { right: t, ..outfit }))),
-            );
-        }
         let mut colours = div().flex().gap(px(8.)).pt(px(2.));
         for (i, (_, name, t)) in mascot::COLOURS.iter().copied().enumerate() {
             let on = t == tint;
@@ -2073,69 +2018,6 @@ impl Shell {
         let is_default = (tint, outfit) == mascot::default_look(who);
         let (dt, dout) = mascot::default_look(who);
 
-        // Peek is only ever an outline; these tune its lines for every bot.
-        let line = Line::from_code(&st.fin_line);
-        let set_line = |id: &'static str, i: usize, label: &'static str, on: bool, to: Line| {
-            segment((id, i), label, on).on_click(cx.listener(move |_, _, _, cx| {
-                save(cx, |st| st.fin_line = to.code());
-                cx.notify();
-            }))
-        };
-        let weights: Vec<_> = Weight::ALL
-            .iter()
-            .enumerate()
-            .map(|(i, &weight)| {
-                set_line(
-                    "fin-weight",
-                    i,
-                    weight.name(),
-                    line.weight == weight,
-                    Line { weight, ..line },
-                )
-            })
-            .collect();
-        let inks: Vec<_> = Ink::ALL
-            .iter()
-            .enumerate()
-            .map(|(i, &ink)| {
-                set_line(
-                    "fin-ink",
-                    i,
-                    ink.name(),
-                    line.ink == ink,
-                    Line { ink, ..line },
-                )
-            })
-            .collect();
-        let eyes: Vec<_> = Eyes::ALL
-            .iter()
-            .enumerate()
-            .map(|(i, &eyes)| {
-                set_line(
-                    "fin-eyes",
-                    i,
-                    eyes.name(),
-                    line.eyes == eyes,
-                    Line { eyes, ..line },
-                )
-            })
-            .collect();
-        let looks = group(
-            "Crew look",
-            vec![
-                row("Line weight", "From fine to bold", segmented(weights)),
-                row(
-                    "Line colour",
-                    "Own colour, pastel, two-tone or rainbow",
-                    segmented(inks),
-                ),
-                row(
-                    "Eyes",
-                    "Rings like the pill, or solid dots",
-                    segmented(eyes),
-                ),
-            ],
-        );
         let label = |left: String, right: Option<Stateful<Div>>| {
             div()
                 .flex()
@@ -2196,8 +2078,6 @@ impl Shell {
                     .gap(px(8.))
                     .child(small("ROLE"))
                     .child(roles)
-                    .child(small("PROP").mt(px(4.)))
-                    .child(rights)
                     .child(small("COLOUR").mt(px(4.)))
                     .child(colours),
             );
@@ -2209,12 +2089,11 @@ impl Shell {
             .child(label("Your crew \u{b7} click one to dress it".into(), None))
             .child(card().child(strip))
             .child(label(format!("Dress a bot \u{b7} {}", who.name()), reset).mt(px(13.)))
-            .child(wardrobe)
-            .child(div().mt(px(13.)).child(looks));
+            .child(wardrobe);
         Self::page(
             "settings-mascot",
             "Mascot",
-            "Peek, colours and props. How every bot looks, everywhere in the app.",
+            "Termi and the crew's colours. How every bot looks, everywhere in the app.",
             body,
         )
     }
