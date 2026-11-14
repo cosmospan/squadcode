@@ -11,6 +11,12 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 - Settings > Mascot is rebuilt for the viewfinder. Pick each bot's colour, its lens (its colour's own or any of the eight cuts), its eyes (pills, dots, blocks, diamonds or a visor), its light (none, a red record light or one in its own colour) and whether its corners are light or in its colour. Every lens and eye choice is shown as a live tile of that bot. The preview sits on a dark stage, and chips under it hold one mood (idle, thinking, working, needs you, done, stuck, asleep) or play them all. Peek's eyes stay lime as the lead; everything else is yours to pick. The role and prop pickers are gone, since the viewfinder doesn't wear props.
 - A new app icon and menu bar glyph to match: the viewfinder's light corners and lime eyes on a graphite tile.
 
+### Fixed
+
+- A short answer like "1" to a bot's question now goes to that bot. Peek could only hand work to a bot; when the answer wasn't a job, Peek answered in the bot's place (often promising research it never started). Peek now names the bot that should answer, and the reply goes into that bot's open job in the thread when it has one.
+- Peek sees what a bot last said on its job card. A bot's question at the end of a job ("Where should the toggle live? 1. Header 2. Settings") showed only on the card, so Peek read "2" with no question before it and asked what it meant. The thread's conversation now holds each finished job's last words, without its @lines, which are messages of their own.
+- Work that fits a built-in bot you removed is offered to that bot, and Squad Code asks to add it first. Peek only knew the bots on the crew, so a security check with no Guard went to Checker or Fixer.
+
 ## [2.0.0-alpha.14] - 2026-11-14
 
 ### Added

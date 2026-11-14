@@ -1249,10 +1249,33 @@ impl Store {
             }
         }
         // A job a bot asked for: its words are in the thread already, as its own.
+        let crew = Member::all();
         for j in self.jobs_in(folder, thread) {
             if j.asked_by().is_none() {
                 said.push((j.started, "you".into(), j.title.clone()));
             }
+            // What the bot said last, which shows on its card rather than as a
+            // message: often a question, which a reply like "1" answers.
+            // Its @lines are messages of their own already.
+            if j.status == Status::Running || j.goal != 0 || (j.race != 0 && j.race != j.id) {
+                continue;
+            }
+            let Some(last) = j.last_words() else {
+                continue;
+            };
+            let body = last
+                .lines()
+                .filter(|l| super::brain::talk::mentions(l, j.bot, &crew).is_empty())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string();
+            let posted = said.iter().any(|(_, _, w)| w.trim() == body);
+            if body.is_empty() || posted {
+                continue;
+            }
+            let at = j.ended.unwrap_or(j.started).max(j.started);
+            said.push((at, j.bot.name().to_lowercase(), body));
         }
         said.sort_by_key(|s| s.0);
         said
@@ -2236,6 +2259,54 @@ mod tests {
         // One summary per thread, found again rather than made twice.
         s.summary_mut(f, 0);
         assert_eq!(s.summaries.len(), 1);
+    }
+
+    #[test]
+    fn a_bots_question_on_its_card_is_in_the_thread_for_peek() {
+        let mut s = Store::default();
+        let f = "/tmp/shop";
+        let mut j = Job {
+            id: 4,
+            bot: Member::Builder,
+            title: "add a dark mode toggle".into(),
+            started: 100,
+            ended: Some(160),
+            status: Status::Done,
+            ..Default::default()
+        };
+        j.folder.path = f.into();
+        j.feed.push(Item::Text(
+            "Where should the toggle live?\n1. In the header\n2. In Settings\n@Guard: is the theme cookie fine?".into(),
+        ));
+        s.jobs.push(j.clone());
+        let said = s.recent(f, 0);
+        assert_eq!(
+            said[0],
+            ("you".to_string(), "add a dark mode toggle".to_string())
+        );
+        // The question, without the @line, which is a message of its own.
+        assert_eq!(said[1].0, "builder");
+        assert!(said[1].1.ends_with("2. In Settings"), "{:?}", said[1]);
+        assert_eq!(said.len(), 2);
+        // A later turn already posted in the thread isn't said twice.
+        s.talks.push(Talk {
+            id: 1,
+            folder: f.into(),
+            thread: 0,
+            bot: Member::Builder,
+            question: String::new(),
+            answer: Some(Said::bot(
+                "Where should the toggle live?\n1. In the header\n2. In Settings".into(),
+                "in #4".into(),
+            )),
+            at: 160,
+            choices: Vec::new(),
+        });
+        assert_eq!(s.recent(f, 0).len(), 2);
+        // Still working: its words so far aren't a question to answer yet.
+        s.talks.clear();
+        s.jobs[0].status = Status::Running;
+        assert_eq!(s.recent(f, 0).len(), 1);
     }
 }
 

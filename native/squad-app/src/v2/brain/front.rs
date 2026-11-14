@@ -12,8 +12,14 @@ pub enum Front {
     /// Peek answers itself, with this.
     Chat { reply: String },
     /// A question for an engine to answer, read-only. `code` when it is about
-    /// the project, so the engine should read the folder.
-    Answer { question: String, code: bool },
+    /// the project, so the engine should read the folder. `by` is the bot
+    /// Peek picked to answer, like the one whose question a short reply
+    /// such as "1" answers; None when Peek answers itself.
+    Answer {
+        question: String,
+        code: bool,
+        by: Option<Member>,
+    },
     /// Too vague to start: ask this, offering `choices` when there are some.
     AskBack {
         question: String,
@@ -42,6 +48,7 @@ pub fn pinned(front: Front, bot: Member, text: &str) -> Front {
     let answer = || Front::Answer {
         question: text.to_string(),
         code: true,
+        by: None,
     };
     let to = |mut r: Route| {
         r.bot = bot;
