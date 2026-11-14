@@ -93,6 +93,10 @@ pub struct AppSettings {
     /// Each bot's Fin, by bot key: `colour.hat.left.right.badge`, such as
     /// `blue.security.shield.baton.star`. Bots not listed wear their default kit.
     pub fin_looks: HashMap<String, String>,
+    /// Each bot's viewfinder choices, by bot key: `lens.eyes.light.corners`
+    /// (see `squad_holo::viewfinder::Kit`), such as `chamfer.visor.glow.tinted`.
+    /// Bots not listed wear what their colour gives them.
+    pub fin_kits: HashMap<String, String>,
     /// Translucent window over a blurred desktop: "off", "subtle", "frosted" or "clear".
     pub glass: String,
     /// Cards, menus and dialogs are translucent too.
@@ -310,6 +314,7 @@ impl Default for AppSettings {
             attribution: false,
             fin_line: String::new(),
             fin_looks: HashMap::new(),
+            fin_kits: HashMap::new(),
             glass: "off".into(),
             glass_cards: true,
             v2_theme: "graphite-lime".into(),

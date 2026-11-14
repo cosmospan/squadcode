@@ -14,8 +14,9 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use squad_holo::fin::{FinPose, Outfit, State, ROLES};
-use squad_holo::{Figure, Framing, Tint};
+use squad_holo::fin::{FinPose, State};
+use squad_holo::viewfinder::{self as vf, Corners, Eyes, Kit, Lens, Light};
+use squad_holo::{Figure, Framing, Mood, Tint};
 
 use crate::settings::AppSettings;
 
@@ -312,15 +313,6 @@ fn look_half(t: &'static Theme) -> Div {
                         .child(div().h(px(9.)).w(px(26.)).rounded(px(2.)).bg(c(t.fill))),
                 ),
         )
-}
-
-/// A soft glow in a bot's colour, behind its preview.
-fn radial_glow(accent: u32) -> Background {
-    linear_gradient(
-        180.,
-        linear_color_stop(ca(accent, 0.12), 0.),
-        linear_color_stop(ca(accent, 0.03), 1.),
-    )
 }
 
 impl Shell {
@@ -1856,14 +1848,16 @@ impl Shell {
         }
         let who = self.fin_sel;
         let fin = mascot::fin_in(&st, who);
-        let (tint, outfit) = (fin.tint, fin.outfit);
+        let (tint, outfit, kit) = (fin.tint, fin.outfit, fin.kit);
+        let lead = fin.ears;
+        let eye = vf::kit(tint, lead).0 .0;
 
         // The preview plays through every state unless one is held.
         let state = self.fin_state.unwrap_or_else(|| {
             let i = (self.now() / 3.2) as usize % State::ALL.len();
             State::ALL[i]
         });
-        let figure = Figure::Termi(FinPose {
+        let figure = Figure::Viewfinder(FinPose {
             fin,
             state,
             shine: false,
@@ -1874,7 +1868,22 @@ impl Shell {
         // Glide from one state's face to the next, as the bots do in the app.
         let figure = self.eased(figure, (who, u32::MAX, false, 0));
         let preview = self.pose_img(figure, 150., Framing::Full);
-        let accent = who.accent();
+
+        // Small live tiles for the pickers: this bot, idle, with one choice changed.
+        let tile_of = |this: &mut Self, k: Kit| {
+            let mut f = fin;
+            f.kit = k;
+            this.pose_img(Figure::Viewfinder(f.pose(Mood::Idle)), 40., Framing::Bust)
+        };
+        let own = vf::kit(tint, lead).1;
+        let lens_tiles: Vec<_> = std::iter::once(None)
+            .chain(Lens::ALL.iter().copied().map(Some))
+            .map(|l| (l, tile_of(self, Kit { lens: l, ..kit })))
+            .collect();
+        let eye_tiles: Vec<_> = Eyes::ALL
+            .iter()
+            .map(|&e| (e, tile_of(self, Kit { eyes: e, ..kit })))
+            .collect();
 
         // The crew in a strip: click one to dress it.
         let mut strip = div()
@@ -1939,13 +1948,19 @@ impl Shell {
             );
         }
 
-        let dress = move |tint: Tint, outfit: Outfit| {
+        let dress = move |tint: Tint| {
             move |_: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
                 save(cx, |st| mascot::set_look(st, who, tint, outfit));
                 cx.notify();
             }
         };
-        // A role or prop chip: lime-tinted with the accent edge when picked.
+        let fit = move |k: Kit| {
+            move |_: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
+                save(cx, |st| mascot::set_kit(st, who, k));
+                cx.notify();
+            }
+        };
+        // A choice chip: lime-tinted with the accent edge when picked.
         let chip = |id: ElementId, on: bool| {
             div()
                 .id(id)
@@ -1972,22 +1987,87 @@ impl Shell {
                     }
                 })
         };
-        let mut roles = div().flex().flex_wrap().gap(px(6.));
-        roles = roles.child(
-            chip("fin-role-plain".into(), outfit == Outfit::PLAIN)
-                .child("Plain")
-                .on_click(cx.listener(dress(tint, Outfit::PLAIN))),
-        );
-        for (i, r) in ROLES.iter().enumerate() {
-            roles = roles.child(
-                chip(("fin-role", i).into(), outfit == r.outfit)
-                    .child(r.name)
-                    .on_click(cx.listener(dress(r.tint, r.outfit))),
+        // A picture tile: the bot drawn with that choice, its name under it.
+        let tile = |id: ElementId, on: bool, face: Img, name: String| {
+            div()
+                .id(id)
+                .w(px(62.))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(4.))
+                .py(px(6.))
+                .rounded(px(5.))
+                .border_1()
+                .cursor_pointer()
+                .map(|d| {
+                    if on {
+                        d.bg(ca(ui::pick_fill(), 0.35))
+                            .border_color(c(ui::accent_bar()))
+                    } else {
+                        d.bg(c(ui::raised()))
+                            .border_color(c(ui::line_hi()))
+                            .hover(|s| s.bg(c(ui::hover())))
+                    }
+                })
+                .child(face)
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .when(on, |d| d.font_weight(FontWeight::SEMIBOLD))
+                        .text_color(c(if on { ui::ink() } else { ui::muted() }))
+                        .child(name),
+                )
+        };
+
+        let mut lenses = div().flex().flex_wrap().gap(px(6.));
+        for (i, (l, face)) in lens_tiles.into_iter().enumerate() {
+            let name = match l {
+                Some(l) => l.name().to_string(),
+                None => format!("Own \u{b7} {}", own.name()),
+            };
+            lenses = lenses.child(
+                tile(("fin-lens", i).into(), kit.lens == l, face, name)
+                    .on_click(cx.listener(fit(Kit { lens: l, ..kit }))),
+            );
+        }
+        let mut eyes = div().flex().flex_wrap().gap(px(6.));
+        for (i, (e, face)) in eye_tiles.into_iter().enumerate() {
+            eyes = eyes.child(
+                tile(
+                    ("fin-eyes", i).into(),
+                    kit.eyes == e,
+                    face,
+                    e.name().to_string(),
+                )
+                .on_click(cx.listener(fit(Kit { eyes: e, ..kit }))),
+            );
+        }
+        let mut lights = div().flex().flex_wrap().gap(px(6.));
+        for (i, &l) in Light::ALL.iter().enumerate() {
+            let name = match l {
+                Light::Auto if lead => "Record (lead)",
+                Light::Auto => "None (default)",
+                other => other.name(),
+            };
+            lights = lights.child(
+                chip(("fin-light", i).into(), kit.light == l)
+                    .child(name)
+                    .on_click(cx.listener(fit(Kit { light: l, ..kit }))),
+            );
+        }
+        let mut corners = div().flex().flex_wrap().gap(px(6.));
+        for (i, &k) in Corners::ALL.iter().enumerate() {
+            corners = corners.child(
+                chip(("fin-corners", i).into(), kit.corners == k)
+                    .child(k.name())
+                    .on_click(cx.listener(fit(Kit { corners: k, ..kit }))),
             );
         }
         let mut colours = div().flex().gap(px(8.)).pt(px(2.));
         for (i, (_, name, t)) in mascot::COLOURS.iter().copied().enumerate() {
             let on = t == tint;
+            let dot = vf::kit(t, false).0 .0;
             colours = colours.child(
                 div()
                     .id(("fin-colour", i))
@@ -1997,17 +2077,38 @@ impl Shell {
                     .p(px(2.))
                     .border_2()
                     .border_color(if on { c(ui::ink()) } else { ca(0, 0.) })
-                    .child(div().size_full().rounded_full().bg(linear_gradient(
-                        135.,
-                        linear_color_stop(c(t.0[0].0), 0.),
-                        linear_color_stop(c(t.0[1].0), 1.),
-                    )))
+                    .child(div().size_full().rounded_full().bg(c(dot)))
                     .tooltip(move |w, cx| Tooltip::new(name).build(w, cx))
-                    .on_click(cx.listener(dress(t, outfit))),
+                    .on_click(cx.listener(dress(t))),
             );
         }
-        let is_default = (tint, outfit) == mascot::default_look(who);
+        // Hold one mood in the preview, or play them all.
+        let moods: [(Option<State>, &str); 8] = [
+            (None, "All"),
+            (Some(State::Idle), "Idle"),
+            (Some(State::Think), "Thinking"),
+            (Some(State::Work), "Working"),
+            (Some(State::Needs), "Needs you"),
+            (Some(State::Done), "Done"),
+            (Some(State::Error), "Stuck"),
+            (Some(State::Sleep), "Asleep"),
+        ];
+        let mut mood_chips = div().flex().flex_wrap().justify_center().gap(px(4.));
+        for (i, (m, name)) in moods.into_iter().enumerate() {
+            mood_chips = mood_chips.child(
+                chip(("fin-mood", i).into(), self.fin_state == m)
+                    .h(px(22.))
+                    .px(px(7.))
+                    .text_size(px(11.))
+                    .child(name)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.fin_state = m;
+                        cx.notify();
+                    })),
+            );
+        }
         let (dt, dout) = mascot::default_look(who);
+        let is_default = (tint, outfit) == (dt, dout) && kit == Kit::default();
 
         let label = |left: String, right: Option<Stateful<Div>>| {
             div()
@@ -2029,13 +2130,25 @@ impl Shell {
                 .text_color(c(ui::faint()))
                 .child(text)
         };
+        let note = |text: &'static str| {
+            div()
+                .text_size(px(12.))
+                .text_color(c(ui::muted()))
+                .child(text)
+        };
         let reset = (!is_default).then(|| {
             div()
                 .id("fin-reset")
                 .cursor_pointer()
                 .hover(|s| s.text_color(c(ui::ink())))
                 .child("Reset")
-                .on_click(cx.listener(dress(dt, dout)))
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    save(cx, |st| {
+                        mascot::set_look(st, who, dt, dout);
+                        mascot::set_kit(st, who, Kit::default());
+                    });
+                    cx.notify();
+                }))
         });
         let card = || {
             div()
@@ -2044,21 +2157,41 @@ impl Shell {
                 .border_1()
                 .border_color(c(ui::line()))
         };
+        let colour_part = if lead {
+            note("Peek leads the crew, so its eyes stay lime. Everything else is yours to pick.")
+        } else {
+            colours
+        };
         let wardrobe = card()
             .flex()
             .gap(px(18.))
             .p(px(16.))
             .child(
                 div()
-                    .w(px(160.))
-                    .h(px(160.))
+                    .w(px(176.))
                     .flex_none()
-                    .rounded_full()
                     .flex()
+                    .flex_col()
                     .items_center()
-                    .justify_center()
-                    .bg(radial_glow(accent))
-                    .child(preview),
+                    .gap(px(10.))
+                    .child(
+                        // A dark stage: the lens reads best on graphite.
+                        div()
+                            .size(px(176.))
+                            .rounded(px(14.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(linear_gradient(
+                                180.,
+                                linear_color_stop(c(0x2A2B31), 0.),
+                                linear_color_stop(c(0x15161A), 1.),
+                            ))
+                            .border_1()
+                            .border_color(ca(eye, 0.25))
+                            .child(preview),
+                    )
+                    .child(mood_chips),
             )
             .child(
                 div()
@@ -2067,10 +2200,16 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .gap(px(8.))
-                    .child(small("ROLE"))
-                    .child(roles)
-                    .child(small("COLOUR").mt(px(4.)))
-                    .child(colours),
+                    .child(small("COLOUR"))
+                    .child(colour_part)
+                    .child(small("LENS").mt(px(4.)))
+                    .child(lenses)
+                    .child(small("EYES").mt(px(4.)))
+                    .child(eyes)
+                    .child(small("LIGHT").mt(px(4.)))
+                    .child(lights)
+                    .child(small("CORNERS").mt(px(4.)))
+                    .child(corners),
             );
         let body = div()
             .max_w(px(760.))
@@ -2084,7 +2223,7 @@ impl Shell {
         Self::page(
             "settings-mascot",
             "Mascot",
-            "Termi and the crew's colours. How every bot looks, everywhere in the app.",
+            "Peek and the crew: colour, lens, eyes and light. How every bot looks, everywhere in the app.",
             body,
         )
     }

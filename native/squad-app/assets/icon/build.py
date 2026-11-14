@@ -1,4 +1,4 @@
-"""Render Squad Code's app icon (a terminal window with Peek peeking over its top edge, lime on graphite) from squadcode.svg for every platform.
+"""Render Squad Code's app icon (Peek as a viewfinder: four light corner marks round two glowing lime eyes, on graphite) from squadcode.svg for every platform.
 
 Run from this folder: python3 build.py (needs cairosvg and Pillow).
 
@@ -15,7 +15,7 @@ import cairosvg
 from PIL import Image
 
 SVG = open("squadcode.svg").read()
-# Below 48px fine detail turns to mush, so small sizes drop the window dots and code line, bolden the prompt and grow Peek.
+# Below 48px fine detail turns to mush, so small sizes drop the glow and record light and draw heavier corners and bigger eyes.
 SMALL = open("squadcode-small.svg").read()
 # The tile spans 100..924 of the 1024 canvas; this crops to it for full-bleed sizes and drops the macOS drop shadow round it.
 FLAT = re.sub(r'<g id="drop">.*?</g>', "", SVG.replace('viewBox="0 0 1024 1024"', 'viewBox="96 96 832 832"'), flags=re.S)

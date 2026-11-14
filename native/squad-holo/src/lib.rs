@@ -17,24 +17,25 @@ pub mod bubble;
 pub mod draw;
 pub mod fin;
 pub mod look;
-pub mod termi;
+pub mod viewfinder;
 
 pub use bubble::{Bubble, BubbleRenderer, Eyes, Layout, Pose, Sway, Tint};
 pub use draw::Detail;
 pub use fin::{Fin, FinPose, FinRenderer};
 pub use look::{custom, Bot, Eye, Look, Mood, Motion, Mouth, Palette, Props, Rgb, Shape};
-pub use termi::TermiRenderer;
+pub use viewfinder::ViewfinderRenderer;
 
 use vello_cpu::kurbo::Affine;
 use vello_cpu::{Pixmap, RenderContext, Resources};
 
-/// A crew member ready to draw: one of the bubble crew, Fin, or Termi.
+/// A crew member ready to draw: one of the bubble crew, Fin, or the viewfinder crew.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Figure {
     Bubble(Pose),
     Fin(FinPose),
-    /// The same pose as Fin, drawn as Termi, the retro computer.
-    Termi(FinPose),
+    /// The same pose as Fin, drawn as Peek the viewfinder: four corner marks
+    /// cut in its own lens style round two eyes in its own colour.
+    Viewfinder(FinPose),
 }
 
 impl Figure {
@@ -48,7 +49,7 @@ impl Figure {
                     || matches!(p.layout, Layout::Think | Layout::Busy | Layout::Splash)
             }
             Figure::Fin(p) => p.lively(),
-            Figure::Termi(p) => termi::lively(p),
+            Figure::Viewfinder(p) => viewfinder::lively(p),
         }
     }
 
@@ -56,7 +57,7 @@ impl Figure {
     pub fn shine(mut self, on: bool) -> Self {
         match &mut self {
             Figure::Bubble(p) => p.shine |= on,
-            Figure::Fin(p) | Figure::Termi(p) => p.shine |= on,
+            Figure::Fin(p) | Figure::Viewfinder(p) => p.shine |= on,
         }
         self
     }
@@ -66,7 +67,7 @@ impl Figure {
     pub fn easing_from(self, state: fin::State, since: f64) -> Self {
         match self {
             Figure::Fin(p) => Figure::Fin(p.easing_from(state, since)),
-            Figure::Termi(p) => Figure::Termi(p.easing_from(state, since)),
+            Figure::Viewfinder(p) => Figure::Viewfinder(p.easing_from(state, since)),
             other => other,
         }
     }
@@ -74,7 +75,7 @@ impl Figure {
     /// The state the figure shows, for Peek.
     pub fn fin_state(&self) -> Option<fin::State> {
         match self {
-            Figure::Fin(p) | Figure::Termi(p) => Some(p.state),
+            Figure::Fin(p) | Figure::Viewfinder(p) => Some(p.state),
             Figure::Bubble(_) => None,
         }
     }
@@ -85,7 +86,7 @@ pub struct CrewRenderer {
     px: u16,
     bubble: Option<BubbleRenderer>,
     fin: Option<FinRenderer>,
-    termi: Option<TermiRenderer>,
+    viewfinder: Option<ViewfinderRenderer>,
 }
 
 impl CrewRenderer {
@@ -94,7 +95,7 @@ impl CrewRenderer {
             px,
             bubble: None,
             fin: None,
-            termi: None,
+            viewfinder: None,
         }
     }
 
@@ -110,9 +111,9 @@ impl CrewRenderer {
                 .fin
                 .get_or_insert_with(|| FinRenderer::new(px))
                 .draw(p, t, framing),
-            Figure::Termi(p) => self
-                .termi
-                .get_or_insert_with(|| TermiRenderer::new(px))
+            Figure::Viewfinder(p) => self
+                .viewfinder
+                .get_or_insert_with(|| ViewfinderRenderer::new(px))
                 .draw(p, t, framing),
         }
     }

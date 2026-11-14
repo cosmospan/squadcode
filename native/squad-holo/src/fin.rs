@@ -519,6 +519,8 @@ pub struct Fin {
     /// Peek, the crew's lead, wears ears; the rest of the crew doesn't.
     pub ears: bool,
     pub outfit: Outfit,
+    /// The viewfinder's lens, eyes and light, as the person picked them.
+    pub kit: crate::viewfinder::Kit,
 }
 
 impl Fin {
@@ -2126,6 +2128,7 @@ mod tests {
             line,
             ears: false,
             outfit,
+            kit: Default::default(),
         }
     }
 
