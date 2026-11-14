@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Changed
+
+- Juniper, Saffron and Lagoon are replaced by three calmer looks, each with a light and a dark side: Sumi (rice paper and sumi ink, with a vermilion seal), Moss (lichen grey and forest ink, with deep moss) and Petrol (fog and petrol ink, with burnished brass). Anyone on an old look moves to its nearest new one, keeping light, dark or following the system: Juniper to Moss, Saffron to Sumi, Lagoon to Petrol.
+
 ## [2.0.0-alpha.14] - 2026-11-14
 
 ### Added
