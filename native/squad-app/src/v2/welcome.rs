@@ -222,7 +222,7 @@ impl Shell {
     /// the system.
     fn welcome_look(&mut self, cx: &mut Context<Self>) -> Div {
         let looks = self.looks_card(cx);
-        let foot = self.setup_foot(0, "Five looks, each light and dark", None, cx);
+        let foot = self.setup_foot(0, "Six looks, each light and dark", None, cx);
         setup_card(
             "Pick a look",
             "The whole app changes as you pick. Switch any time in Settings.",

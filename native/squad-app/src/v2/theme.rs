@@ -109,7 +109,7 @@ const fn glass_tones(blue: u32, amber: u32, green: u32, red: u32, grey: u32) -> 
     ]
 }
 
-pub const THEMES: [Theme; 18] = [
+pub const THEMES: [Theme; 20] = [
     // Graphite and lime: the default. A warm paper page, hairline edges, and
     // lime for the one thing to press. Lime is too pale to read as text on
     // paper, so text keeps to ink and the status colours.
@@ -443,6 +443,73 @@ pub const THEMES: [Theme; 18] = [
         del: 0xF27D86,
         tones: tones(0x18141F, 0x82ADF7, 0xE6A84C, 0x62D29C, 0xF27D86, 0xD0C8DC),
     },
+    // Lagoon: aqua-washed paper and deep teal ink, with bright aqua to press.
+    // One hue from ground to accent, like looking down into clear water.
+    Theme {
+        id: "lagoon",
+        name: "Lagoon",
+        line: "Aqua paper and deep teal ink, with bright lagoon to press.",
+        light: true,
+        frosted: false,
+        bg: 0xEEF5F6,
+        panel: 0xF6FAFA,
+        raised: 0xFFFFFF,
+        hover: 0xDCE8EA,
+        press: 0xCFDEE1,
+        ink: 0x0F2126,
+        body: 0x2A3F45,
+        muted: 0x44595F,
+        faint: 0x587076,
+        line_c: 0xCDDDE0,
+        line2: 0xDCE7E9,
+        line_hi: 0xBACDD1,
+        fill: 0x6EE7D8,
+        fill_hover: 0x5BDDCD,
+        fill_press: 0x48D2C1,
+        on_fill: 0x032824,
+        well: 0xE6EFF1,
+        t_blue: 0x1A50B0,
+        t_amber: 0x7F4D00,
+        t_green: 0x0D6A3F,
+        t_red: 0xA5222F,
+        t_violet: 0x5B3FC4,
+        add: 0x0D6A3F,
+        del: 0xA5222F,
+        tones: tones(0xEEF5F6, 0x2F7BEB, 0xD08A12, 0x1E9E62, 0xE0414F, 0x2A3F45),
+    },
+    // Lagoon after dark: deep teal water, the same bright aqua.
+    Theme {
+        id: "lagoon-dark",
+        name: "Lagoon, dark",
+        line: "Deep teal and aqua",
+        light: false,
+        frosted: false,
+        bg: 0x0E1A1D,
+        panel: 0x111F23,
+        raised: 0x152428,
+        hover: 0x1B2D32,
+        press: 0x22363C,
+        ink: 0xE3F0F2,
+        body: 0xC0D3D7,
+        muted: 0x9FB5BA,
+        faint: 0x7C9399,
+        line_c: 0x22363C,
+        line2: 0x1A2B30,
+        line_hi: 0x2E464D,
+        fill: 0x6EE7D8,
+        fill_hover: 0x8EEEE2,
+        fill_press: 0x55D6C6,
+        on_fill: 0x032824,
+        well: 0x0A1416,
+        t_blue: 0x82ADF7,
+        t_amber: 0xE6A84C,
+        t_green: 0x62D29C,
+        t_red: 0xF27D86,
+        t_violet: 0xB9A8FF,
+        add: 0x62D29C,
+        del: 0xF27D86,
+        tones: tones(0x0E1A1D, 0x82ADF7, 0xE6A84C, 0x62D29C, 0xF27D86, 0xC0D3D7),
+    },
     // Crew Chat: the default. A white page, a soft grey sidebar and Jobs panel,
     // and violet for the crew's own voice, so the bots' glowing faces stand out.
     Theme {
@@ -742,6 +809,8 @@ impl Theme {
             "juniper-dark" => 0.60,
             "saffron" => 0.36,
             "saffron-dark" => 0.60,
+            "lagoon" => 0.36,
+            "lagoon-dark" => 0.60,
             "crew-chat" => 0.34,
             "midnight" => 0.58,
             "graphite" => 0.60,
@@ -778,7 +847,7 @@ pub struct Family {
 }
 
 /// The redesign's looks, in the order Settings shows them.
-pub const FAMILIES: [Family; 5] = [
+pub const FAMILIES: [Family; 6] = [
     Family {
         id: "graphite-lime",
         name: "Graphite and lime",
@@ -813,6 +882,13 @@ pub const FAMILIES: [Family; 5] = [
         line: "Lavender mist and aubergine ink, with marigold to press.",
         light: "saffron",
         dark: "saffron-dark",
+    },
+    Family {
+        id: "lagoon",
+        name: "Lagoon",
+        line: "Aqua paper and deep teal ink, with bright lagoon to press.",
+        light: "lagoon",
+        dark: "lagoon-dark",
     },
 ];
 
@@ -1436,6 +1512,7 @@ mod tests {
         assert_eq!(system_side("orchid-dark", false), None);
         assert_eq!(system_side("juniper:system", true), Some("juniper-dark"));
         assert_eq!(system_side("saffron:system", false), Some("saffron"));
+        assert_eq!(system_side("lagoon:system", true), Some("lagoon-dark"));
         assert_eq!(system_side("nothing:system", true), None);
     }
 

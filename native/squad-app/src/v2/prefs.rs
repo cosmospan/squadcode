@@ -1152,7 +1152,8 @@ impl Shell {
         let follow = theme::following();
         let dark = !current.light;
         let by_id = |id: &str| ui::THEMES.iter().find(|t| t.id == id);
-        // A grid, a few looks to a row: every card keeps the same width, and a
+        // A grid of compact cards, a few to a row: a small preview of both
+        // sides, the name and one line. Every card keeps the same width, and a
         // short last row is padded out so its cards don't stretch.
         let mut tiles: Vec<Stateful<Div>> = Vec::new();
         for f in theme::FAMILIES.iter() {
@@ -1160,27 +1161,11 @@ impl Shell {
             let (Some(light), Some(dark_t)) = (by_id(f.light), by_id(f.dark)) else {
                 continue;
             };
-            let mut dots = div().flex().gap(px(6.));
-            for col in [
-                light.bg,
-                light.ink,
-                dark_t.bg,
-                light.hover,
-                light.fill,
-                dark_t.fill,
-            ] {
-                dots = dots.child(
-                    div()
-                        .size(px(11.))
-                        .rounded(px(2.))
-                        .bg(c(col))
-                        .border_1()
-                        .border_color(c(ui::line())),
-                );
-            }
             tiles.push(
                 div()
                     .id(SharedString::from(format!("look-{}", f.id)))
+                    // The line is cut to fit the card; hover for all of it.
+                    .tooltip(move |w, cx| Tooltip::new(f.line).build(w, cx))
                     .flex_1()
                     .min_w_0()
                     .flex()
@@ -1200,7 +1185,7 @@ impl Shell {
                     })
                     .child(
                         div()
-                            .h(px(94.))
+                            .h(px(66.))
                             .flex()
                             .relative()
                             .border_b_1()
@@ -1226,40 +1211,26 @@ impl Shell {
                     )
                     .child(
                         div()
-                            .px(px(12.))
-                            .pt(px(10.))
-                            .pb(px(12.))
+                            .px(px(11.))
+                            .pt(px(8.))
+                            .pb(px(9.))
                             .flex()
                             .flex_col()
-                            .gap(px(5.))
+                            .gap(px(2.))
                             .child(
                                 div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(8.))
-                                    .child(
-                                        div()
-                                            .text_size(px(14.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(c(ui::ink()))
-                                            .child(f.name),
-                                    )
-                                    .child(
-                                        div()
-                                            .ml_auto()
-                                            .text_size(px(10.5))
-                                            .font_family(ui::MONO)
-                                            .text_color(c(ui::faint()))
-                                            .child("LIGHT \u{b7} DARK"),
-                                    ),
+                                    .text_size(px(13.5))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c(ui::ink()))
+                                    .child(f.name),
                             )
                             .child(
                                 div()
-                                    .text_size(px(12.5))
-                                    .text_color(c(ui::body()))
+                                    .text_size(px(12.))
+                                    .text_color(c(ui::muted()))
+                                    .truncate()
                                     .child(f.line),
-                            )
-                            .child(dots.mt(px(4.))),
+                            ),
                     )
                     .on_click(cx.listener(move |_, _, window, cx| {
                         let pref = if follow {
