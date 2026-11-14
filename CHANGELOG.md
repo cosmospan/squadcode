@@ -4,8 +4,16 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+## [2.0.0-alpha.13] - 2026-11-14
+
 ### Changed
 
+- The rail starts with Home, above the Inbox. The Crew's icon is a bot, and the night-shift moon is now a light and dark switch: each click steps through light, dark and your system's setting, and its icon shows which is on. The usage bar left the rail, since the status bar already shows usage.
+- The Usage today popover from the status bar matches the Graphite and lime look: spend, tokens and jobs on one row, each engine with a square in its state and a DEFAULT tag, and flat plan bars that turn amber at 80% and red at 100% (the status bar's plan meter uses the same colours). When an engine's plan shows use but the crew ran nothing on it today, it says the plan counts all your Claude Code use, not only the crew's.
+- A job's Browser tab no longer shows Chrome's "This site can't be reached" page after a bot stops the app it tested. It says nothing is running at that address, with Start the app and Try again, and reloads once the app answers. The LIVE badge shows only while a bot is on the job; a finished job says "Builder tested the page".
+- The composer's "To Peek" chip keeps one width, so changing the bot or mode no longer shifts the toolbar, and the Ask, Do, Plan and Race switch glides to the one you pick. Switches slide, drop-downs and menus ease in, job tabs grow their underline and fade in their page, and hover tints fade instead of snapping. All of it shows straight away when Animations is off or Reduce motion is on.
+- Settings > Appearance > Background image lines up: the pictures sit at the same inset as the rows below and fill each row, the Fit, Blur, Dim and Show through controls share one width, and switched-off slider tracks are visible in the dark theme.
+- The app icon is flat and a little lighter: no gradient, sheen or rim, a lighter graphite tile and a slightly brighter lime.
 - Reply on a bot's message replies to that message. It's quoted above the box with who said it (× or Esc drops it), what you send goes to that bot without typing an @, and the bot gets the quoted message with your words, so it knows which answer you mean. The sent message shows the quote above your words, with the whole message on hover. Edit and send again brings the quote back.
 - The Run it later menu opens right above the send button's chevron, lined up with its right edge, with a small arrow pointing down at it. Late at night its first row says it starts now, and "Tomorrow morning" reads "This morning" until 5 AM.
 
