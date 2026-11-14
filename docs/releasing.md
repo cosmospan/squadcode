@@ -33,4 +33,6 @@ Releases bump only the last number: 0.5.0, then 0.5.1, 0.5.2 and so on. Raise th
 2. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [0.5.1] - YYYY-MM-DD` and start a new empty `## [Unreleased]` above it.
 3. Merge that to `main`, then tag it: `git tag v0.5.1 && git push origin v0.5.1`.
 
+The release notes are that version's section of `CHANGELOG.md`, written once the builds for every platform are attached.
+
 The workflow stops if the tag doesn't match the version in `Cargo.toml`. A running Squad Code on an older version shows the update card on its next start, or within six hours while it runs (Settings can turn the check off). Settings > General > Updates also has Check now, which checks right away.
