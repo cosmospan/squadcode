@@ -3068,65 +3068,76 @@ impl Shell {
                         d.child(sep()).child(run_on)
                     })
                     .child(div().flex_1())
-                    .child(self.later_button(cx))
+                    .child(self.later_chip(cx))
                     // Send, split like the design: the arrow sends now, the
-                    // chevron runs it later.
+                    // chevron runs it later, and its menu hangs off it.
                     .child(
                         div()
-                            .h(px(30.))
-                            .flex()
+                            .relative()
                             .flex_none()
-                            .rounded(px(4.))
-                            .overflow_hidden()
-                            .bg(c(ui::pick_fill()))
+                            .children(self.later_menu(cx))
                             .child(
                                 div()
-                                    .id("thread-send")
-                                    .w(px(32.))
-                                    .h_full()
+                                    .h(px(30.))
                                     .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .map(|d| {
-                                        if ready {
-                                            d.cursor_pointer().hover(|s| s.bg(c(ui::fill_hover())))
-                                        } else {
-                                            d.opacity(0.5)
-                                        }
-                                    })
+                                    .flex_none()
+                                    .rounded(px(4.))
+                                    .overflow_hidden()
+                                    .bg(c(ui::pick_fill()))
                                     .child(
-                                        Icon::new(IconName::ArrowUp)
-                                            .size(px(15.))
-                                            .text_color(c(ui::pick_on())),
+                                        div()
+                                            .id("thread-send")
+                                            .w(px(32.))
+                                            .h_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .map(|d| {
+                                                if ready {
+                                                    d.cursor_pointer()
+                                                        .hover(|s| s.bg(c(ui::fill_hover())))
+                                                } else {
+                                                    d.opacity(0.5)
+                                                }
+                                            })
+                                            .child(
+                                                Icon::new(IconName::ArrowUp)
+                                                    .size(px(15.))
+                                                    .text_color(c(ui::pick_on())),
+                                            )
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.send_from_composer(window, cx);
+                                            })),
                                     )
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.send_from_composer(window, cx);
-                                    })),
-                            )
-                            .child(div().w(px(1.)).h_full().bg(ca(ui::pick_on(), 0.2)))
-                            .child(
-                                div()
-                                    .id("thread-later")
-                                    .w(px(20.))
-                                    .h_full()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(c(ui::fill_hover())))
+                                    .child(div().w(px(1.)).h_full().bg(ca(ui::pick_on(), 0.2)))
                                     .child(
-                                        Icon::new(IconName::ChevronDown)
-                                            .size(px(11.))
-                                            .text_color(c(ui::pick_on())),
-                                    )
-                                    .tooltip(|window, cx| {
-                                        gpui_kit::component::tooltip::Tooltip::new("Run it later")
-                                            .build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
-                                        this.toggle_pop(Pop::Later, e);
-                                        cx.notify();
-                                    })),
+                                        div()
+                                            .id("thread-later")
+                                            .w(px(20.))
+                                            .h_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(c(ui::fill_hover())))
+                                            .child(
+                                                Icon::new(IconName::ChevronDown)
+                                                    .size(px(11.))
+                                                    .text_color(c(ui::pick_on())),
+                                            )
+                                            .tooltip(|window, cx| {
+                                                gpui_kit::component::tooltip::Tooltip::new(
+                                                    "Run it later",
+                                                )
+                                                .build(window, cx)
+                                            })
+                                            .on_click(cx.listener(
+                                                |this, e: &ClickEvent, _, cx| {
+                                                    this.toggle_pop(Pop::Later, e);
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    ),
                             ),
                     ),
             )
@@ -3167,10 +3178,27 @@ impl Shell {
     /// Each row is on one grid: an icon, the name over why you'd pick it,
     /// and the time it starts in a right-hand column, the clock over the
     /// day, so both lines of every row line up.
-    fn later_button(&mut self, cx: &mut Context<Self>) -> Div {
+    ///
+    /// It opens above the send button's chevron, right-aligned to it, with a
+    /// small arrow pointing down at the chevron.
+    fn later_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.pop_open(Pop::Later) {
+            return None;
+        }
         /// The rows' lines: the name and the clock, then the why and the day.
         const TOP: f32 = 18.;
         const UNDER: f32 = 16.;
+        /// The arrow under the menu, and how far its tip sits from the
+        /// menu's right edge: over the middle of the 20 px chevron, with the
+        /// menu reaching a little past the button so the arrow clears the
+        /// rounded corner.
+        const ARROW_W: f32 = 14.;
+        const ARROW_H: f32 = 7.;
+        const PAST: f32 = 10.;
+        const TIP: f32 = PAST + 10.;
+        let now = chrono::Local::now();
+        // In the small hours "tonight" is now and tomorrow morning is this one.
+        let late = super::shift::small_hours(&now);
         let mut times: Vec<(String, IconName, &str, &str)> = vec![
             (
                 "tonight".into(),
@@ -3181,7 +3209,11 @@ impl Shell {
             (
                 "tomorrow".into(),
                 IconName::Sun,
-                "Tomorrow morning",
+                if late {
+                    "This morning"
+                } else {
+                    "Tomorrow morning"
+                },
                 "Before you start",
             ),
             (
@@ -3207,11 +3239,10 @@ impl Shell {
             ));
         }
         let picked = self.later_pick.clone();
-        let now = chrono::Local::now();
         let mut menu = div()
             .absolute()
-            .bottom(px(38.))
-            .right(px(0.))
+            .bottom(px(30. + ARROW_H + 4.))
+            .right(px(-PAST))
             .w(px(304.))
             .p(px(6.))
             .flex()
@@ -3242,6 +3273,13 @@ impl Shell {
             let (clock, day) = super::shift::parse_when(&format!("{when} x"), now)
                 .map(|(at, _)| super::shift::clock_and_day(at, &now))
                 .unwrap_or_default();
+            // Already late: tonight is now, so say so rather than "while you
+            // sleep" beside a clock that reads "now".
+            let line = if clock == "now" {
+                "It's late, so it starts now"
+            } else {
+                line
+            };
             menu = menu.child(
                 div()
                     .id(("later-pick", i))
@@ -3353,19 +3391,57 @@ impl Shell {
                         .child("/later in 3h"),
                 ),
         );
-        let menu = self.pop_panel(Pop::Later, menu, cx);
-        let label = picked.map(|w| match w.as_str() {
-            "tonight" => "Tonight".to_string(),
-            "tomorrow" => "Tomorrow".to_string(),
-            "in 2h" => "In 2h".to_string(),
-            _ => "When it resets".to_string(),
+        // The arrow: the menu's fill, reaching up over its bottom border so
+        // the two read as one shape, then the border drawn along its two
+        // slanted sides. Stroked rather than layered, so a see-through menu
+        // doesn't show one triangle through the other.
+        let arrow = canvas(
+            |_, _, _| (),
+            |b, _, window, _| {
+                let o = b.origin;
+                let at = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+                let mut fill = PathBuilder::fill();
+                fill.move_to(at(0., 0.));
+                fill.line_to(at(ARROW_W, 0.));
+                fill.line_to(at(ARROW_W / 2., ARROW_H));
+                fill.close();
+                if let Ok(path) = fill.build() {
+                    window.paint_path(path, c(ui::float()));
+                }
+                let mut edge = PathBuilder::stroke(px(1.));
+                edge.move_to(at(0., 0.5));
+                edge.line_to(at(ARROW_W / 2., ARROW_H + 0.5));
+                edge.line_to(at(ARROW_W, 0.5));
+                if let Ok(path) = edge.build() {
+                    window.paint_path(path, c(ui::line_hi()));
+                }
+            },
+        )
+        .absolute()
+        .bottom(px(-(ARROW_H + 1.)))
+        .right(px(TIP - ARROW_W / 2.))
+        .w(px(ARROW_W))
+        .h(px(ARROW_H + 1.));
+        let menu = self.pop_panel(Pop::Later, menu.child(arrow), cx);
+        Some(deferred(menu).with_priority(2).into_any_element())
+    }
+
+    /// The time picked for the next job, as a chip left of the send button;
+    /// clicking it opens the menu again.
+    fn later_chip(&mut self, cx: &mut Context<Self>) -> Div {
+        let late = super::shift::small_hours(&chrono::Local::now());
+        let label = self.later_pick.clone().map(|w| match w.as_str() {
+            "tonight" => (IconName::Moon, "Tonight".to_string()),
+            "tomorrow" if late => (IconName::Sun, "This morning".to_string()),
+            "tomorrow" => (IconName::Sun, "Tomorrow".to_string()),
+            "in 2h" => (IconName::Clock, "In 2h".to_string()),
+            _ => (IconName::RefreshCw, "When it resets".to_string()),
         });
         div()
-            .relative()
             .flex()
             .items_center()
             .h_full()
-            .when_some(label, |d, label| {
+            .when_some(label, |d, (icon, label)| {
                 d.child(
                     div()
                         .id("thread-later-pick")
@@ -3381,16 +3457,13 @@ impl Shell {
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::ink()))
                         .cursor_pointer()
-                        .child(Icon::new(IconName::Moon).size(px(13.)))
+                        .child(Icon::new(icon).size(px(13.)))
                         .child(label)
                         .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
                             this.toggle_pop(Pop::Later, e);
                             cx.notify();
                         })),
                 )
-            })
-            .when(self.pop_open(Pop::Later), |d| {
-                d.child(deferred(menu).with_priority(2))
             })
     }
 

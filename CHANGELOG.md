@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Changed
+
+- The Run it later menu opens right above the send button's chevron, lined up with its right edge, with a small arrow pointing down at it. Late at night its first row says it starts now, and "Tomorrow morning" reads "This morning" until 5 AM.
+
 ## [2.0.0-alpha.12] - 2026-11-12
 
 ### Added
