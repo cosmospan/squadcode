@@ -1245,7 +1245,7 @@ impl Shell {
                     .items_center()
                     .px(px(28.))
                     .pt(px(20.))
-                    .pb(px(12.))
+                    .pb(px(feed_bottom()))
                     .child(feed),
             );
 
@@ -4083,6 +4083,21 @@ impl Render for BotCard {
     }
 }
 
+/// How tall the fade above the composer is.
+const FEED_FADE: f32 = 56.;
+
+/// Space under the chat's last line. When the fade is on, it's the fade's height
+/// plus a little, so that scrolled to the bottom the newest line sits clear
+/// above the fade, and only lines scrolled past it fade out. The fade lives in
+/// the chat's own box, so this holds however tall the composer grows.
+fn feed_bottom() -> f32 {
+    if super::theme::window_clear() {
+        12.
+    } else {
+        FEED_FADE + 12.
+    }
+}
+
 /// The chat fades out over its last few lines above the composer, as in the
 /// design, so messages don't run hard into the box. Left off when the window is
 /// see-through: there's no solid page under it to fade into.
@@ -4097,7 +4112,7 @@ fn feed_fade() -> Option<AnyElement> {
             .left_0()
             .right_0()
             .bottom_0()
-            .h(px(56.))
+            .h(px(FEED_FADE))
             .bg(linear_gradient(
                 180.,
                 linear_color_stop(ca(page, 0.), 0.),
