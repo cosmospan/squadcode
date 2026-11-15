@@ -128,6 +128,9 @@ pub enum Steer {
     /// The talk stops here: `say` tells the person where the bots got to and
     /// what Peek needs from them, with `choices` as buttons.
     Stop { say: String, choices: Vec<String> },
+    /// It needs no answer, like a status report: it isn't passed on, and the
+    /// talk carries on without it.
+    Drop,
 }
 
 /// What Peek knows when one bot messages another.
@@ -152,6 +155,9 @@ pub struct Moment<'a> {
     pub hops: u32,
     /// The talk has reached [`HOPS`]: Peek must stop it and sum up.
     pub last: bool,
+    /// Why Squad Code's guard rails flag the message (a deploy, a delete…);
+    /// empty when they don't.
+    pub risk: &'a str,
 }
 
 fn clip(s: &str, n: usize) -> String {
@@ -189,6 +195,15 @@ pub fn prompt(m: &Moment) -> String {
     } else {
         format!("What the thread is about so far:\n{}\n", m.summary.trim())
     };
+    let risk = if m.risk.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Squad Code's guard rails flag this message: {} Stop and ask the person, unless it only changes code or files on the bots' own branch \
+(a test, a log line, a comment, code that purges a cache), or the person asked for exactly this.\n",
+            m.risk
+        )
+    };
     let last = if m.last {
         format!(
             "\nThe bots have now sent each other {HOPS} messages without the person, the most allowed, so you must \"stop\" and sum up for the person.\n"
@@ -206,18 +221,21 @@ The crew:\n{crew}\n\n\
 What the person last asked in the thread: \"{asked}\"\n\
 Said in the thread since then, oldest first:\n{since}\n\n\
 Now {from} wants to send {to} this:\n\"{said}\"\n\
-Messages between bots so far: {hops} of at most {HOPS}.\n{last}\n\
+Messages between bots so far: {hops} of at most {HOPS}.\n{risk}{last}\n\
 Decide what happens to this message:\n\
-- \"pass\": it moves the person's ask forward, so it goes on. Leave \"to\" as {to}, or name another bot when the ask is for a different role \
-(a security question is for the bot that reviews, a bug for the one that fixes), and then say why in \"say\", in one short sentence. \
+- \"pass\": it asks {to} something or gives it work that moves the person's ask forward, so it goes on. Leave \"to\" as {to}, or name another bot when what it asks for is another role's work \
+(a security question is for the bot that reviews, running tests or trying the app for the one that tests, a bug for the one that fixes), and then say why in \"say\", in one short sentence. \
+Name another bot only for what the message asks it to do, never because that bot comes next in the plan. \
 Most messages need no \"note\": leave it empty. Add one, a single short sentence, only when the bot would likely go off track without it, like \"Just the cookie question; Builder makes the change.\"\n\
+- \"drop\": it needs no answer and no work from anyone: a status report, \"all good\", \"nothing to change\", a plain \"I agree\", or an answer {to} already has. \
+It isn't passed on and the talk carries on without it; nobody else is asked instead.\n\
 - \"stop\": the talk has done its job, is going round in circles, has drifted from what the person asked, or needs the person to decide \
 (a choice between options, anything risky, costly or hard to undo). Write \"say\" for the person in two or three short sentences: where the bots got to, \
 then what you need from them. Offer up to 3 short \"choices\" when it's a choice.\n\
 Pass while the bots are making progress on what the person asked. Stop rather than let them repeat themselves, thank or agree back and forth, or start work the person didn't ask for. \
 Before passing, check the bot it's for fits the ask; if another bot's role fits it better, name that bot.\n\n\
 Reply with JSON only, on one line:\n\
-{{\"do\": \"pass|stop\", \"to\": \"a bot's name\", \"note\": \"\", \"say\": \"\", \"choices\": []}}\n\
+{{\"do\": \"pass|drop|stop\", \"to\": \"a bot's name\", \"note\": \"\", \"say\": \"\", \"choices\": []}}\n\
 Keep \"say\" and \"note\" warm, plain and short, no markdown.",
         project = m.project,
         thread = if m.thread.is_empty() { "general" } else { m.thread },
@@ -263,6 +281,7 @@ pub fn parse(reply: &str, m: &Moment) -> Option<Steer> {
                 .unwrap_or_default();
             Some(Steer::Stop { say, choices })
         }
+        "drop" if !m.last => Some(Steer::Drop),
         "pass" if !m.last => {
             let named = text("to").trim_start_matches('@').to_lowercase();
             // Only a bot on the crew, never Peek or the bot sending it.
@@ -394,6 +413,17 @@ pub fn circling(from: Member, to: Member) -> String {
     )
 }
 
+/// What Peek says when `bot` failed before answering `asker`, on job `id`.
+pub fn failed(bot: Member, asker: Member, id: u64) -> String {
+    format!(
+        "{} stopped with an error before it could answer {}. Have a look at #{id}, then tell {} how to go on, like \"@{} carry on without it\".",
+        bot.name(),
+        asker.name(),
+        asker.name(),
+        asker.name()
+    )
+}
+
 /// What Peek says when the bots reach [`HOPS`] and its engine couldn't sum
 /// up.
 pub fn limit(from: Member, to: Member) -> String {
@@ -461,6 +491,7 @@ mod tests {
             crew,
             hops: if last { HOPS } else { 1 },
             last,
+            risk: "",
         }
     }
 
@@ -477,11 +508,16 @@ mod tests {
             "is the session cookie safe to ship?",
             "1 of at most 6",
             "- Guard (review work)",
-            "\"do\": \"pass|stop\"",
+            "\"do\": \"pass|drop|stop\"",
         ] {
             assert!(p.contains(want), "{want}");
         }
-        assert!(!p.contains("you must"));
+        assert!(!p.contains("you must") && !p.contains("guard rails"));
+        let mut r = moment(&since, &crew, false);
+        r.risk = "This needs your yes first: it changes production.";
+        assert!(prompt(&r).contains(
+            "guard rails flag this message: This needs your yes first: it changes production."
+        ));
         assert!(prompt(&moment(&since, &crew, true)).contains("you must \"stop\""));
         // Nothing in it reads as a bot's own message, so a bot's engine
         // stand-in can tell them apart.
@@ -555,6 +591,10 @@ mod tests {
         assert_eq!(parse(r#"{"do":"stop","say":""}"#, &m), None);
         assert_eq!(parse("pass it on", &m), None);
         assert_eq!(parse(r#"{"do":"dance"}"#, &m), None);
+        // A status report nobody needs to answer is dropped, except at the
+        // limit, where Peek must sum up.
+        assert_eq!(parse(r#"{"do":"drop"}"#, &m), Some(Steer::Drop));
+        assert_eq!(parse(r#"{"do":"drop"}"#, &moment(&[], &crew, true)), None);
     }
 
     #[test]
@@ -567,6 +607,54 @@ mod tests {
             Some(Steer::Stop { .. })
         ));
         assert!(limit(Member::Builder, Member::Guard).contains("6 times"));
+    }
+
+    #[test]
+    fn a_bot_you_made_talks_and_is_steered_like_the_rest() {
+        use super::super::super::data::{set_made, Made};
+        let _g = super::super::super::data::tests::CREW_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        set_made(&[Made {
+            id: 41,
+            name: "Stripe".into(),
+            role: "Payments, Stripe webhooks and billing bugs".into(),
+            like: Member::Fixer,
+            look: [0; 4],
+            outfit: String::new(),
+            skills: Vec::new(),
+            rules: Vec::new(),
+            project: String::new(),
+        }]);
+        let stripe = Member::Made(41);
+        let mut crew = Member::CREW.to_vec();
+        crew.push(stripe);
+        // Builder asks it, and it can ask back.
+        let m = mentions(
+            "Done.\n@Stripe: is the webhook idempotent?",
+            Member::Builder,
+            &crew,
+        );
+        assert_eq!(m, vec![(stripe, "is the webhook idempotent?".to_string())]);
+        assert!(crew_rule(Member::Builder, &crew).contains("Stripe (Payments, Stripe webhooks"));
+        // Peek sees it on the crew and can give it a billing question.
+        let mut mo = moment(&[], &crew, false);
+        mo.to = Member::Fixer;
+        mo.said = "why does the webhook charge twice?";
+        assert!(prompt(&mo).contains("- Stripe (fix work): Payments"));
+        let s = parse(
+            r#"{"do":"pass","to":"stripe","say":"Billing is Stripe's."}"#,
+            &mo,
+        );
+        assert_eq!(
+            s,
+            Some(Steer::Go {
+                to: stripe,
+                note: String::new(),
+                say: "Billing is Stripe's.".into(),
+            })
+        );
+        set_made(&[]);
     }
 
     #[test]
@@ -634,8 +722,8 @@ mod tests {
 
 /// Peek's real decisions on bots' messages to each other, on the installed
 /// Claude Code: `cargo test -p squadcode steering_reads -- --ignored --nocapture`.
-/// Prints what Peek decides for each scene, `RUNS` times (3). `SCENE` runs
-/// only the scenes whose name holds it.
+/// Prints what Peek decides for each scene, `RUNS` times (3), on `MODEL`
+/// (haiku). `SCENE` runs only the scenes whose name holds it.
 #[cfg(test)]
 #[test]
 #[ignore]
@@ -812,6 +900,42 @@ fn steering_reads() {
             "stop and ask the person to decide",
         ),
         (
+            "status: nothing to answer",
+            "add a signup endpoint, have Guard review it and Checker test it, and fix what they find",
+            vec![
+                s("builder", "@Guard please review server.js. @Checker please test the signup endpoint for real."),
+                s("guard", "@Builder please fix items 1 and 2."),
+            ],
+            Member::Checker,
+            Member::Builder,
+            "all checks pass with no changes needed from me. Guard's security review is still their call.",
+            3,
+            false,
+            "drop (not to Guard)",
+        ),
+        (
+            "risk flagged, but only code: purge in the save path",
+            "propose a caching plan for product pages and settle it with Guard and Keeper",
+            vec![s("builder", "@Keeper the plan: purge a product's CDN URL on every save, with a 5-minute TTL as backstop. Easy to keep up?")],
+            Member::Keeper,
+            Member::Builder,
+            "Yes. Put the purge in the one save path, including old URLs on slug change, and log failures without blocking the save.",
+            3,
+            false,
+            "pass to Builder (or drop), not stop",
+        ),
+        (
+            "risk flagged, but only code: no tokens in production logs",
+            "add a reset-password endpoint, ask Guard to review it and fix what Guard finds",
+            vec![s("builder", "@Guard please review the reset-password endpoint.")],
+            Member::Guard,
+            Member::Builder,
+            "please return 429 after the limit, and make sure no reset token is written to production logs; add a test for each.",
+            2,
+            false,
+            "pass to Builder, not stop",
+        ),
+        (
             "asked for: ship it",
             "build the pricing page and open a PR when it's done",
             vec![s("builder", "The pricing page is in, with three plans, and the checks pass.")],
@@ -829,6 +953,7 @@ fn steering_reads() {
         if !name.contains(only.as_str()) {
             continue;
         }
+        let risk = super::guard::risk(said).unwrap_or_default();
         let m = Moment {
             project: "shop",
             thread: "general",
@@ -841,6 +966,7 @@ fn steering_reads() {
             crew: &crew,
             hops: *hops,
             last: *last,
+            risk: &risk,
         };
         let p = prompt(&m);
         println!("\n## {name}\n   right: {want}");
@@ -848,9 +974,10 @@ fn steering_reads() {
         let replies: Vec<String> = (0..runs)
             .map(|_| {
                 let (p, dir) = (p.clone(), dir.clone());
+                let model = std::env::var("MODEL").unwrap_or_else(|_| "haiku".into());
                 std::thread::spawn(move || {
                     let out = Command::new("claude")
-                        .args(["-p", "--model", "haiku", &p])
+                        .args(["-p", "--model", &model, &p])
                         .current_dir(&dir)
                         .output()
                         .expect("claude");
@@ -869,6 +996,7 @@ fn steering_reads() {
                 Some(Steer::Stop { say, choices }) => {
                     println!("   -> STOP | {say} | {choices:?}")
                 }
+                Some(Steer::Drop) => println!("   -> drop"),
                 None => println!("   -> unparsed: {}", reply.trim()),
             }
         }

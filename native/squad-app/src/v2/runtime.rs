@@ -2912,6 +2912,16 @@ impl Runtime {
         let Some(job) = self.store.job(id) else {
             return;
         };
+        // A bot that failed while another waited on its answer: Peek says so,
+        // or the one that asked would wait on it for ever without anyone knowing.
+        if job.status == Status::Failed && job.goal == 0 && job.race == 0 {
+            if let Some(a) = asker.filter(|a| *a != job.bot && *a != Member::Fin) {
+                let (folder, thread, bot) = (job.folder.clone(), job.thread, job.bot);
+                let say = brain::talk::failed(bot, a, id);
+                self.crew_says(&folder, thread, Member::Fin, say, None);
+                return;
+            }
+        }
         // A turn the person stopped, or one that failed, says nothing to the crew.
         if job.goal != 0
             || job.race != 0
@@ -3000,13 +3010,6 @@ impl Runtime {
             if brain::talk::courtesy(&words) {
                 continue;
             }
-            // Something that needs the person's yes, like a deploy or a delete,
-            // waits for it, whatever the engine would say.
-            if let Some(why) = brain::guard::risk(&words) {
-                let say = brain::talk::needs_yes(from, to, &words, &why);
-                self.stop_talk(&folder, thread, id, say, Vec::new());
-                return;
-            }
             // Saying again what it said before: they're going round in circles.
             let earlier: Vec<String> = self
                 .relay_log
@@ -3050,8 +3053,17 @@ impl Runtime {
                 );
             }
             if !self.steer(st, relay.clone(), false) {
-                // No engine to read it with: it goes on as it was.
-                self.relays.push(relay);
+                // No engine to read it with: it goes on as it was, unless the
+                // guard rails flag it (a deploy, a delete): that waits for
+                // the person.
+                match brain::guard::risk(&words) {
+                    Some(why) => {
+                        let say = brain::talk::needs_yes(from, to, &words, &why);
+                        self.stop_talk(&folder, thread, id, say, Vec::new());
+                        return;
+                    }
+                    None => self.relays.push(relay),
+                }
             }
         }
     }
@@ -3086,6 +3098,7 @@ impl Runtime {
             .unwrap_or_default();
         let label = self.store.thread_label(thread);
         let crew = Member::all();
+        let risk = brain::guard::risk(&relay.said).unwrap_or_default();
         let hops = *self
             .relay_hops
             .get(&(path.clone(), relay.thread))
@@ -3102,6 +3115,7 @@ impl Runtime {
             crew: &crew,
             hops,
             last,
+            risk: &risk,
         };
         let prompt = brain::talk::prompt(&moment);
         let model = crate::settings::assistant_model(st, p.id);
@@ -3158,6 +3172,7 @@ impl Runtime {
                 crew: &crew,
                 hops: 0,
                 last: s.last,
+                risk: "",
             };
             let steer =
                 reply.and_then(|t| brain::talk::parse(&crate::agent::strip_ansi(&t), &moment));
@@ -3186,6 +3201,13 @@ impl Runtime {
                 Some(brain::talk::Steer::Stop { say, choices }) => {
                     self.stop_talk(&r.folder, r.thread, r.from_job, say, choices);
                 }
+                // Nothing to answer: it isn't passed on, and doesn't count
+                // against the bots' messages.
+                Some(brain::talk::Steer::Drop) => {
+                    if let Some(h) = self.relay_hops.get_mut(&key) {
+                        *h = h.saturating_sub(1);
+                    }
+                }
                 // Peek couldn't sum up at the limit: its own note.
                 None if s.last => {
                     let note = brain::talk::limit(r.from, r.to);
@@ -3194,8 +3216,15 @@ impl Runtime {
                     }
                     self.stop_talk(&r.folder, r.thread, r.from_job, note, Vec::new());
                 }
-                // No sense from the engine: the message goes on as it was.
-                None => self.relays.push(r),
+                // No sense from the engine: the message goes on as it was,
+                // unless the guard rails flag it.
+                None => match brain::guard::risk(&r.said) {
+                    Some(why) => {
+                        let say = brain::talk::needs_yes(r.from, r.to, &r.said, &why);
+                        self.stop_talk(&r.folder, r.thread, r.from_job, say, Vec::new());
+                    }
+                    None => self.relays.push(r),
+                },
             }
         }
         self.deliver_relays(st);
@@ -4061,6 +4090,19 @@ mod tests {
     }
 
     #[test]
+    fn peek_drops_a_status_report_nobody_needs_to_answer() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-drop");
+        rt.relay_hops.insert((folder.path.clone(), 3), 3);
+        peek_reads(&mut rt, &folder, Member::Guard, false, r#"{"do":"drop"}"#);
+        rt.poll_steering(&st);
+        assert!(rt.relays.is_empty() && rt.store.talks.is_empty());
+        assert!(!rt.store.jobs.iter().any(|j| j.bot == Member::Guard));
+        assert!(rt.held.is_empty());
+        assert_eq!(rt.relay_hops[&(folder.path.clone(), 3)], 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn peek_gives_a_bots_message_to_the_bot_it_is_for() {
         let (mut rt, st, folder, dir) = talk_setup("steer-send");
         peek_reads(
@@ -4227,6 +4269,159 @@ mod tests {
         rt.store.job_mut(1).unwrap().turn_from = 0;
         rt.relay_mentions(&st, 1);
         assert!(rt.relays.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn two_bots_asked_at_once_each_get_their_ask() {
+        let (mut rt, st, _folder, dir) = talk_setup("steer-two");
+        rt.store.jobs[0].feed = vec![store::Item::Text(
+            "Done.\n@Guard: is the cookie safe?\n@Checker: can you try the login in a browser?"
+                .into(),
+        )];
+        rt.relay_mentions(&st, 1);
+        let to: Vec<Member> = rt.relays.iter().map(|r| r.to).collect();
+        assert_eq!(to, vec![Member::Guard, Member::Checker]);
+        assert_eq!(rt.relay_hops.values().sum::<u32>(), 2);
+        rt.deliver_relays(&st);
+        for who in [Member::Guard, Member::Checker] {
+            assert!(
+                rt.store.jobs.iter().any(|j| j.bot == who && j.thread == 3),
+                "{who:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn when_peek_stops_one_of_two_asks_the_other_waits_too() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-two-stop");
+        peek_reads(
+            &mut rt,
+            &folder,
+            Member::Guard,
+            false,
+            r#"{"do":"stop","say":"Builder wants a security check and a test run. Which first?"}"#,
+        );
+        peek_reads(
+            &mut rt,
+            &folder,
+            Member::Checker,
+            false,
+            r#"{"do":"pass","to":"Checker"}"#,
+        );
+        rt.poll_steering(&st);
+        assert!(rt.steering.is_empty() && rt.relays.is_empty());
+        assert!(!rt
+            .store
+            .jobs
+            .iter()
+            .any(|j| matches!(j.bot, Member::Guard | Member::Checker)));
+        assert_eq!(said_by(&rt, Member::Fin).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_bot_that_fails_before_answering_is_said_out_loud() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-fail");
+        rt.store.jobs.push(store::Job {
+            id: 2,
+            thread: 3,
+            bot: Member::Guard,
+            mode: Mode::Review,
+            title: "Builder asked: is the session cookie safe?".into(),
+            folder: folder.clone(),
+            status: Status::Failed,
+            feed: vec![store::Item::Error("could not start claude".into())],
+            ..Default::default()
+        });
+        rt.answering.insert(2, Member::Builder);
+        rt.relay_mentions(&st, 2);
+        let said = said_by(&rt, Member::Fin);
+        assert_eq!(said.len(), 1);
+        assert!(said[0].starts_with("Guard stopped with an error before it could answer Builder"));
+        assert!(said[0].contains("#2") && said[0].contains("@Builder"));
+        assert!(rt.relays.is_empty() && rt.answering.is_empty());
+        // A failed job nobody waits on says nothing.
+        rt.relay_mentions(&st, 2);
+        assert_eq!(said_by(&rt, Member::Fin).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_message_goes_on_when_peeks_engine_goes_away() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-gone");
+        let (tx, rx) = std::sync::mpsc::channel();
+        drop(tx);
+        rt.steering.push(Steering {
+            relay: Relay {
+                to: Member::Guard,
+                from: Member::Builder,
+                from_job: 1,
+                folder: folder.clone(),
+                thread: 3,
+                said: "is the session cookie safe?".into(),
+                whole: String::new(),
+                note: String::new(),
+                back: false,
+            },
+            last: false,
+            asked: String::new(),
+            rx,
+        });
+        rt.poll_steering(&st);
+        assert!(rt.steering.is_empty());
+        assert!(rt.store.jobs.iter().any(|j| j.bot == Member::Guard));
+        // An engine error reads the same way.
+        let (mut rt, st, folder, dir2) = talk_setup("steer-err");
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(crate::agent::Event::Output(Err("timed out".into())))
+            .unwrap();
+        rt.steering.push(Steering {
+            relay: Relay {
+                to: Member::Guard,
+                from: Member::Builder,
+                from_job: 1,
+                folder: folder.clone(),
+                thread: 3,
+                said: "is the session cookie safe?".into(),
+                whole: String::new(),
+                note: String::new(),
+                back: false,
+            },
+            last: false,
+            asked: String::new(),
+            rx,
+        });
+        rt.poll_steering(&st);
+        assert!(rt.store.jobs.iter().any(|j| j.bot == Member::Guard));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn the_person_stepping_in_lets_peek_finish_and_resets_the_count() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-person");
+        rt.relay_hops.insert((folder.path.clone(), 3), 4);
+        rt.relay_log.insert(
+            (folder.path.clone(), 3),
+            vec![(Member::Builder, Member::Guard, "is the cookie safe?".into())],
+        );
+        peek_reads(
+            &mut rt,
+            &folder,
+            Member::Guard,
+            false,
+            r#"{"do":"pass","to":"Guard"}"#,
+        );
+        rt.person_spoke(&folder.path, 3);
+        assert!(rt.relay_hops.is_empty() && rt.relay_log.is_empty());
+        // What Peek was reading still goes on: the bot's ask isn't lost.
+        rt.poll_steering(&st);
+        assert!(rt.store.jobs.iter().any(|j| j.bot == Member::Guard));
+        // And the same ask again isn't taken for going round in circles.
+        rt.relay_mentions(&st, 1);
+        assert_ne!(rt.store.talks.last().unwrap().bot, Member::Fin);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4783,13 +4978,14 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
             let mut a = st.agent(p.id);
             if p.id == "claude" {
                 a.binary = claude.clone();
-                a.model_override = "haiku".into();
+                a.model_override = std::env::var("MODEL").unwrap_or_else(|_| "haiku".into());
             } else {
                 a.binary = "/nonexistent/squad-test-agent".into();
             }
             st.agents.insert(p.id.to_string(), a);
         }
         st.assistant_agent = "claude".into();
+        st.assistant_model = std::env::var("PEEK_MODEL").unwrap_or_default();
         let folder = store::Folder {
             name: "shop".into(),
             path: repo.to_string_lossy().into_owned(),
@@ -4797,12 +4993,40 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
             ..Default::default()
         };
         let mut rt = Runtime::new(super::tests::quiet_store());
-        let job = rt.make_job(&st, Member::Builder, Mode::Build, &ask, folder, None, None);
+        let job = rt.make_job(
+            &st,
+            Member::Builder,
+            Mode::Build,
+            &ask,
+            folder.clone(),
+            None,
+            None,
+        );
         let thread = job.thread;
         rt.store.jobs.push(job);
+        // STEP_IN="@Bot words": the person steps in once two bot messages have gone.
+        let mut step_in = std::env::var("STEP_IN").ok().filter(|s| !s.is_empty());
         let t = Instant::now();
         loop {
             rt.poll(&st, None);
+            let hops = rt.relay_hops.values().copied().max().unwrap_or(0);
+            if hops >= 2 {
+                if let Some(words) = step_in.take() {
+                    let (who, rest) = words
+                        .strip_prefix('@')
+                        .and_then(|w| w.split_once(' '))
+                        .and_then(|(n, r)| {
+                            Member::all()
+                                .into_iter()
+                                .find(|m| m.name().eq_ignore_ascii_case(n))
+                                .map(|m| (m, r.to_string()))
+                        })
+                        .unwrap_or((Member::Builder, words.clone()));
+                    println!("(you step in, to {}: {rest})", who.name());
+                    rt.person_spoke(&folder.path, thread);
+                    rt.ask_bot(&st, who, rest, folder.clone(), thread);
+                }
+            }
             // Tool asks are allowed here, as the person would.
             for id in rt.asks.iter().map(|a| a.id.clone()).collect::<Vec<_>>() {
                 rt.answer_ask(&id, true, "");
