@@ -587,6 +587,9 @@ pub struct Shell {
     /// A risky ask Peek wants you to OK first: its message in the thread, the
     /// words, and where it would go.
     confirming: Option<(u64, String, brain::route::Route)>,
+    /// A new bot Peek offered to make: its message in the thread, the words
+    /// that led to it, and the bot.
+    making: Option<(u64, String, brain::front::Front)>,
     /// A message Peek's engine is reading: Peek's message showing it, the
     /// words, the conversation before them, and the decision to come.
     reading: Option<Reading>,
@@ -1455,6 +1458,7 @@ impl Shell {
             gone: None,
             about_open: false,
             confirming: None,
+            making: None,
             reading: None,
             reading_since: None,
             reading_for: None,
@@ -2461,6 +2465,35 @@ impl Shell {
                 self.confirming = Some((id, text, route));
                 cx.notify();
             }
+            brain::front::Front::Make { ref name, .. } => {
+                // A yes in words to the bot Peek just offered: it's made, for
+                // the message that led to the offer.
+                let again = matches!(
+                    &self.making,
+                    Some((_, _, brain::front::Front::Make { name: was, .. }))
+                        if was.eq_ignore_ascii_case(name)
+                );
+                if again {
+                    if let Some(id) = pending {
+                        self.crew
+                            .fill_talk(id, format!("Making {name} now."), Vec::new());
+                    }
+                    if let Some((id, first, offered)) = self.making.take() {
+                        let yes = match &offered {
+                            brain::front::Front::Make { name, .. } => format!("Make {name}"),
+                            _ => String::new(),
+                        };
+                        self.make_offered(id, first, offered, &yes, cx);
+                    }
+                    return;
+                }
+                let offer = line.clone().unwrap_or_else(|| {
+                    format!("Nobody on the crew is for this. Want me to make {name}?")
+                });
+                let id = says(self, offer, vec![format!("Make {name}"), "Not now".into()]);
+                self.making = Some((id, text, front));
+                cx.notify();
+            }
             brain::front::Front::Stop => {
                 drop_pending(self);
                 self.stop_here(text, cx)
@@ -2490,6 +2523,12 @@ impl Shell {
                 self.retry = Some((id, text));
             }
         }
+        if let Some((id, text, made)) = self.making.take() {
+            if id == talk {
+                return self.make_offered(id, text, made, &choice, cx);
+            }
+            self.making = Some((id, text, made));
+        }
         match self.confirming.take() {
             Some((id, text, route)) if id == talk => {
                 if choice == "Go ahead" || choice == format!("Give it to {}", route.bot.name()) {
@@ -2507,6 +2546,84 @@ impl Shell {
                 self.hand_over(choice, cx);
             }
         }
+    }
+
+    /// The person answered Peek's offer to make a bot: on "Make <name>" the
+    /// bot joins the crew, set up from what it's for (the person's engine
+    /// drafts the rest in the background), and takes the work when the
+    /// message was work. Peek's offer becomes what happened.
+    fn make_offered(
+        &mut self,
+        talk: u64,
+        text: String,
+        made: brain::front::Front,
+        choice: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let brain::front::Front::Make {
+            name,
+            about,
+            like,
+            start,
+        } = made
+        else {
+            return;
+        };
+        if choice != format!("Make {name}") {
+            self.crew.fill_talk(
+                talk,
+                "Okay, no new bot. Ask me if you change your mind.".to_string(),
+                Vec::new(),
+            );
+            cx.notify();
+            return;
+        }
+        let st = Self::app_settings(cx);
+        let id = self.crew.make_bot(
+            &st,
+            &name,
+            &about,
+            Some(like),
+            (Vec::new(), Vec::new()),
+            [0, 0, 0, 0],
+            String::new(),
+        );
+        let bot = Member::Made(id);
+        // It takes part in this thread from now on.
+        let here = self.crew.store.thread_here();
+        if let Some(t) = self.crew.store.threads.iter_mut().find(|t| t.id == here) {
+            if !t.bots.contains(&bot) {
+                t.bots.push(bot);
+            }
+        }
+        let next = if start {
+            " It's starting on this now."
+        } else {
+            " Ask it for anything with @, or I'll send it work that fits."
+        };
+        self.crew.fill_talk(
+            talk,
+            format!(
+                "{name} joined the crew, for {about}. It works like {} ({}), and you can change its setup on Crew.{next}",
+                like.name(),
+                like.role().to_lowercase()
+            ),
+            Vec::new(),
+        );
+        self.crew.store.save();
+        if start {
+            let route = brain::route::Route {
+                mode: like.mode(),
+                bot,
+                sure: 0.9,
+                why: format!("A job for {name}, who's for {about}."),
+                by: "engine".into(),
+                site: String::new(),
+            };
+            let line = route.why.clone();
+            self.hand_with_line(route, text, line, cx);
+        }
+        cx.notify();
     }
 
     /// Where jobs on the project at `folder` can run besides here, for Peek's

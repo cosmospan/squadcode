@@ -75,13 +75,15 @@ If they say it's a discussion, believe them.\n\
 - \"stop\": they want what's running stopped or cancelled.\n\
 - \"run\": they want the app started or run so they can see it (\"runthe app\", \"start it up\", \"let me see it\"). Squad Code starts it; no bot is needed.\n\
 - \"answer\": a question about this project's code or files, which needs reading them, or the person's answer to a bot's question. A bot answers without changing anything: set \"bot\" to the one it's for (the bot that asked, when they're answering it), or leave it empty and you answer. Not for discussion or general talk.\n\
+- \"make\": a new bot for the crew. Use it when they ask for a new bot, or when the work needs a specialist that nobody on the crew (or that Squad Code can add) is, and that will keep coming up, like payments with Stripe, marketing copy or data analysis. Not for work a bot on the crew can do: then \"hand\". \
+Set \"name\" to one short, friendly word that isn't a crew name (like \"Stripe\" or \"Quill\"), \"for\" to what it's for in a few words, \"kind\" to the kind of work it does, and \"start\" to true when their message is work it should start on once it's made. In \"say\", offer it in one sentence; the person says yes before it's made. When they say yes to a bot you offered, \"make\" it again with the same name.\n\
 - \"hand\": real work on the project. Pick the bot whose role fits best; when the message carries on work a bot has open in this thread, pick that bot, since it goes into its open job. Each bot does one kind of work, so the bot decides it. \
 Work out the kind first (build: new things; fix: bugs; test: try it for real; review: read the code for problems, security or rules; tidy: clean up). \
 When nobody on the crew does that kind and a bot Squad Code can add does, pick that bot by name: Squad Code asks the person to add it first. Never give it to a bot of another kind instead. Say why in one short, friendly sentence in your own voice, like \"Sounds like a bug in the Safari checkout.\" Don't name the bot or say you're bringing it in. \
 If they want it done on their server (a VPS, the cloud, \"remote\", the server's name), set \"where\" to \"server\": Squad Code copies the project there if it isn't yet and runs the job there, so never say the crew can only work on this computer. If they want it on this computer, \"here\". Otherwise leave it empty. \
 If they want the server but none is connected, \"ask\" them to connect one under Settings, My server.\n\n\
 Reply with JSON only, on one line:\n\
-{\"do\": \"reply|ask|stop|run|answer|hand\", \"say\": \"what Peek says\", \"choices\": [], \"bot\": \"a name from the crew, or empty\", \"kind\": \"build|fix|test|review|tidy|ask, only when bot is empty\", \"where\": \"server|here, or empty\"}\n\
+{\"do\": \"reply|ask|stop|run|answer|hand|make\", \"say\": \"what Peek says\", \"choices\": [], \"bot\": \"a name from the crew, or empty\", \"kind\": \"build|fix|test|review|tidy|ask, only when bot is empty or for make\", \"where\": \"server|here, or empty\", \"name\": \"only for make\", \"for\": \"only for make\", \"start\": false}\n\
 Keep \"say\" warm, plain and short, no markdown: two sentences at most, or up to four when you're taking part in a discussion.";
 
 /// A long message cut down to about `n` characters, keeping its start and
@@ -245,15 +247,53 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
             // whose question a short reply like "1" answers.
             by: named_bot(&v, crew),
         },
-        "hand" => {
-            let mode = match v["kind"].as_str().unwrap_or("").trim() {
-                "fix" => Mode::Fix,
-                "test" => Mode::Test,
-                "review" => Mode::Review,
-                "tidy" => Mode::Tidy,
-                "ask" => Mode::Ask,
-                _ => Mode::Build,
+        "make" => {
+            let about = v["for"].as_str().unwrap_or("").trim();
+            let about = if about.is_empty() { text.trim() } else { about };
+            let name = v["name"].as_str().unwrap_or("").trim();
+            // One word of letters and digits, like the maker's own names.
+            let name: String = name
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .take(16)
+                .collect();
+            let name = if name.is_empty() {
+                super::maker::quick(about, "").name
+            } else {
+                name
             };
+            // A bot by that name is on the crew already: the work is its.
+            let taken = Member::all()
+                .into_iter()
+                .chain(Member::CREW)
+                .chain([Member::Fin])
+                .find(|m| m.name().eq_ignore_ascii_case(&name));
+            let mode = kind(&v);
+            match taken {
+                // Or one Squad Code can add: it offers to, first.
+                Some(bot) if bot != Member::Fin => Front::Hand(Route {
+                    mode: bot.mode(),
+                    bot,
+                    sure: 0.9,
+                    why: say.clone(),
+                    by: "engine".into(),
+                    site: String::new(),
+                }),
+                Some(_) => return None,
+                None if about.is_empty() => return None,
+                None => Front::Make {
+                    name,
+                    about: about.chars().take(120).collect(),
+                    like: Member::for_mode(mode),
+                    start: v["start"].as_bool().unwrap_or(false),
+                },
+            }
+        }
+        "hand" => {
+            let mode = kind(&v);
             // The bot decides the kind of work; the kind only picks a bot
             // when none was named.
             // A built-in bot that isn't on the crew can be picked when nobody
@@ -281,6 +321,18 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
         _ => return None,
     };
     Some((front, say))
+}
+
+/// The kind of work the decision names; build when it names none.
+fn kind(v: &Value) -> Mode {
+    match v["kind"].as_str().unwrap_or("").trim() {
+        "fix" => Mode::Fix,
+        "test" => Mode::Test,
+        "review" => Mode::Review,
+        "tidy" => Mode::Tidy,
+        "ask" => Mode::Ask,
+        _ => Mode::Build,
+    }
 }
 
 /// The built-in bots not on the crew whose kind of work nobody on it does:
@@ -507,6 +559,56 @@ mod tests {
         // A bot whose work someone on the crew already does isn't offered.
         let c: Vec<Member> = vec![Member::Fin, Member::Builder];
         assert!(!missing(&c).contains(&Member::Builder));
+    }
+
+    #[test]
+    fn peek_can_offer_to_make_a_new_bot() {
+        let c = crew();
+        let reply = r#"{"do": "make", "say": "Nobody here knows Stripe well. Want me to make Stripe, a payments bot?", "name": "Stripe", "for": "payments, Stripe webhooks and billing bugs", "kind": "fix", "start": true}"#;
+        match parse(reply, "the stripe webhook keeps double charging", &c) {
+            Some((
+                Front::Make {
+                    name,
+                    about,
+                    like,
+                    start,
+                },
+                say,
+            )) => {
+                assert_eq!(name, "Stripe");
+                assert_eq!(about, "payments, Stripe webhooks and billing bugs");
+                assert_eq!(like, Member::Fixer);
+                assert!(start && say.contains("Want me to make Stripe"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // No name: one is made from what it's for, in one word.
+        let reply = r#"{"do": "make", "say": "Want a bot for that?", "name": "Quill bot!", "for": "marketing copy", "kind": "build"}"#;
+        match parse(reply, "make me a bot that writes marketing copy", &c) {
+            Some((Front::Make { name, start, .. }, _)) => {
+                assert_eq!(name, "Quill");
+                assert!(!start);
+            }
+            other => panic!("{other:?}"),
+        }
+        let reply =
+            r#"{"do": "make", "say": "", "name": "", "for": "marketing copy", "kind": "build"}"#;
+        match parse(reply, "make me a bot for marketing copy", &c) {
+            Some((Front::Make { name, .. }, _)) => {
+                assert!(!name.is_empty() && !name.contains(' '), "{name}")
+            }
+            other => panic!("{other:?}"),
+        }
+        // A name the crew has already: the work is that bot's, not a twin's.
+        let reply =
+            r#"{"do": "make", "say": "", "name": "guard", "for": "security", "kind": "review"}"#;
+        match parse(reply, "check the login", &c) {
+            Some((Front::Hand(r), _)) => assert_eq!(r.bot, Member::Guard),
+            other => panic!("{other:?}"),
+        }
+        let reply = r#"{"do": "make", "say": "", "name": "Peek", "for": "anything"}"#;
+        assert!(parse(reply, "make another you", &c).is_none());
+        assert!(RULES.contains("\"make\": a new bot for the crew"));
     }
 
     #[test]
@@ -742,6 +844,45 @@ fn discussion_reads() {
             &all,
             "whats the difference between jwt and session cookies",
             "reply or answer, not to Builder's job",
+        ),
+        (
+            "make: a specialist nobody is",
+            "general",
+            vec![],
+            vec![],
+            &all,
+            "we'll be doing a lot of stripe billing work, the webhook keeps double charging customers",
+            "make a Stripe/payments bot (start: true), or hand to Fixer",
+        ),
+        (
+            "make: asked for a bot",
+            "general",
+            vec![],
+            vec![],
+            &all,
+            "can you make a bot that writes our marketing copy and release notes",
+            "make, start: false",
+        ),
+        (
+            "make: yes to the offer",
+            "general",
+            vec![
+                s("you", "can you make a bot that writes our marketing copy and release notes"),
+                s("peek", "Nobody on the crew writes copy. Want me to make Quill, a bot for marketing copy and release notes?"),
+            ],
+            vec![],
+            &all,
+            "yes please",
+            "make Quill again",
+        ),
+        (
+            "no make: work the crew does",
+            "general",
+            vec![],
+            vec![],
+            &all,
+            "add a forgot password link to the login page",
+            "hand to Builder, no new bot",
         ),
         (
             "small talk",

@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- Peek can make a new bot from a thread. Ask for one ("make a bot that writes our release notes"), or bring work that needs a specialist nobody on the crew is, and Peek offers it with a name, what it's for and its kind of work. Pick Make, or just say yes, and the bot joins the crew and the thread, set up from what it's for while your engine drafts the rest; when your message was work, the new bot starts on it. Peek still gives work the crew can do to the crew.
+
 ## [2.0.0-alpha.15] - 2026-11-14
 
 ### Changed
