@@ -121,6 +121,11 @@ pub fn main(args: &[String]) -> Result<String, String> {
                         route.mode.label().to_lowercase()
                     ))
                 }
+                super::front::Front::Make { name, about, .. } => {
+                    return Ok(format!(
+                        "Peek offers to make a new bot, {name}, for {about}. Make it in the app, or with Crew, Make a bot."
+                    ))
+                }
                 super::front::Front::Hand(r) => r,
                 super::front::Front::Stop => {
                     return Ok("Stops what's running here, with no new job.".into())

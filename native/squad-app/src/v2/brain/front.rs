@@ -36,6 +36,17 @@ pub enum Front {
     /// "run the app": Squad Code starts it itself, as a card, and keeps it up,
     /// with no job.
     RunApp,
+    /// A new bot for the crew, offered in the thread and made on the person's
+    /// yes: they asked for one, or the work needs a specialist nobody on the
+    /// crew is. `about` is what it's for, `like` the built-in bot whose kind
+    /// of work it does, and `start` whether the message is work it takes
+    /// once it's made.
+    Make {
+        name: String,
+        about: String,
+        like: Member,
+        start: bool,
+    },
 }
 
 /// What Peek decided, when the person named the bot with @: the named bot
