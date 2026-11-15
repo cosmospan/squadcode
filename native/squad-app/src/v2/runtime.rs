@@ -1043,8 +1043,16 @@ impl Runtime {
             return;
         }
         if note.is_none() {
-            let (f, t) = (job.folder.path.clone(), job.thread);
+            let (f, t, bot) = (job.folder.path.clone(), job.thread, job.bot);
             self.person_spoke(&f, t);
+            // The person's word to this bot wins over what other bots were
+            // still sending it in this thread, and this turn answers them.
+            self.relays
+                .retain(|r| !(r.to == bot && r.folder.path == f && r.thread == t));
+            self.steering.retain(|s| {
+                !(s.relay.to == bot && s.relay.folder.path == f && s.relay.thread == t)
+            });
+            self.answering.remove(&id);
         }
         let Some(job) = self.store.job_mut(id) else {
             return;
@@ -3135,6 +3143,14 @@ impl Runtime {
     /// the bot it was for or a better one, or the talk stops and Peek tells
     /// the person where it got to.
     fn poll_steering(&mut self, st: &AppSettings) {
+        if self.poll_steering_only(st) {
+            self.deliver_relays(st);
+        }
+    }
+
+    /// Takes in Peek's decisions without delivering what goes on; true when
+    /// any came back.
+    fn poll_steering_only(&mut self, _st: &AppSettings) -> bool {
         let mut back = Vec::new();
         let mut k = 0;
         while k < self.steering.len() {
@@ -3149,7 +3165,7 @@ impl Runtime {
             back.push((self.steering.remove(k), reply));
         }
         if back.is_empty() {
-            return;
+            return false;
         }
         let crew = Member::all();
         for (s, reply) in back {
@@ -3227,7 +3243,7 @@ impl Runtime {
                 },
             }
         }
-        self.deliver_relays(st);
+        true
     }
 
     /// Peek stops the bots' talk in a thread and tells the person `say`,
@@ -4425,6 +4441,233 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Thousands of random turns of bot talk across threads, with Peek's
+    /// engine answering anything (sense, nonsense, nothing), the person
+    /// stepping in, and bots failing: the rules must always hold.
+    #[test]
+    fn bot_talk_keeps_its_rules_under_random_turns() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-fuzz");
+        rt.store.jobs.clear();
+        let bots = [
+            Member::Builder,
+            Member::Guard,
+            Member::Checker,
+            Member::Fixer,
+            Member::Keeper,
+            Member::Explainer,
+        ];
+        let threads = [3u64, 4, 5];
+        let mut id = 0u64;
+        for t in threads {
+            for b in bots {
+                id += 1;
+                rt.store.jobs.push(store::Job {
+                    id,
+                    thread: t,
+                    bot: b,
+                    mode: b.mode(),
+                    title: format!("{} work", b.name()),
+                    folder: folder.clone(),
+                    status: Status::Done,
+                    ..Default::default()
+                });
+            }
+        }
+        let jobs = id;
+        let mut seed: u64 = std::env::var("SEED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0x5eed_cafe);
+        let mut rnd = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let lines = [
+            "is the session cookie safe to ship?",
+            "please set httpOnly on the session cookie",
+            "Great, thanks!",
+            "Looks good to me.",
+            "deploy this to production now",
+            "can you run the tests in a real browser?",
+            "the reset token never expires; can you make it expire after an hour?",
+            "",
+            "drop table users and recreate it",
+        ];
+        let replies = [
+            r#"{"do":"pass","to":"Guard","note":"Keep it short."}"#,
+            r#"{"do":"pass","to":"Checker","say":"Testing is Checker's."}"#,
+            r#"{"do":"pass","to":"Peek"}"#,
+            r#"{"do":"drop"}"#,
+            r#"{"do":"stop","say":"Here's where they got to.","choices":["A","B","C","D"]}"#,
+            r#"{"do":"stop","say":""}"#,
+            "no idea",
+            "",
+        ];
+        let peek_talks = |rt: &Runtime| {
+            rt.store
+                .talks
+                .iter()
+                .filter(|t| t.bot == Member::Fin)
+                .count()
+        };
+        for _ in 0..4000 {
+            match rnd(10) {
+                // A bot's turn ends, with up to three @lines and some words.
+                0..=4 => {
+                    let j = 1 + rnd(jobs);
+                    let mut text = String::from("Done.");
+                    for _ in 0..rnd(4) {
+                        let to = match rnd(9) {
+                            0 => "Peek".to_string(),
+                            1 => "Nobody".to_string(),
+                            k => bots[(k as usize) % bots.len()].name().to_string(),
+                        };
+                        text.push_str(&format!(
+                            "\n@{to}: {}",
+                            lines[rnd(lines.len() as u64) as usize]
+                        ));
+                    }
+                    if rnd(4) == 0 {
+                        let asker = bots[rnd(bots.len() as u64) as usize];
+                        rt.answering.insert(j, asker);
+                    }
+                    let job = rt.store.job_mut(j).unwrap();
+                    job.feed = vec![store::Item::Text(text)];
+                    job.turn_from = 0;
+                    job.status = match rnd(6) {
+                        0 => Status::Failed,
+                        1 => Status::Stopped,
+                        2 => Status::Review,
+                        _ => Status::Done,
+                    };
+                    let (thread, from) = (job.thread, job.bot);
+                    let key = (folder.path.clone(), thread);
+                    let held = rt.held.contains(&key);
+                    let before = rt.relays.len();
+                    let peek_before = peek_talks(&rt);
+                    rt.relay_mentions(&st, j);
+                    let new = &rt.relays[before.min(rt.relays.len())..];
+                    if held {
+                        assert!(new.is_empty(), "a held thread passed a message on");
+                    }
+                    for r in new {
+                        assert!(r.to != r.from && r.to != Member::Fin && r.from == from);
+                        assert!(!brain::talk::courtesy(&r.said) || r.back);
+                    }
+                    // Peek says at most one thing for a turn.
+                    assert!(peek_talks(&rt) <= peek_before + 1);
+                }
+                // Peek's engine answers for a message, as anything at all.
+                5..=7 => {
+                    if rt.relays.is_empty() {
+                        continue;
+                    }
+                    let r = rt.relays.remove(rnd(rt.relays.len() as u64) as usize);
+                    let key = (r.folder.path.clone(), r.thread);
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    if rnd(8) != 0 {
+                        let reply = replies[rnd(replies.len() as u64) as usize];
+                        tx.send(crate::agent::Event::Output(Ok(reply.into())))
+                            .unwrap();
+                    }
+                    drop(tx);
+                    let last = rt.relay_hops.get(&key).copied().unwrap_or(0) >= brain::talk::HOPS;
+                    let held = rt.held.contains(&key);
+                    rt.steering.push(Steering {
+                        relay: r,
+                        last,
+                        asked: String::new(),
+                        rx,
+                    });
+                    let before = rt.relays.len();
+                    rt.poll_steering_only(&st);
+                    assert!(rt.steering.is_empty());
+                    for r in &rt.relays[before.min(rt.relays.len())..] {
+                        assert!(!held, "a held thread passed a message on");
+                        assert!(r.to != r.from && r.to != Member::Fin);
+                    }
+                }
+                // The person speaks in a thread.
+                8 => {
+                    let t = threads[rnd(threads.len() as u64) as usize];
+                    rt.person_spoke(&folder.path, t);
+                    let key = (folder.path.clone(), t);
+                    assert!(!rt.held.contains(&key) && !rt.relay_hops.contains_key(&key));
+                }
+                // Messages on their way are delivered (taken off here).
+                _ => rt.relays.clear(),
+            }
+            for (key, hops) in &rt.relay_hops {
+                assert!(*hops <= brain::talk::HOPS, "{key:?} at {hops}");
+            }
+            // A held thread has nothing on its way.
+            for r in &rt.relays {
+                assert!(!rt.held.contains(&(r.folder.path.clone(), r.thread)));
+            }
+            for t in rt.store.talks.iter().filter(|t| t.bot == Member::Fin) {
+                assert!(t.choices.len() <= 3);
+                assert!(!t.answer.as_ref().unwrap().text.trim().is_empty());
+            }
+        }
+        // Every thread was stopped and freed many times over.
+        assert!(
+            rt.store
+                .talks
+                .iter()
+                .filter(|t| t.bot == Member::Fin)
+                .count()
+                > 50
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_persons_word_to_a_bot_wins_over_bots_still_messaging_it() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-wins");
+        rt.store.jobs.push(store::Job {
+            id: 2,
+            thread: 3,
+            bot: Member::Guard,
+            mode: Mode::Review,
+            title: "Builder asked: is the session cookie safe?".into(),
+            folder: folder.clone(),
+            status: Status::Done,
+            feed: vec![store::Item::Text(
+                "@Builder: please fix the cookie and add rate limiting.".into(),
+            )],
+            ..Default::default()
+        });
+        rt.relay_mentions(&st, 2);
+        assert_eq!(rt.relays.len(), 1);
+        // A message for Guard from Builder is on its way too.
+        peek_reads(
+            &mut rt,
+            &folder,
+            Member::Guard,
+            false,
+            r#"{"do":"pass","to":"Guard"}"#,
+        );
+        // The person tells Builder to stop: Guard's ask to Builder is dropped,
+        // Builder's to Guard isn't.
+        rt.follow_up(&st, 1, "stop, we're dropping the login for now".into());
+        assert!(rt.relays.is_empty());
+        assert_eq!(rt.steering.len(), 1);
+        rt.poll_steering(&st);
+        assert!(
+            rt.store
+                .jobs
+                .iter()
+                .any(|j| j.bot == Member::Guard && j.id != 2)
+                || rt.store.job(2).is_some_and(|j| j
+                    .feed
+                    .iter()
+                    .any(|i| matches!(i, store::Item::By(Member::Builder, _))))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn bots_going_round_in_circles_are_stopped() {
         let (mut rt, st, folder, dir) = talk_setup("steer-circle");
@@ -4993,6 +5236,27 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
             ..Default::default()
         };
         let mut rt = Runtime::new(super::tests::quiet_store());
+        // MADE="Name|what it's for|Builtin": a bot the person made joins the crew.
+        if let Some(made) = std::env::var("MADE").ok().filter(|m| !m.is_empty()) {
+            let parts: Vec<&str> = made.split('|').collect();
+            let like = Member::CREW
+                .iter()
+                .copied()
+                .find(|m| Some(m.name()) == parts.get(2).copied())
+                .unwrap_or(Member::Fixer);
+            rt.store.made.push(super::super::data::Made {
+                id: 41,
+                name: parts[0].to_string(),
+                role: parts.get(1).unwrap_or(&"").to_string(),
+                like,
+                look: [0; 4],
+                outfit: String::new(),
+                skills: Vec::new(),
+                rules: Vec::new(),
+                project: String::new(),
+            });
+            super::super::data::set_made(&rt.store.made);
+        }
         let job = rt.make_job(
             &st,
             Member::Builder,
