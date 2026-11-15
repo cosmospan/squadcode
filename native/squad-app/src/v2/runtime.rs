@@ -66,6 +66,22 @@ struct Relay {
     said: String,
     /// The whole reply the @mention ends.
     whole: String,
+    /// Peek's word to the bot it goes to, to keep it on track; often empty.
+    note: String,
+}
+
+/// One bot's message to another as it went: (from, to, words).
+type BotLine = (Member, Member, String);
+
+/// One bot's message to another, waiting on Peek's engine to say what
+/// happens to it.
+struct Steering {
+    relay: Relay,
+    /// The talk has reached its limit: Peek sums up and stops it.
+    last: bool,
+    /// What Peek read, to make sense of its reply.
+    asked: String,
+    rx: Receiver<crate::agent::Event>,
 }
 
 /// A thread's summary being written by Peek's engine.
@@ -129,6 +145,14 @@ pub struct Runtime {
     pub relay_hops: HashMap<(String, u64), u32>,
     /// Bots' messages to a bot that's busy, delivered once it's free.
     relays: Vec<Relay>,
+    /// Bots' messages to each other that Peek is reading before they go on.
+    steering: Vec<Steering>,
+    /// Threads (folder, thread) where Peek stopped the bots' talk: no more
+    /// goes between them until the person speaks there.
+    held: std::collections::HashSet<(String, u64)>,
+    /// What each bot said to another in a thread since the person last
+    /// spoke there, as (from, to, words), to catch them going round in circles.
+    relay_log: HashMap<(String, u64), Vec<BotLine>>,
     /// Server jobs whose work is coming home to be approved here.
     bringing: Vec<(u64, Receiver<super::remote::Home>)>,
     /// Titles and recaps Peek is writing, by job.
@@ -222,6 +246,9 @@ impl Runtime {
             where_next: None,
             relay_hops: HashMap::new(),
             relays: Vec::new(),
+            steering: Vec::new(),
+            held: std::collections::HashSet::new(),
+            relay_log: HashMap::new(),
             bringing: Vec::new(),
             peeking: Vec::new(),
             designing: Vec::new(),
@@ -294,6 +321,7 @@ impl Runtime {
             || !self.landing.is_empty()
             || !self.planning.is_empty()
             || !self.peeking.is_empty()
+            || !self.steering.is_empty()
             || !self.designing.is_empty()
             || self.drafting.is_some()
             || self.skilling.is_some()
@@ -1009,7 +1037,7 @@ impl Runtime {
         }
         if note.is_none() {
             let (f, t) = (job.folder.path.clone(), job.thread);
-            self.relay_hops.remove(&(f, t));
+            self.person_spoke(&f, t);
         }
         let Some(job) = self.store.job_mut(id) else {
             return;
@@ -2808,12 +2836,13 @@ impl Runtime {
                 self.begin_review(*id);
                 self.peek(st, *id, true);
                 self.post_turn(*id);
-                self.relay_mentions(*id);
+                self.relay_mentions(st, *id);
             }
             self.deliver_relays(st);
             self.offer_idea();
             self.store.save();
         }
+        self.poll_steering(st);
         self.poll_peek();
         self.poll_designs();
         self.poll_draft();
@@ -2866,9 +2895,11 @@ impl Runtime {
     }
 
     /// The @mentions in a finished job's last reply, posted in its thread and
-    /// queued for the bots they name. Past [`brain::talk::HOPS`] messages
-    /// between bots with no word from the person, they stop and say so.
-    fn relay_mentions(&mut self, id: u64) {
+    /// passed to Peek, who decides what happens to each ([`Self::steer`]).
+    /// A message that repeats an earlier one stops the talk. Past
+    /// [`brain::talk::HOPS`] messages between bots with no word from the
+    /// person, Peek sums up and they stop.
+    fn relay_mentions(&mut self, st: &AppSettings, id: u64) {
         let Some(job) = self.store.job(id) else {
             return;
         };
@@ -2903,23 +2934,64 @@ impl Runtime {
         }
         let (from, folder, thread) = (job.bot, job.folder.clone(), job.thread);
         let key = (folder.path.clone(), thread);
+        // Peek stopped the talk here: it waits for the person.
+        if self.held.contains(&key) {
+            return;
+        }
         for (to, words) in said {
-            let hops = self.relay_hops.entry(key.clone()).or_insert(0);
-            if *hops >= brain::talk::HOPS {
-                let note = format!(
-                    "The bots have messaged each other {} times without you, so they've stopped here. {} was about to ask {}. Tell one of them what to do next, like \"@{} go ahead\", and they'll carry on.",
-                    brain::talk::HOPS,
-                    from.name(),
-                    to.name(),
-                    from.name(),
-                );
-                if let Some(j) = self.store.job_mut(id) {
-                    j.feed.push(store::Item::Note(note.clone()));
+            let relay = Relay {
+                to,
+                from,
+                from_job: id,
+                folder: folder.clone(),
+                thread,
+                said: words.clone(),
+                whole: last.clone(),
+                note: String::new(),
+            };
+            let hops = *self.relay_hops.get(&key).unwrap_or(&0);
+            if hops >= brain::talk::HOPS {
+                // Peek sums up where they got to; its own note if it can't.
+                if !self.steer(st, relay, true) {
+                    self.stop_talk(
+                        &folder,
+                        thread,
+                        id,
+                        brain::talk::limit(from, to),
+                        Vec::new(),
+                    );
+                    if let Some(j) = self.store.job_mut(id) {
+                        j.feed.push(store::Item::Note(brain::talk::limit(from, to)));
+                    }
                 }
-                self.crew_says(&folder, thread, Member::Fin, note, None);
                 return;
             }
-            *hops += 1;
+            // Saying again what it said before: they're going round in circles.
+            let earlier: Vec<String> = self
+                .relay_log
+                .get(&key)
+                .map(|l| {
+                    l.iter()
+                        .filter(|(f, _, _)| *f == from)
+                        .map(|(_, _, w)| w.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if brain::talk::repeats(&words, &earlier) {
+                self.stop_talk(
+                    &folder,
+                    thread,
+                    id,
+                    brain::talk::circling(from, to),
+                    Vec::new(),
+                );
+                return;
+            }
+            *self.relay_hops.entry(key.clone()).or_insert(0) += 1;
+            self.relay_log
+                .entry(key.clone())
+                .or_default()
+                .push((from, to, words.clone()));
             // An answer it passed on to another bot isn't waiting on the
             // person; changes to approve still are.
             if let Some(j) = self.store.job_mut(id) {
@@ -2934,16 +3006,185 @@ impl Runtime {
                 format!("@{} {words}", to.name()),
                 Some(format!("to {} \u{b7} from #{id}", to.name())),
             );
-            self.relays.push(Relay {
-                to,
-                from,
-                from_job: id,
-                folder: folder.clone(),
-                thread,
-                said: words,
-                whole: last.clone(),
-            });
+            if !self.steer(st, relay.clone(), false) {
+                // No engine to read it with: it goes on as it was.
+                self.relays.push(relay);
+            }
         }
+    }
+
+    /// Asks Peek's engine what happens to one bot's message to another,
+    /// in the background. False when there's no engine to ask.
+    fn steer(&mut self, st: &AppSettings, relay: Relay, last: bool) -> bool {
+        let i = crate::settings::assistant_provider(st);
+        let p = &crate::agent::PROVIDERS[i];
+        let configured = st.agent(p.id).binary;
+        // Tests never reach a real engine by accident, only a stand-in.
+        if (cfg!(test) && configured.trim().is_empty())
+            || !crate::agent::available(p.bin, &configured)
+        {
+            return false;
+        }
+        let path = relay.folder.path.clone();
+        let thread = self.store.thread_for(&path, relay.thread);
+        let said = self.store.said_in(&path, thread);
+        // What the person last asked, and what was said since.
+        let from_you = said.iter().rposition(|(_, who, _)| who == "you");
+        let asked = from_you.map(|k| said[k].2.clone()).unwrap_or_default();
+        let since: Vec<(String, String)> = said
+            .iter()
+            .skip(from_you.map(|k| k + 1).unwrap_or(0))
+            .map(|(_, who, w)| (who.clone(), w.clone()))
+            .collect();
+        let summary = self
+            .store
+            .summary(&path, thread)
+            .map(|s| s.text.clone())
+            .unwrap_or_default();
+        let label = self.store.thread_label(thread);
+        let crew = Member::all();
+        let hops = *self
+            .relay_hops
+            .get(&(path.clone(), relay.thread))
+            .unwrap_or(&0);
+        let moment = brain::talk::Moment {
+            project: &relay.folder.name,
+            thread: &label,
+            summary: &summary,
+            asked: &asked,
+            since: &since,
+            from: relay.from,
+            to: relay.to,
+            said: &relay.said,
+            crew: &crew,
+            hops,
+            last,
+        };
+        let prompt = brain::talk::prompt(&moment);
+        let model = crate::settings::assistant_model(st, p.id);
+        let command = crate::agent::ask_command_on(p.id, &configured, &prompt, &model);
+        let (tx, rx) = std::sync::mpsc::channel();
+        crate::agent::oneshot_within(command, &path, brain::think::LIMIT, tx);
+        self.steering.push(Steering {
+            relay,
+            last,
+            asked,
+            rx,
+        });
+        true
+    }
+
+    /// Peek's decisions on bots' messages to each other: each goes on, to
+    /// the bot it was for or a better one, or the talk stops and Peek tells
+    /// the person where it got to.
+    fn poll_steering(&mut self, st: &AppSettings) {
+        let mut back = Vec::new();
+        let mut k = 0;
+        while k < self.steering.len() {
+            let reply = match self.steering[k].rx.try_recv() {
+                Ok(crate::agent::Event::Output(r)) => r.ok(),
+                Ok(_) | Err(TryRecvError::Empty) => {
+                    k += 1;
+                    continue;
+                }
+                Err(TryRecvError::Disconnected) => None,
+            };
+            back.push((self.steering.remove(k), reply));
+        }
+        if back.is_empty() {
+            return;
+        }
+        let crew = Member::all();
+        for (s, reply) in back {
+            let mut r = s.relay;
+            let key = (r.folder.path.clone(), r.thread);
+            // Peek stopped the talk while this one was being read.
+            if self.held.contains(&key) {
+                continue;
+            }
+            let label = self.store.thread_label(r.thread);
+            let moment = brain::talk::Moment {
+                project: &r.folder.name,
+                thread: &label,
+                summary: "",
+                asked: &s.asked,
+                since: &[],
+                from: r.from,
+                to: r.to,
+                said: &r.said,
+                crew: &crew,
+                hops: 0,
+                last: s.last,
+            };
+            let steer =
+                reply.and_then(|t| brain::talk::parse(&crate::agent::strip_ansi(&t), &moment));
+            match steer {
+                Some(brain::talk::Steer::Go { to, note, say }) => {
+                    if to != r.to {
+                        let line = if say.is_empty() {
+                            format!("This one's for {}, so I've passed it on.", to.name())
+                        } else {
+                            say
+                        };
+                        self.crew_says(&r.folder, r.thread, Member::Fin, line, None);
+                        // Who it went to now, for spotting circles.
+                        if let Some(l) = self.relay_log.get_mut(&key) {
+                            if let Some(e) = l.last_mut() {
+                                e.1 = to;
+                            }
+                        }
+                        r.to = to;
+                    }
+                    // Peek's note goes with it, and shows on the job it reaches,
+                    // not as another message in the thread.
+                    r.note = note;
+                    self.relays.push(r);
+                }
+                Some(brain::talk::Steer::Stop { say, choices }) => {
+                    self.stop_talk(&r.folder, r.thread, r.from_job, say, choices);
+                }
+                // Peek couldn't sum up at the limit: its own note.
+                None if s.last => {
+                    let note = brain::talk::limit(r.from, r.to);
+                    if let Some(j) = self.store.job_mut(r.from_job) {
+                        j.feed.push(store::Item::Note(note.clone()));
+                    }
+                    self.stop_talk(&r.folder, r.thread, r.from_job, note, Vec::new());
+                }
+                // No sense from the engine: the message goes on as it was.
+                None => self.relays.push(r),
+            }
+        }
+        self.deliver_relays(st);
+    }
+
+    /// Peek stops the bots' talk in a thread and tells the person `say`,
+    /// with `choices` as buttons. Nothing more goes between bots there
+    /// until the person speaks; what's already on its way is dropped.
+    /// The job `from` whose message Peek stopped has nothing more to show
+    /// the person than what Peek says, so it isn't left waiting on them.
+    fn stop_talk(
+        &mut self,
+        folder: &store::Folder,
+        thread: u64,
+        from: u64,
+        say: String,
+        choices: Vec<String>,
+    ) {
+        if let Some(j) = self.store.job_mut(from) {
+            if j.status == Status::Done {
+                j.seen = true;
+            }
+        }
+        let key = (folder.path.clone(), thread);
+        self.relays
+            .retain(|r| !(r.folder.path == key.0 && r.thread == key.1));
+        self.held.insert(key);
+        self.crew_says(folder, thread, Member::Fin, say, None);
+        if let Some(t) = self.store.talks.last_mut() {
+            t.choices = choices;
+        }
+        self.store.save();
     }
 
     /// Hands bots the messages waiting for them, once they're free, by the
@@ -2956,12 +3197,15 @@ impl Runtime {
                 self.relays.push(r);
                 continue;
             }
-            let text = brain::talk::relay_text(r.from, r.from_job, &r.said, &r.whole);
+            let text = brain::talk::relay_text(r.from, r.from_job, &r.said, &r.whole, &r.note);
             let theirs = self.open_job(&r.folder.path, r.thread, r.to);
             match theirs {
                 Some(tid) => {
                     if let Some(j) = self.store.job_mut(tid) {
                         j.feed.push(store::Item::By(r.from, r.said.clone()));
+                        if !r.note.is_empty() {
+                            j.feed.push(store::Item::By(Member::Fin, r.note.clone()));
+                        }
                     }
                     self.send_on(st, tid, text, Some(String::new()));
                 }
@@ -2972,6 +3216,11 @@ impl Runtime {
                     job.title = format!("{} asked: {}", r.from.name(), r.said);
                     job.feed.insert(0, store::Item::By(r.from, r.said.clone()));
                     job.turn_from += 1;
+                    if !r.note.is_empty() {
+                        job.feed
+                            .insert(1, store::Item::By(Member::Fin, r.note.clone()));
+                        job.turn_from += 1;
+                    }
                     self.store.jobs.push(job);
                 }
             }
@@ -3098,7 +3347,10 @@ impl Runtime {
 
     /// The person spoke in a thread: its bots may talk to each other again.
     pub fn person_spoke(&mut self, folder: &str, thread: u64) {
-        self.relay_hops.remove(&(folder.to_string(), thread));
+        let key = (folder.to_string(), thread);
+        self.relay_hops.remove(&key);
+        self.relay_log.remove(&key);
+        self.held.remove(&key);
     }
 
     /// Asks Peek for a job's title, or its recap once it ended, when Smart
@@ -3632,7 +3884,7 @@ mod tests {
             )],
             ..Default::default()
         });
-        rt.relay_mentions(1);
+        rt.relay_mentions(&st, 1);
         // Builder's message shows in the thread, from Builder.
         let t = rt.store.talks.last().unwrap();
         assert_eq!((t.bot, t.thread), (Member::Builder, 3));
@@ -3652,13 +3904,232 @@ mod tests {
         // Past the limit they stop, and the person is asked to step in.
         rt.relay_hops
             .insert((folder.path.clone(), 3), brain::talk::HOPS);
-        rt.relay_mentions(1);
+        rt.relay_mentions(&st, 1);
         let last = rt.store.talks.last().unwrap();
         assert_eq!(last.bot, Member::Fin);
         assert!(rt.relays.is_empty());
         // Once the person speaks, they may talk again.
         rt.person_spoke(&folder.path, 3);
         assert!(rt.relay_hops.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A runtime with no engine to reach, and a folder for thread 3 where
+    /// Builder (#1) has just asked Guard something.
+    fn talk_setup(name: &str) -> (Runtime, AppSettings, store::Folder, std::path::PathBuf) {
+        let mut st = AppSettings::default();
+        for p in crate::agent::PROVIDERS.iter() {
+            let mut a = st.agent(p.id);
+            a.binary = "/nonexistent/squad-test-agent".into();
+            st.agents.insert(p.id.to_string(), a);
+        }
+        let dir = std::env::temp_dir().join(format!("squad-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let folder = store::Folder {
+            name: "t".into(),
+            path: dir.to_string_lossy().into_owned(),
+            ship: String::new(),
+            ..Default::default()
+        };
+        let mut rt = Runtime::new(quiet_store());
+        rt.store.jobs.push(store::Job {
+            id: 1,
+            thread: 3,
+            bot: Member::Builder,
+            mode: Mode::Build,
+            title: "Add a login page".into(),
+            folder: folder.clone(),
+            status: Status::Review,
+            feed: vec![store::Item::Text(
+                "The login page works.\n@Guard: is the session cookie safe?".into(),
+            )],
+            ..Default::default()
+        });
+        (rt, st, folder, dir)
+    }
+
+    /// Peek's engine answering `reply` about Builder's message to `to`.
+    fn peek_reads(rt: &mut Runtime, folder: &store::Folder, to: Member, last: bool, reply: &str) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(crate::agent::Event::Output(Ok(reply.to_string())))
+            .unwrap();
+        rt.steering.push(Steering {
+            relay: Relay {
+                to,
+                from: Member::Builder,
+                from_job: 1,
+                folder: folder.clone(),
+                thread: 3,
+                said: "is the session cookie safe?".into(),
+                whole: String::new(),
+                note: String::new(),
+            },
+            last,
+            asked: "Add a login page".into(),
+            rx,
+        });
+    }
+
+    fn said_by(rt: &Runtime, who: Member) -> Vec<String> {
+        rt.store
+            .talks
+            .iter()
+            .filter(|t| t.bot == who)
+            .map(|t| t.answer.as_ref().unwrap().text.clone())
+            .collect()
+    }
+
+    #[test]
+    fn peek_passes_a_bots_message_on_with_a_note() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-note");
+        peek_reads(
+            &mut rt,
+            &folder,
+            Member::Guard,
+            false,
+            r#"{"do":"pass","to":"Guard","note":"Just the cookie flags; Builder makes the change."}"#,
+        );
+        rt.poll_steering(&st);
+        assert!(rt.steering.is_empty());
+        // Guard gets the ask with Peek's word, which shows on its job, not
+        // as one more message in the thread.
+        assert!(said_by(&rt, Member::Fin).is_empty());
+        let g = rt
+            .store
+            .jobs
+            .iter()
+            .find(|j| j.bot == Member::Guard)
+            .unwrap();
+        assert_eq!(g.thread, 3);
+        assert!(g.title.starts_with("Builder asked"));
+        assert!(matches!(&g.feed[0], store::Item::By(Member::Builder, _)));
+        assert!(
+            matches!(&g.feed[1], store::Item::By(Member::Fin, n) if n.starts_with("Just the cookie"))
+        );
+        assert_eq!(g.turn_from, 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn peek_gives_a_bots_message_to_the_bot_it_is_for() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-send");
+        peek_reads(
+            &mut rt,
+            &folder,
+            Member::Explainer,
+            false,
+            r#"{"do":"pass","to":"Guard","say":"A security question is Guard's, so it's going there."}"#,
+        );
+        rt.poll_steering(&st);
+        assert_eq!(
+            said_by(&rt, Member::Fin),
+            vec!["A security question is Guard's, so it's going there.".to_string()]
+        );
+        assert!(rt.store.jobs.iter().any(|j| j.bot == Member::Guard));
+        assert!(!rt.store.jobs.iter().any(|j| j.bot == Member::Explainer));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn peek_stops_the_talk_until_the_person_speaks() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-stop");
+        peek_reads(
+            &mut rt,
+            &folder,
+            Member::Guard,
+            false,
+            r#"{"do":"stop","say":"Builder wants the cookie checked before you ship. Have Guard look now?","choices":["Yes","Not now"]}"#,
+        );
+        rt.poll_steering(&st);
+        // Peek tells the person, with buttons, and Guard gets nothing.
+        let last = rt.store.talks.last().unwrap();
+        assert_eq!(last.bot, Member::Fin);
+        assert!(last
+            .answer
+            .as_ref()
+            .unwrap()
+            .text
+            .contains("Have Guard look now?"));
+        assert_eq!(last.choices, vec!["Yes".to_string(), "Not now".to_string()]);
+        assert!(rt.relays.is_empty());
+        assert!(!rt.store.jobs.iter().any(|j| j.bot == Member::Guard));
+        // More @mentions in the thread wait for the person.
+        let n = rt.store.talks.len();
+        rt.relay_mentions(&st, 1);
+        assert_eq!(rt.store.talks.len(), n);
+        assert!(rt.relays.is_empty());
+        // A decision Peek was still reading there is dropped too.
+        peek_reads(
+            &mut rt,
+            &folder,
+            Member::Guard,
+            false,
+            r#"{"do":"pass","to":"Guard"}"#,
+        );
+        rt.poll_steering(&st);
+        assert!(rt.relays.is_empty() && rt.steering.is_empty());
+        assert_eq!(rt.store.talks.len(), n);
+        // Once the person speaks, the bots may talk again.
+        rt.person_spoke(&folder.path, 3);
+        rt.relay_mentions(&st, 1);
+        assert_eq!(rt.store.talks.last().unwrap().bot, Member::Builder);
+        assert_eq!(rt.relays.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn peek_sums_up_at_the_limit_or_says_so_itself() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-limit");
+        peek_reads(
+            &mut rt,
+            &folder,
+            Member::Guard,
+            true,
+            r#"{"do":"stop","say":"Builder and Guard settled on httpOnly cookies. Want Builder to add them?"}"#,
+        );
+        rt.poll_steering(&st);
+        assert!(said_by(&rt, Member::Fin)[0].contains("settled on httpOnly"));
+        // An answer that makes no sense, or passes it on anyway, gets the
+        // plain note.
+        for reply in ["no idea", r#"{"do":"pass","to":"Guard"}"#] {
+            rt.person_spoke(&folder.path, 3);
+            peek_reads(&mut rt, &folder, Member::Guard, true, reply);
+            rt.poll_steering(&st);
+            let last = rt.store.talks.last().unwrap();
+            assert_eq!(last.bot, Member::Fin);
+            assert!(last.answer.as_ref().unwrap().text.contains("6 times"));
+            assert!(rt.relays.is_empty());
+        }
+        // A reply that makes no sense before the limit lets it go on.
+        rt.person_spoke(&folder.path, 3);
+        peek_reads(&mut rt, &folder, Member::Guard, false, "hmm");
+        rt.poll_steering(&st);
+        assert!(rt.store.jobs.iter().any(|j| j.bot == Member::Guard));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bots_going_round_in_circles_are_stopped() {
+        let (mut rt, st, folder, dir) = talk_setup("steer-circle");
+        rt.relay_log.insert(
+            (folder.path.clone(), 3),
+            vec![(
+                Member::Builder,
+                Member::Guard,
+                "Is the session cookie safe?".into(),
+            )],
+        );
+        rt.relay_mentions(&st, 1);
+        let last = rt.store.talks.last().unwrap();
+        assert_eq!(last.bot, Member::Fin);
+        assert!(last
+            .answer
+            .as_ref()
+            .unwrap()
+            .text
+            .contains("going round in circles"));
+        assert!(rt.relays.is_empty());
+        assert!(rt.held.contains(&(folder.path.clone(), 3)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3744,6 +4215,7 @@ mod tests {
 
     #[test]
     fn an_old_mention_isnt_sent_again() {
+        let st = AppSettings::default();
         let mut rt = Runtime::new(quiet_store());
         let folder = store::Folder {
             name: "t".into(),
@@ -3765,13 +4237,13 @@ mod tests {
             turn_from: 1,
             ..Default::default()
         });
-        rt.relay_mentions(1);
+        rt.relay_mentions(&st, 1);
         assert!(rt.store.talks.is_empty() && rt.relays.is_empty());
         // Nor does a turn the person stopped.
         let j = rt.store.job_mut(1).unwrap();
         j.turn_from = 0;
         j.status = Status::Stopped;
-        rt.relay_mentions(1);
+        rt.relay_mentions(&st, 1);
         assert!(rt.store.talks.is_empty() && rt.relays.is_empty());
     }
 
@@ -4020,9 +4492,28 @@ mod talk_e2e {
 
     /// A stand-in for Claude Code: answers in stream-json, scripted by what
     /// it's told, so bots can be watched talking with no real engine.
+    /// Peek's reads of bots' messages make no sense to Squad Code, so they go
+    /// on as they were, unless a `steer` file sits beside it: then Peek passes
+    /// the first on with a note and stops the talk at the second.
     const FAKE: &str = r#"#!/bin/bash
 all="$*"
 sid="sess-$$"
+here="$(dirname "$0")"
+{ printf '%s' "$all" | tr '\n' ' '; echo; } >> "$here/calls.log"
+if [[ "$all" == *"every message between bots comes to you first"* ]]; then
+  if [[ -f "$here/steer" ]]; then
+    n=$(( $(cat "$here/n" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$here/n"
+    if [[ $n == 1 ]]; then
+      echo '{"do":"pass","to":"Guard","note":"Just check the cookie flags; Builder makes the change.","say":""}'
+    else
+      echo '{"do":"stop","say":"Guard says the cookie needs httpOnly. Shall Builder add it?","choices":["Yes, add it","Not now"]}'
+    fi
+  else
+    echo "no decision"
+  fi
+  exit 0
+fi
 if [[ "$all" == *"another bot on your crew"* ]]; then
   who=$(printf '%s' "$all" | grep -o '[A-Za-z]* (another bot on your crew' | head -1 | cut -d' ' -f1)
   text="I disagree: the cookie needs httpOnly.\\n@$who: please set httpOnly on the session cookie."
@@ -4041,10 +4532,10 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
         let t = Instant::now();
         loop {
             rt.poll(st, None);
-            if rt.runners.is_empty() && rt.relays.is_empty() {
+            if rt.runners.is_empty() && rt.relays.is_empty() && rt.steering.is_empty() {
                 // Let a finished turn's relays go out.
                 rt.poll(st, None);
-                if rt.runners.is_empty() {
+                if rt.runners.is_empty() && rt.steering.is_empty() {
                     return;
                 }
             }
@@ -4053,14 +4544,22 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
         }
     }
 
-    #[test]
-    fn two_bots_argue_until_the_person_is_needed() {
-        let base = std::env::temp_dir().join(format!("squad-talk-e2e-{}", std::process::id()));
+    /// A git folder, the stand-in engine, and Builder's job asking Guard
+    /// about the login page, run until the talk settles. With `steer`, Peek
+    /// steers the talk the stand-in's way.
+    fn talk(
+        name: &str,
+        steer: bool,
+    ) -> (Runtime, AppSettings, store::Folder, u64, std::path::PathBuf) {
+        let base = std::env::temp_dir().join(format!("squad-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         let fake = base.join("claude");
         std::fs::write(&fake, FAKE).unwrap();
+        if steer {
+            std::fs::write(base.join("steer"), "").unwrap();
+        }
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
         let sh = |args: &[&str]| {
@@ -4093,6 +4592,7 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
             };
             st.agents.insert(p.id.to_string(), a);
         }
+        st.assistant_agent = "claude".into();
         let folder = store::Folder {
             name: "repo".into(),
             path: repo.to_string_lossy().into_owned(),
@@ -4112,6 +4612,66 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
         let thread = job.thread;
         rt.store.jobs.push(job);
         run_until_idle(&mut rt, &st);
+        (rt, st, folder, thread, base)
+    }
+
+    #[test]
+    fn peek_steers_two_bots_and_stops_them_for_the_person() {
+        let (rt, _st, folder, thread, base) = talk("talk-steer", true);
+        let said: Vec<(Member, String)> = rt
+            .store
+            .talks
+            .iter()
+            .filter(|t| t.thread == thread)
+            .map(|t| (t.bot, t.answer.clone().unwrap().text))
+            .collect();
+        // Builder asks Guard; Peek passes it on with a word to Guard, which
+        // Guard reads with Builder's ask.
+        assert_eq!(said[0].0, Member::Builder);
+        assert!(said[0].1.starts_with("@Guard"));
+        let calls = std::fs::read_to_string(base.join("calls.log")).unwrap();
+        assert!(calls.contains("Peek, who leads the crew, adds: Just check the cookie flags"));
+        // Guard answers Builder, and Peek stops the talk there for the person.
+        assert_eq!(said[1].0, Member::Guard);
+        assert!(said[1].1.starts_with("@Builder"));
+        let last = rt.store.talks.last().unwrap();
+        assert_eq!(last.bot, Member::Fin);
+        assert!(last
+            .answer
+            .as_ref()
+            .unwrap()
+            .text
+            .contains("Shall Builder add it?"));
+        assert_eq!(
+            last.choices,
+            vec!["Yes, add it".to_string(), "Not now".to_string()]
+        );
+        assert_eq!(said.len(), 3);
+        // Builder never got Guard's message: one turn, and only one read by Peek
+        // per message between bots.
+        let builder = rt
+            .store
+            .jobs
+            .iter()
+            .find(|j| j.bot == Member::Builder)
+            .unwrap();
+        assert!(!builder
+            .feed
+            .iter()
+            .any(|i| matches!(i, store::Item::By(..))));
+        assert_eq!(
+            calls
+                .matches("every message between bots comes to you first")
+                .count(),
+            2
+        );
+        assert!(rt.held.contains(&(folder.path.clone(), thread)));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn two_bots_argue_until_the_person_is_needed() {
+        let (mut rt, st, folder, thread, base) = talk("talk-e2e", false);
 
         // Each bot's words show in the thread as its own message.
         let said: Vec<(Member, String)> = rt
@@ -4157,7 +4717,15 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
             .iter()
             .filter(|t| t.thread == thread && via(t).starts_with("to "))
             .count();
-        assert_eq!(bot_msgs as u32, brain::talk::HOPS);
+        // The stand-in bots keep saying the same thing, so Peek stops them
+        // once Guard repeats itself, well before the limit.
+        assert_eq!(bot_msgs, 3);
+        assert!(rt
+            .store
+            .talks
+            .last()
+            .and_then(|t| t.answer.as_ref())
+            .is_some_and(|a| a.text.contains("going round in circles")));
         // A later turn's words show in the thread too, without the @line.
         let turn = rt
             .store
