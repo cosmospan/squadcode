@@ -390,7 +390,7 @@ impl Shell {
                     .child(
                         div()
                             .w(px(18.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .text_color(c(ui::faint()))
                             .child(format!("{}", k + 1)),

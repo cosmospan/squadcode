@@ -269,13 +269,7 @@ fn set_dock_icon() {
 fn set_dock_icon() {}
 
 fn load_fonts(cx: &mut App) {
-    let fonts: Vec<std::borrow::Cow<'static, [u8]>> = vec![
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist-Regular.otf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist-Medium.otf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist-SemiBold.otf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist-Bold.otf")),
-    ];
-    let _ = cx.text_system().add_fonts(fonts);
+    v2::fonts::load(cx);
 }
 
 fn main() {

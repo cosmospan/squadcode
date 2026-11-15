@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- Pick your fonts under Settings > Appearance. The interface can be Geist (still the default), Inter, IBM Plex Sans, Figtree, Atkinson Hyperlegible or your system's own font, and code, the terminal, diffs and paths can be JetBrains Mono (still the default), Geist Mono, IBM Plex Mono or Fira Code. Each choice is a tile drawn in its own font, and the whole window changes the moment you pick one, in every theme, light or dark. All of them ship with the app, so they look the same whether or not they're installed; JetBrains Mono used to fall back to another mono font on computers that didn't have it.
+
 ## [2.0.0-alpha.15] - 2026-11-15
 
 ### Added

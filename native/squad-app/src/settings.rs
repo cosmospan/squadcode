@@ -159,6 +159,12 @@ pub struct AppSettings {
     pub v2_bg_dim: u8,
     /// How far the image shows through the page and the sidebar, 0 to 100.
     pub v2_bg_show: u8,
+    /// The Squad Code window's interface font, by id from `v2::fonts::SANS`:
+    /// "geist", "inter", "system"…
+    pub v2_font: String,
+    /// The font for code, the terminal and paths, by id from `v2::fonts::CODE`:
+    /// "jetbrains-mono", "fira-code"…
+    pub v2_code_font: String,
     /// Interface font: "bundled" (Squad Code's own, tuned for sharp small text) or "system".
     pub font: String,
     /// macOS font smoothing, which thickens text strokes. Off keeps text crisp and light.
@@ -296,6 +302,8 @@ impl Default for AppSettings {
             v2_bg_blur: 0,
             v2_bg_dim: 15,
             v2_bg_show: 80,
+            v2_font: "geist".into(),
+            v2_code_font: "jetbrains-mono".into(),
             diff_colors: "default".into(),
             animations: true,
             notifications: true,

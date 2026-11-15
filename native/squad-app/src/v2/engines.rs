@@ -304,7 +304,7 @@ impl Shell {
                 .mb(px(-8.))
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::faint()))
@@ -316,7 +316,7 @@ impl Shell {
         let link = |id: &'static str, text: &'static str| {
             div()
                 .id(id)
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .text_color(c(ui::body()))
                 .cursor_pointer()
@@ -473,7 +473,7 @@ impl Shell {
                                             .rounded(px(3.))
                                             .bg(c(ui::pick_fill()))
                                             .text_color(c(ui::pick_on()))
-                                            .font_family(ui::MONO)
+                                            .font_family(ui::mono())
                                             .text_size(px(10.))
                                             .font_weight(FontWeight::MEDIUM)
                                             .line_height(px(17.))
@@ -899,7 +899,7 @@ impl Shell {
                                 .bg(c(ui::bg()))
                                 .border_1()
                                 .border_color(c(ui::line()))
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(12.))
                                 .truncate()
                                 .child(cmd),
@@ -957,7 +957,7 @@ impl Shell {
                     .bg(c(ui::bg()))
                     .border_1()
                     .border_color(c(ui::line()))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .child(tool),
             )

@@ -662,7 +662,7 @@ impl Shell {
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .text_color(c(ui::ink()))
                     .child(cmd),
@@ -732,7 +732,7 @@ impl Shell {
                         })
                         .bg(c(ui::panel()))
                         .text_size(px(12.5))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_color(c(if up { ui::t_blue() } else { ui::muted() }))
                         .cursor_pointer()
                         .hover(|s| s.bg(c(ui::hover())))
@@ -782,7 +782,7 @@ impl Shell {
             .bg(c(term.bg))
             .border_1()
             .border_color(c(if typing { ui::t_blue() } else { term.line }))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(11.5))
             .line_height(px(17.))
             .text_color(c(term.fg))
@@ -1030,7 +1030,7 @@ impl Shell {
                                 Some(cmd) => div()
                                     .min_w_0()
                                     .truncate()
-                                    .font_family(ui::MONO)
+                                    .font_family(ui::mono())
                                     .text_size(px(11.))
                                     .text_color(c(ui::faint()))
                                     .child(cmd),
@@ -1112,7 +1112,7 @@ impl Shell {
                             div()
                                 .min_w_0()
                                 .truncate()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(12.))
                                 .text_color(c(ui::ink()))
                                 .child(cmd),
@@ -1121,7 +1121,7 @@ impl Shell {
                             d.child(
                                 div()
                                     .flex_none()
-                                    .font_family(ui::MONO)
+                                    .font_family(ui::mono())
                                     .text_size(px(11.5))
                                     .text_color(c(ui::faint()))
                                     .child(format!(":{p}")),

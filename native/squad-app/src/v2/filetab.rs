@@ -146,7 +146,7 @@ impl Shell {
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .child(title),
             )
             .child(match files.len() {
@@ -388,7 +388,7 @@ impl Shell {
                 d.child(
                     div()
                         .flex_none()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(c(mark_color(&m)))
@@ -680,7 +680,7 @@ impl Shell {
                         ui::line_hi()
                     }))
                     .bg(c(if only { ui::pick_fill() } else { ui::raised() }))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(if only { ui::pick_on() } else { ui::body() }))
@@ -700,7 +700,7 @@ impl Shell {
             .flex()
             .items_center()
             .gap(px(8.))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(11.))
             .text_color(c(ui::faint()))
             .child(div().min_w_0().truncate().child(dir.clone()))
@@ -758,7 +758,7 @@ impl Shell {
                 .relative()
                 .overflow_hidden()
                 .cursor_pointer()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(12.))
                 .text_color(c(if on { ui::ink() } else { ui::body() }))
                 .when(on, |d| {
@@ -916,7 +916,7 @@ impl Shell {
                 .min_h_0()
                 .overflow_y_scroll()
                 .py(px(6.))
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(11.5))
                 .line_height(px(19.))
                 .flex()
@@ -989,7 +989,7 @@ impl Shell {
                         .border_color(c(ui::line()))
                         .child(
                             div()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(12.))
                                 .font_weight(FontWeight::MEDIUM)
                                 .child(name),
@@ -999,7 +999,7 @@ impl Shell {
                                 div()
                                     .flex()
                                     .gap(px(5.))
-                                    .font_family(ui::MONO)
+                                    .font_family(ui::mono())
                                     .text_size(px(11.))
                                     .child(
                                         div().text_color(c(ui::t_green())).child(format!("+{add}")),
@@ -1051,7 +1051,7 @@ impl Shell {
                         .py(px(6.))
                         .border_t_1()
                         .border_color(c(ui::line()))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .text_color(c(ui::faint()))
                         .child(format!(
