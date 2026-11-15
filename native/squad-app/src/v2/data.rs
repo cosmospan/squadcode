@@ -599,9 +599,9 @@ impl Mode {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     /// The made bots are one list for the app: tests that set it take turns.
-    static CREW_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    pub(crate) static CREW_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     use super::*;
 
