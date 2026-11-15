@@ -307,6 +307,81 @@ pub fn repeats(said: &str, earlier: &[String]) -> bool {
     })
 }
 
+/// Whether `said` is only a courtesy, like "Great, thanks!" or "Looks good
+/// to me": no question and nothing asked of the other bot. Peek doesn't
+/// pass it on, so two bots never thank each other back and forth.
+pub fn courtesy(said: &str) -> bool {
+    if said.contains('?') {
+        return false;
+    }
+    let w = super::words(said);
+    if w.is_empty() || w.len() > 10 {
+        return false;
+    }
+    let text = format!(" {} ", w.join(" "));
+    let kind = [
+        " thanks ",
+        " thank ",
+        " thx ",
+        " ty ",
+        " great ",
+        " perfect ",
+        " nice ",
+        " awesome ",
+        " cheers ",
+        " looks good ",
+        " sounds good ",
+        " lgtm ",
+        " agreed ",
+        " got it ",
+        " noted ",
+        " will do ",
+        " good work ",
+        " well done ",
+        " appreciate ",
+    ];
+    // Anything asked or still to do makes it more than a courtesy.
+    let asks = [
+        " please ",
+        " can ",
+        " could ",
+        " would ",
+        " also ",
+        " need ",
+        " needs ",
+        " must ",
+        " should ",
+        " add ",
+        " fix ",
+        " change ",
+        " check ",
+        " but ",
+        " however ",
+        " still ",
+        " missing ",
+        " wrong ",
+        " instead ",
+        " don't ",
+        " not ",
+        " let ",
+        " make ",
+    ];
+    kind.iter().any(|k| text.contains(k)) && !asks.iter().any(|a| text.contains(a))
+}
+
+/// What Peek says when a bot asks another for something that needs the
+/// person's yes first, like a deploy or a delete. `why` is the guard's reason.
+pub fn needs_yes(from: Member, to: Member, said: &str, why: &str) -> String {
+    format!(
+        "{} asked {} to {}. {why} Say \"@{} go ahead\" if you want it done.",
+        from.name(),
+        to.name(),
+        clip(said.trim_end_matches(['.', '!']), 160)
+            .trim_start_matches(|c: char| c.is_whitespace()),
+        to.name()
+    )
+}
+
 /// What Peek says when the bots repeat themselves and it stops them without
 /// asking its engine.
 pub fn circling(from: Member, to: Member) -> String {
@@ -495,6 +570,45 @@ mod tests {
     }
 
     #[test]
+    fn a_courtesy_isnt_passed_on_but_an_ask_is() {
+        for t in [
+            "Great, thanks for checking!",
+            "Thanks!",
+            "Looks good to me.",
+            "Perfect, got it.",
+            "Agreed, nice work.",
+        ] {
+            assert!(courtesy(t), "{t}");
+        }
+        for t in [
+            "Thanks. Can you also add rate limiting?",
+            "Thanks, please also set SameSite.",
+            "Great, but the cookie is still missing httpOnly.",
+            "Looks good, now make the token expire after an hour.",
+            "is the session cookie safe to ship?",
+            "The reset token never expires.",
+            "",
+        ] {
+            assert!(!courtesy(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn a_risky_ask_names_who_asked_what() {
+        let t = needs_yes(
+            Member::Builder,
+            Member::Shipper,
+            "deploy this to production right now!",
+            "This needs your yes first: it changes production.",
+        );
+        assert!(
+            t.starts_with("Builder asked Shipper to deploy this to production right now."),
+            "{t}"
+        );
+        assert!(t.contains("@Shipper go ahead"));
+    }
+
+    #[test]
     fn a_message_said_again_is_going_round_in_circles() {
         let earlier = vec![
             "please set httpOnly on the session cookie".to_string(),
@@ -634,6 +748,80 @@ fn steering_reads() {
             true,
             "stop, summing up",
         ),
+        (
+            "on track: a real follow-up fix",
+            "check the login for security holes and get them fixed",
+            vec![
+                s("guard", "Two holes: the cookie isn't httpOnly, and there's no rate limit. @Builder can you fix both?"),
+                s("builder", "Both fixed: httpOnly is set, and logins are limited to 5 a minute per IP."),
+            ],
+            Member::Guard,
+            Member::Builder,
+            "Thanks. One more: the password reset token never expires. Can you make it expire after an hour?",
+            2,
+            false,
+            "pass to Builder",
+        ),
+        (
+            "on track: reasoned push-back",
+            "add caching to the product page",
+            vec![s("builder", "I've cached the product page for 24 hours.")],
+            Member::Guard,
+            Member::Builder,
+            "24 hours is too long: prices change during sales and customers would see old prices at checkout. Can you drop it to 5 minutes, or bust the cache when a price changes?",
+            1,
+            false,
+            "pass to Builder",
+        ),
+        (
+            "wrong bot: testing asked of Guard",
+            "add a signup page",
+            vec![s("builder", "The signup page is in.")],
+            Member::Builder,
+            Member::Guard,
+            "can you run the test suite and try the signup flow in a real browser to make sure it works end to end?",
+            0,
+            false,
+            "pass to Checker",
+        ),
+        (
+            "person's call: only they know",
+            "add a buy button to the product page",
+            vec![s("builder", "The buy button is in, using the theme's default style.")],
+            Member::Builder,
+            Member::Explainer,
+            "what colour does the person want for the buy button, and should it say Buy or Add to cart?",
+            1,
+            false,
+            "stop and ask the person",
+        ),
+        (
+            "circles: the same argument again, reworded",
+            "decide how we store sessions",
+            vec![
+                s("builder", "@Guard I'd keep sessions in signed cookies: no server state."),
+                s("guard", "I'd rather use server-side sessions in Redis so we can revoke them. @Builder agree?"),
+                s("builder", "Signed cookies are simpler and need no Redis. @Guard can we go with cookies?"),
+                s("guard", "Revocation matters for stolen sessions, so Redis. @Builder ok?"),
+            ],
+            Member::Builder,
+            Member::Guard,
+            "I still think cookies are simpler to run, with no extra service. Can we just use cookies?",
+            4,
+            false,
+            "stop and ask the person to decide",
+        ),
+        (
+            "asked for: ship it",
+            "build the pricing page and open a PR when it's done",
+            vec![s("builder", "The pricing page is in, with three plans, and the checks pass.")],
+            Member::Builder,
+            Member::Shipper,
+            "can you open the pull request for the pricing page?",
+            1,
+            false,
+            "pass to Shipper",
+        ),
     ];
     let dir = std::env::temp_dir().to_string_lossy().into_owned();
     let only = std::env::var("SCENE").unwrap_or_default();
@@ -656,15 +844,31 @@ fn steering_reads() {
         };
         let p = prompt(&m);
         println!("\n## {name}\n   right: {want}");
-        for _ in 0..runs {
-            let out = Command::new("claude")
-                .args(["-p", "--model", "haiku", &p])
-                .current_dir(&dir)
-                .output()
-                .expect("claude");
-            let reply = String::from_utf8_lossy(&out.stdout).to_string();
+        // The runs at once, so many runs stay quick.
+        let replies: Vec<String> = (0..runs)
+            .map(|_| {
+                let (p, dir) = (p.clone(), dir.clone());
+                std::thread::spawn(move || {
+                    let out = Command::new("claude")
+                        .args(["-p", "--model", "haiku", &p])
+                        .current_dir(&dir)
+                        .output()
+                        .expect("claude");
+                    String::from_utf8_lossy(&out.stdout).to_string()
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect();
+        for reply in replies {
             match parse(&reply, &m) {
-                Some(s) => println!("   -> {s:?}"),
+                Some(Steer::Go { to, note, say }) => {
+                    println!("   -> pass to {} | note: {note} | say: {say}", to.name())
+                }
+                Some(Steer::Stop { say, choices }) => {
+                    println!("   -> STOP | {say} | {choices:?}")
+                }
                 None => println!("   -> unparsed: {}", reply.trim()),
             }
         }

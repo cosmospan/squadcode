@@ -267,6 +267,11 @@ pub fn start(
     let exe = std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
+    // A test binary can't serve MCP: a test with real engines names the app.
+    let exe = match std::env::var("SQUADCODE_TEST_APP") {
+        Ok(app) if cfg!(test) && !app.is_empty() => app,
+        _ => exe,
+    };
     // Squad Code's own MCP server (memory, playbooks, the job's browser) goes to
     // every engine that takes MCP servers; the rest get the browser as commands.
     let memory =

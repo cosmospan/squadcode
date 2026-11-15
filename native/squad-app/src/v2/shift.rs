@@ -269,6 +269,7 @@ where
 /// didn't say when, None when it didn't run out.
 pub fn ran_out(job: &Job) -> Option<Option<u64>> {
     let mut texts: Vec<&str> = Vec::new();
+    let mut errors: Vec<&str> = Vec::new();
     for item in job
         .feed
         .get(job.turn_from..)
@@ -277,8 +278,14 @@ pub fn ran_out(job: &Job) -> Option<Option<u64>> {
         .rev()
     {
         match item {
-            Item::Error(e) => texts.push(e),
-            Item::Text(t) => texts.push(t),
+            Item::Error(e) => {
+                texts.push(e);
+                errors.push(e);
+            }
+            // An engine's out-of-plan line is short. A bot's own words can
+            // talk about rate limits or a 429 (a security review often does)
+            // without it having run out of anything.
+            Item::Text(t) if t.chars().count() <= 300 => texts.push(t),
             _ => {}
         }
         if texts.len() >= 3 {
@@ -290,7 +297,8 @@ pub fn ran_out(job: &Job) -> Option<Option<u64>> {
             return Some(limit.resets_at.map(|t| t.max(0) as u64));
         }
     }
-    let lower = texts.join("\n").to_lowercase();
+    // The looser words only count when the engine reported them as an error.
+    let lower = errors.join("\n").to_lowercase();
     let worn = lower.contains("rate limit")
         || lower.contains("quota")
         || lower.contains("usage limit")
@@ -422,6 +430,22 @@ mod tests {
         assert!(ran_out(&job_said("Claude usage limit reached.")).is_some());
         assert_eq!(ran_out(&job_said("429 rate limit exceeded")), Some(None));
         assert_eq!(ran_out(&job_said("tests failed")), None);
+        // A bot's answer about rate limits hasn't run out of plan.
+        let review = format!(
+            "{} Add a rate limit per IP: after 5 failures answer 429 with Retry-After.",
+            "The hashing is solid. ".repeat(20)
+        );
+        let job = Job {
+            feed: vec![Item::Text(review)],
+            ..Job::default()
+        };
+        assert_eq!(ran_out(&job), None);
+        // Nor has one whose short progress line mentions a 429.
+        let job = Job {
+            feed: vec![Item::Text("Adding the rate limit and a 429 test.".into())],
+            ..Job::default()
+        };
+        assert_eq!(ran_out(&job), None);
         assert_eq!(resume_time(Some(1000), 500), 1060);
         assert_eq!(resume_time(None, 500), 500 + UNKNOWN_RESET);
     }
