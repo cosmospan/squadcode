@@ -4,11 +4,12 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+## [2.0.0-alpha.15] - 2026-11-15
+
 ### Added
 
 - Peek can make a new bot from a thread. Ask for one ("make a bot that writes our release notes"), or bring work that needs a specialist nobody on the crew is, and Peek offers it with a name, what it's for and its kind of work. Pick Make, or just say yes, and the bot joins the crew and the thread, set up from what it's for while your engine drafts the rest; when your message was work, the new bot starts on it. Peek still gives work the crew can do to the crew.
-
-## [2.0.0-alpha.15] - 2026-11-14
+- Peek steers what bots say to each other. Every message one bot sends another now goes past Peek first, which passes it on (sometimes with a one-line note for that bot), hands it to a better-suited bot, drops it when it needs no reply (a status report, a plain "I agree", a thank-you), or stops the talk and asks you when the bots go in circles, drift from your ask, or reach a choice only you can make. At 6 messages Peek sums up where the bots got to. Asks the guard rails flag, like a deploy or a delete, wait for you unless they only change code on the bots' own branch. When you write to a bot, bot messages still on their way to it are dropped, so your word wins.
 
 ### Changed
 
@@ -22,6 +23,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 - A short answer like "1" to a bot's question now goes to that bot. Peek could only hand work to a bot; when the answer wasn't a job, Peek answered in the bot's place (often promising research it never started). Peek now names the bot that should answer, and the reply goes into that bot's open job in the thread when it has one.
 - Peek sees what a bot last said on its job card. A bot's question at the end of a job ("Where should the toggle live? 1. Header 2. Settings") showed only on the card, so Peek read "2" with no question before it and asked what it meant. The thread's conversation now holds each finished job's last words, without its @lines, which are messages of their own.
 - Work that fits a built-in bot you removed is offered to that bot, and Squad Code asks to add it first. Peek only knew the bots on the crew, so a security check with no Guard went to Checker or Fixer.
+- A bot's answer to another bot's question now goes back to the bot that asked, even without an @line, so a review reaches the bot that asked for it.
+- A bot's answer that mentions "rate limit" or "429", as most security reviews do, no longer marks its job Failed as out of plan and drops what it said.
+- The guard rails no longer stop harmless asks between bots, like "no reset token in production logs" or "purge the cache on save".
+- If a bot fails while another bot waits on its answer, Peek says so in the thread.
 
 ## [2.0.0-alpha.14] - 2026-11-14
 
