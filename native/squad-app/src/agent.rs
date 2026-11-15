@@ -1221,6 +1221,12 @@ pub fn ask_command_on(provider: &str, configured_bin: &str, prompt: &str, model:
             command.args(&model_args).args(["-p", prompt]);
         }
     }
+    crate::keys::apply(
+        &mut command,
+        provider,
+        &crate::keys::default_for(provider),
+        true,
+    );
     command
 }
 
@@ -1296,6 +1302,8 @@ pub fn turn_command(spec: &RunSpec) -> Command {
             }
         }
     }
+    // After the person's own lines: a key chosen for the run wins over them.
+    crate::keys::apply(&mut command, spec.provider, &spec.opts.key, spec.local);
     command
 }
 
@@ -1599,6 +1607,7 @@ fn pump<R: Read + Send + 'static>(reader: R, target: Target, is_err: bool, tx: S
 
 /// The event for a line read from a run's stdout or stderr (`is_err`).
 pub(crate) fn line_event(target: Target, is_err: bool, line: String) -> Event {
+    let line = crate::keys::scrub(line);
     match target {
         Target::Session(_) if is_err => Event::Err(line),
         Target::Session(_) => match crate::stream::parse_line(&line) {

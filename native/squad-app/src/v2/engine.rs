@@ -126,13 +126,41 @@ pub fn label_of(i: usize, model: &str) -> String {
     }
 }
 
-/// "Claude Code" or "Claude Code · opus".
+/// "Claude Code", "Claude Code · opus", or with the key it runs on,
+/// "Claude Code · opus · Anthropic · Work · …a1b2".
 pub fn label(st: &AppSettings, who: Member) -> String {
     let (i, model) = engine(st, who);
     let name = agent::PROVIDERS[i].name;
-    match crate::agent_pick::AgentPick::model_label(i, &model) {
+    let base = match crate::agent_pick::AgentPick::model_label(i, &model) {
         Some(m) => format!("{name} · {m}"),
         None => name.to_string(),
+    };
+    match st.api_key(&key_for(st, who, agent::PROVIDERS[i].id)) {
+        Some(k) => format!("{base} · {}", k.title()),
+        None => base,
+    }
+}
+
+/// The sign-in choice saved on the bot itself; empty follows its agent's.
+pub fn own_key(st: &AppSettings, who: Member) -> String {
+    st.bot_engines
+        .get(&bot_key(who))
+        .map(|e| e.key.clone())
+        .unwrap_or_default()
+}
+
+/// How a run of `who` on agent `agent_id` signs in: the bot's own choice when it
+/// suits that agent, else the agent's from Settings.
+pub fn key_for(st: &AppSettings, who: Member, agent_id: &str) -> String {
+    let own = own_key(st, who);
+    let fits = own == crate::keys::LOGIN
+        || crate::keys::parse_choice(&own)
+            .and_then(|(p, _)| crate::keys::provider(p))
+            .is_some_and(|p| p.agents.contains(&agent_id));
+    if fits {
+        own
+    } else {
+        st.agent(agent_id).key
     }
 }
 
@@ -231,7 +259,8 @@ impl Ask {
         prompt.push_str(&format!(
             "\nQuestion: {question}\n\nAnswer in under 150 words.{JOB_RULE}"
         ));
-        let command = agent::ask_command_on(p.id, &configured, &prompt, &model);
+        let mut command = agent::ask_command_on(p.id, &configured, &prompt, &model);
+        crate::keys::apply(&mut command, p.id, &key_for(st, who, p.id), true);
         let (tx, rx) = channel();
         agent::oneshot(command, dir, tx);
         Ok(Ask {
@@ -273,7 +302,7 @@ impl Ask {
 
 #[cfg(test)]
 mod job_tests {
-    use super::split_job;
+    use super::{key_for, set, split_job, AppSettings, BotEngine, Member};
 
     #[test]
     fn a_question_offers_no_job() {
@@ -299,5 +328,40 @@ mod job_tests {
         assert!(job.is_empty() && words.contains("not last"));
         let (words, job) = split_job("Hm.\nJOB:");
         assert!(job.is_empty() && words == "Hm.");
+    }
+
+    #[test]
+    fn a_bots_key_wins_only_on_an_agent_that_takes_it() {
+        let mut st = AppSettings::default();
+        let mut claude = st.agent("claude");
+        claude.key = crate::keys::LOGIN.into();
+        st.agents.insert("claude".into(), claude);
+        let who = Member::all()[0];
+        assert_eq!(key_for(&st, who, "claude"), crate::keys::LOGIN);
+        set(
+            &mut st,
+            who,
+            BotEngine {
+                agent: "claude".into(),
+                key: "anthropic:k1".into(),
+                ..BotEngine::default()
+            },
+        );
+        assert_eq!(key_for(&st, who, "claude"), "anthropic:k1");
+        assert_eq!(key_for(&st, who, "opencode"), "anthropic:k1");
+        // Codex can't take an Anthropic key: it follows Codex's own setting.
+        assert_eq!(key_for(&st, who, "codex"), "");
+    }
+
+    #[test]
+    fn settings_from_before_keys_still_read() {
+        let st: AppSettings =
+            serde_json::from_str(r#"{"bot_engines":{"builder":{"agent":"codex","model":"o3"}}}"#)
+                .unwrap();
+        let e = &st.bot_engines["builder"];
+        assert_eq!((e.agent.as_str(), e.key.as_str()), ("codex", ""));
+        assert!(st.api_keys.is_empty());
+        let out = serde_json::to_string(&st).unwrap();
+        assert!(!out.contains("api_keys") && !out.contains("\"key\""));
     }
 }

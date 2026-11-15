@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- Bring your own API keys. Engines › API keys takes a key from Anthropic, OpenAI, Google Gemini or xAI, or an agent's own service key (Cursor, GitHub Copilot, Amp, Factory). Squad Code checks it with the provider as soon as you save it ("Works · 23 models", or what the provider said was wrong) and keeps the secret in the macOS Keychain, the Windows Credential Manager, or the Secret Service on Linux, never in settings. Each engine says how it signs in (as before, its own login, or one of your keys), and each bot can run on a key of its own, so one bot can bill your work key while the rest use your login. A key reaches only the runs that use it, stays on this computer, and is blanked out of anything an agent prints. Choosing "Its own login" leaves key variables from your shell out of that engine's runs, so a stray key can't bill another account.
+
 ## [2.0.0-alpha.15] - 2026-11-15
 
 ### Added

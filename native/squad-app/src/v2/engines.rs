@@ -296,6 +296,8 @@ impl Shell {
         let none_ready = ready.is_empty();
         let setup = self.setup_runs(cx);
         let engines = self.engine_rows(&st, &ready, default_i, cx);
+        let keys_card = self.keys_card(&st, cx);
+        let form_open = self.key_form.is_some();
         let all = self.engines_all;
         let label = |text: &'static str, right: Option<Stateful<Div>>| {
             div()
@@ -376,6 +378,15 @@ impl Shell {
                         )
                     })
                     .child(engines)
+                    .child(label(
+                        "API KEYS",
+                        (!form_open).then(|| {
+                            link("key-add", "Add a key +").on_click(cx.listener(
+                                |this, _, _, cx| this.open_key_form("anthropic", cx),
+                            ))
+                        }),
+                    ))
+                    .child(keys_card)
                     .child(label(
                         "BOT BRAINS",
                         Some(link("eng-brains-note", "applies to the next job")),
@@ -615,7 +626,7 @@ impl Shell {
                                 who,
                                 BotEngine {
                                     agent: id.to_string(),
-                                    model: String::new(),
+                                    ..BotEngine::default()
                                 },
                             )
                         });
@@ -662,12 +673,14 @@ impl Shell {
                         .on_click(cx.listener(move |_, _, _, cx| {
                             let value = value.clone();
                             save(cx, |st| {
+                                let key = engine::own_key(st, who);
                                 engine::set(
                                     st,
                                     who,
                                     BotEngine {
                                         agent: cur_id.to_string(),
                                         model: value,
+                                        key,
                                     },
                                 )
                             });
@@ -675,6 +688,7 @@ impl Shell {
                         })),
                 );
             }
+            let key_row = self.bot_key_row(st, who, cur_id);
             rows = rows.child(
                 div()
                     .px(px(18.))
@@ -714,7 +728,8 @@ impl Shell {
                             .flex_col()
                             .gap(px(6.))
                             .when(offer.len() > 1, |d| d.child(engines_row))
-                            .child(models_row),
+                            .child(models_row)
+                            .children(key_row),
                     )
                     .when(own, |d| {
                         d.child(
@@ -963,6 +978,10 @@ impl Shell {
             )
             .child(ui::caption("MODELS"))
             .child(models);
+        if crate::keys::providers_for(id).next().is_some() {
+            let signin = self.sign_in_row(st, id, cx);
+            body = body.child(ui::caption("SIGNS IN WITH")).child(signin);
+        }
         body
     }
 }

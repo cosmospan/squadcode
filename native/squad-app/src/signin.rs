@@ -81,7 +81,12 @@ fn check(provider: &str, settings: &crate::settings::AppSettings) -> Option<bool
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(std::path::PathBuf::from)?;
     let p = crate::agent::PROVIDERS.iter().find(|p| p.id == provider)?;
-    let env = settings.agent(p.id).env;
+    let opts = settings.agent(p.id);
+    // A key chosen for the agent in Squad Code signs it in.
+    if settings.api_key(&opts.key).is_some() {
+        return Some(true);
+    }
+    let env = opts.env;
     let has_var = |key: &str| {
         std::env::var(key).is_ok_and(|v| !v.is_empty())
             || crate::shellenv::login_var(key).is_some_and(|v| !v.is_empty())

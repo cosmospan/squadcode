@@ -8,6 +8,7 @@
 //!
 //! Squad Code v1 stays one click away on the rail while v2 grows.
 
+mod apikeys;
 mod apps;
 mod asks;
 mod board;
@@ -547,6 +548,14 @@ pub struct Shell {
     /// Engines shows each bot's brain rather than the engines themselves.
     /// Settings › Engines lists every engine it knows, not just the common ones.
     engines_all: bool,
+    /// Engines › API keys: the add-a-key form is open, on this provider.
+    key_form: Option<&'static str>,
+    /// The key being pasted, shown masked.
+    key_secret: Entity<InputState>,
+    /// The person's name for it.
+    key_label: Entity<InputState>,
+    /// Keys being checked with their provider right now, by id.
+    key_checking: Vec<String>,
     /// The Settings pane last open, where the sidebar's Settings goes back to.
     settings_pane: Pane,
     /// The bot being dressed in Settings → Mascot.
@@ -956,6 +965,12 @@ impl Shell {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let maker_name = cx.new(|cx| InputState::new(window, cx).placeholder("Scout"));
+        let key_secret = cx.new(|cx| {
+            InputState::new(window, cx)
+                .masked(true)
+                .placeholder("Paste the key")
+        });
+        let key_label = cx.new(|cx| InputState::new(window, cx).placeholder("Personal (optional)"));
         let maker_role =
             cx.new(|cx| InputState::new(window, cx).placeholder("Checks the docs match the code"));
         let maker_skills =
@@ -1438,6 +1453,10 @@ impl Shell {
             maker_open: false,
             engine_sel: None,
             engines_all: false,
+            key_form: None,
+            key_secret,
+            key_label,
+            key_checking: Vec::new(),
             settings_pane: Pane::Work,
             applied_theme: look(),
             fin_sel: Member::Guard,

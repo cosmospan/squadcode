@@ -1017,7 +1017,7 @@ impl Shell {
                     this.edit(cx, |e| {
                         e.engine = BotEngine {
                             agent: id.to_string(),
-                            model: String::new(),
+                            ..BotEngine::default()
                         }
                     })
                 })),
@@ -1032,10 +1032,8 @@ impl Shell {
                     cx.listener(move |this, _, _, cx| {
                         let value = value.clone();
                         this.edit(cx, |e| {
-                            e.engine = BotEngine {
-                                agent: id.to_string(),
-                                model: value,
-                            }
+                            e.engine.agent = id.to_string();
+                            e.engine.model = value;
                         })
                     }),
                 ),

@@ -16,6 +16,10 @@ pub struct AgentOptions {
     pub model_override: String,
     /// Extra arguments, shell-style quoting.
     pub extra_args: String,
+    /// How the agent signs in (see `keys`): empty as it already does, `"login"` its own
+    /// login with stray key variables removed, or `"<provider>:<id>"` a stored key.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub key: String,
     /// One `KEY=VALUE` per line.
     pub env: String,
     /// Claude: low…max. Codex: model_reasoning_effort.
@@ -264,6 +268,10 @@ pub struct AppSettings {
     /// empty is the published one.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub brain_model_url: String,
+    /// API keys the person added. Only what tells them apart is here; each secret is
+    /// in the keychain (see `keys`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub api_keys: Vec<crate::keys::ApiKey>,
     /// Settings this build doesn't know, such as ones a newer or older Squad Code
     /// wrote. Kept as they are, so saving never drops them.
     #[serde(flatten)]
@@ -278,6 +286,9 @@ pub struct BotEngine {
     pub agent: String,
     /// Its model; empty is the agent's own default.
     pub model: String,
+    /// How it signs in, as `AgentOptions::key`; empty follows the agent's setting.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub key: String,
 }
 
 impl Default for AppSettings {
@@ -375,6 +386,7 @@ impl Default for AppSettings {
             brain_model: String::new(),
             brain_url: String::new(),
             brain_model_url: String::new(),
+            api_keys: Vec::new(),
             extra: serde_json::Map::new(),
         }
     }
@@ -433,6 +445,14 @@ pub fn changed_elsewhere() -> Option<AppSettings> {
 }
 
 impl AppSettings {
+    /// The stored key a run choice names, when it still exists.
+    pub fn api_key(&self, choice: &str) -> Option<&crate::keys::ApiKey> {
+        let (provider, id) = crate::keys::parse_choice(choice)?;
+        self.api_keys
+            .iter()
+            .find(|k| k.id == id && k.provider == provider)
+    }
+
     pub fn agent(&self, id: &str) -> AgentOptions {
         self.agents.get(id).cloned().unwrap_or_default()
     }
@@ -441,6 +461,7 @@ impl AppSettings {
         let mut settings: Self = crate::store::read_json_or_backup(&settings_path());
         mark_known();
         settings.migrate();
+        crate::keys::sync(&settings);
         settings
     }
 
@@ -482,6 +503,7 @@ impl AppSettings {
     }
 
     pub fn save(&self) {
+        crate::keys::sync(self);
         crate::store::write_json(&settings_path(), self);
         mark_known();
     }

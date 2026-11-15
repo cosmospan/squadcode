@@ -81,6 +81,7 @@ pub fn command(bin: &str, model: &str) -> Command {
     if !model.trim().is_empty() {
         c.args(["--model", model.trim()]);
     }
+    crate::keys::apply(&mut c, "claude", &crate::keys::default_for("claude"), true);
     c
 }
 
