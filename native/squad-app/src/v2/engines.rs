@@ -53,12 +53,19 @@ pub(super) fn choice(
         .child(label.into())
 }
 
-/// The command that installs agent `id`'s command-line tool here.
+/// The command that installs agent `id`'s command-line tool here: npm, or
+/// the vendor's script when it has one and npm isn't here.
 pub(super) fn install_cmd(id: &str) -> Option<String> {
     crate::registry::spec(id).and_then(|s| {
+        let script = if cfg!(windows) {
+            s.install.windows.is_some()
+        } else {
+            s.install.unix.is_some()
+        };
         s.install
             .npm
             .as_ref()
+            .filter(|_| !script || crate::install::locate("npm").is_some())
             .map(|n| format!("npm install -g {n}"))
             .or_else(|| {
                 if cfg!(windows) {

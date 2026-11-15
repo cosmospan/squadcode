@@ -23,6 +23,7 @@ mod emblem;
 mod engine;
 mod engines;
 mod filetab;
+mod fixes;
 mod gitcards;
 mod goal;
 mod history;
@@ -613,6 +614,9 @@ pub struct Shell {
     /// The run whose card is open beside the sidebar's run pill; it tucks
     /// back into the pill when you go elsewhere or click outside it.
     run_pop: Option<u64>,
+    /// A fix on a failed install's card waiting for you to confirm it: the
+    /// run and which fix.
+    run_confirm: Option<(u64, usize)>,
     /// When that card was last tucked away by a click outside it, so the
     /// same click landing on the pill doesn't open it again.
     run_pop_shut: Option<Instant>,
@@ -1324,6 +1328,7 @@ impl Shell {
             Ok("history") => Place::History,
             Ok("overview") => Place::Overview,
             Ok("engines") => Place::Settings(Pane::Engines),
+            Ok(p) if p.starts_with("engines-run:") => Place::Settings(Pane::Engines),
             Ok("server") => Place::Settings(Pane::Server),
             Ok("work") => Place::Settings(Pane::Work),
             Ok("settings") => Place::Settings(Pane::Work),
@@ -1469,6 +1474,7 @@ impl Shell {
             run_focus: cx.focus_handle(),
             run_typing: None,
             run_pop: None,
+            run_confirm: None,
             run_pop_shut: None,
             run_guess: None,
             act_from: (None, None),
@@ -1628,6 +1634,11 @@ impl Shell {
                 }
             }
             Ok("palette") => shell.open_palette(window, cx),
+            // Engines with an install run from there, for looking at how a
+            // failed one explains itself: "engines-run:npm install -g x".
+            Ok(p) if p.starts_with("engines-run:") => {
+                shell.run_setup(&p["engines-run:".len()..], cx)
+            }
             // The project's app started from the sidebar, its card open
             // beside the run pill; "run-app:tucked" with the card tucked away.
             Ok(p) if p.starts_with("run-app") => {
