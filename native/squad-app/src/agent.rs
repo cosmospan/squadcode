@@ -99,7 +99,24 @@ pub fn available(bin: &str, configured: &str) -> bool {
     }
 }
 
+/// Whether `bin` is on PATH, or another name its CLI installs under (such as Cursor's
+/// `agent` for `cursor-agent`).
 pub fn installed(bin: &str) -> bool {
+    on_path(bin) || crate::registry::alt_bins(bin).any(on_path)
+}
+
+/// The command to run for an agent whose usual name is `bin` when Settings names none:
+/// `bin` itself, or the first other name of its CLI that is on PATH when `bin` isn't.
+pub fn default_bin(bin: &'static str) -> &'static str {
+    if on_path(bin) {
+        return bin;
+    }
+    crate::registry::alt_bins(bin)
+        .find(|b| on_path(b))
+        .unwrap_or(bin)
+}
+
+fn on_path(bin: &str) -> bool {
     let suffixes: &[&str] = if cfg!(windows) {
         &["", ".exe", ".cmd", ".bat"]
     } else {
@@ -1176,7 +1193,7 @@ pub fn ask_model_flag(provider: &str) -> Option<&'static str> {
 /// `ask_command` on `model`; empty leaves the agent on its own default.
 pub fn ask_command_on(provider: &str, configured_bin: &str, prompt: &str, model: &str) -> Command {
     let bin = if configured_bin.trim().is_empty() {
-        self::provider(provider).bin
+        default_bin(self::provider(provider).bin)
     } else {
         configured_bin.trim()
     };
@@ -1277,7 +1294,7 @@ impl Handle {
 /// The program to run for a turn: the agent's Settings binary, else its usual name.
 fn program<'a>(spec: &RunSpec<'a>) -> &'a str {
     if spec.opts.binary.trim().is_empty() {
-        self::provider(spec.provider).bin
+        default_bin(self::provider(spec.provider).bin)
     } else {
         spec.opts.binary.trim()
     }
@@ -2102,6 +2119,18 @@ mod arg_tests {
                 assert!(!ok);
                 break;
             }
+        }
+    }
+
+    #[test]
+    fn cursor_runs_under_either_of_its_names() {
+        let alts: Vec<&str> = crate::registry::alt_bins("cursor-agent").collect();
+        assert_eq!(alts, ["agent"]);
+        assert_eq!(crate::registry::alt_bins("codex").count(), 0);
+        // With neither on PATH, the usual name stays.
+        if !on_path("cursor-agent") && !on_path("agent") {
+            assert_eq!(default_bin("cursor-agent"), "cursor-agent");
+            assert!(!installed("cursor-agent"));
         }
     }
 
