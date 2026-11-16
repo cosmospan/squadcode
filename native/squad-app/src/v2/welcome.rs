@@ -1,6 +1,6 @@
 //! The first-run walkthrough, five short steps shown once: pick a look, check
-//! the coding agents (Claude Code, Codex, OpenCode, Antigravity, Gemini and
-//! the rest), pick a project folder, pick the crew, and say how much the bots
+//! the coding agents (Claude Code, Codex, Cursor, OpenCode, Antigravity,
+//! Gemini and the rest), pick a project folder, pick the crew, and say how much the bots
 //! do on their own. Every step can be skipped. Peek leads the crew and is
 //! always on it; what to do first is in #general, which opens next.
 
@@ -11,14 +11,12 @@ use gpui_kit::*;
 use squad_holo::{Framing, Mood};
 
 use super::data::{self, Member};
+use super::engine::COMMON;
 use super::ui::{self, c, ca};
 use super::{Place, Shell};
 use crate::settings::AppSettings;
 
 const STEPS: [&str; 5] = ["Look", "Engines", "Project", "Crew", "How work runs"];
-
-/// The engines the walkthrough always lists, installed or not.
-const COMMON: [&str; 5] = ["claude", "codex", "opencode", "antigravity", "gemini"];
 
 fn save(cx: &mut App, f: impl FnOnce(&mut AppSettings)) {
     cx.update_global::<AppSettings, _>(|st, _| {
@@ -240,8 +238,8 @@ impl Shell {
     }
 
     /// 02 Engines: the coding agents the bots run on, each ready or with its
-    /// one-click install. Claude Code, Codex, OpenCode, Antigravity and Gemini
-    /// are always listed; the rest are behind "Another engine".
+    /// one-click install. Claude Code, Codex, Cursor, OpenCode, Antigravity and
+    /// Gemini are always listed; the rest are behind "Another engine".
     fn welcome_engines(&mut self, cx: &mut Context<Self>) -> Div {
         let st = cx.global::<AppSettings>().clone();
         let all = &crate::agent::PROVIDERS;
@@ -309,7 +307,7 @@ impl Shell {
                     "+",
                     ui::faint(),
                     "Another engine",
-                    "Cursor, Copilot, Amp, Qwen, Grok and more".to_string(),
+                    "Copilot, Amp, Qwen, Grok and more".to_string(),
                 )
                 .child(
                     ui::dbtn("setup-more", "Add", ui::Btn::Plain)
@@ -778,7 +776,7 @@ fn setup_card(title: impl Into<SharedString>, words: impl Into<SharedString>) ->
 fn engine_row(mark: &'static str, color: u32, name: &'static str, meta: String) -> Div {
     div()
         .px(px(22.))
-        .py(px(14.))
+        .py(px(12.))
         .flex()
         .items_center()
         .gap(px(12.))
