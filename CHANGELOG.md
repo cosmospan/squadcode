@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Fixed
+
+- The mascot's corner marks follow the theme: dark on light themes and light on dark ones, so Peek and the crew no longer fade into a light background. They take the theme's text colour, so every look, old and new, gets it. Settings > Mascot previews the bot on the theme's own ground, and the corner choice there is now called Theme or Own colour.
+
 ## [2.0.0-alpha.15] - 2026-11-15
 
 ### Added

@@ -223,6 +223,10 @@ impl Holos {
         scale: f32,
         moving: bool,
     ) -> Arc<RenderImage> {
+        // The mascot's outline takes the theme's text colour: dark on light
+        // themes, light on dark ones. It is part of the pose, so switching
+        // themes draws fresh frames rather than reusing the old ones.
+        let pose = pose.inked(squad_holo::Rgb(theme::ink()));
         let device = (logical * scale).round().clamp(8.0, 1024.0) as u16;
         let bust = framing == Framing::Bust;
         let fps = fps_for(logical, &pose);
@@ -377,11 +381,14 @@ fn painter() -> (Painters, std::sync::mpsc::Receiver<Painted>) {
 struct Painters(Vec<std::sync::mpsc::Sender<Paint>>);
 
 impl Painters {
-    fn send(&self, p: Paint) -> Result<(), std::sync::mpsc::SendError<Paint>> {
+    /// Queues `p` with its painter; false when that painter has gone.
+    fn send(&self, p: Paint) -> bool {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         p.slot.hash(&mut h);
-        self.0[(h.finish() % self.0.len() as u64) as usize].send(p)
+        self.0[(h.finish() % self.0.len() as u64) as usize]
+            .send(p)
+            .is_ok()
     }
 }
 

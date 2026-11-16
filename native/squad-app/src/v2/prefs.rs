@@ -1864,6 +1864,7 @@ impl Shell {
             gaze: (0, 0),
             offset: 0,
             from: None,
+            ink: None,
         });
         // Glide from one state's face to the next, as the bots do in the app.
         let figure = self.eased(figure, (who, u32::MAX, false, 0));
@@ -2175,7 +2176,9 @@ impl Shell {
                     .items_center()
                     .gap(px(10.))
                     .child(
-                        // A dark stage: the lens reads best on graphite.
+                        // The stage takes the theme's ground, so the preview shows
+                        // the corners as the rest of the app draws them: dark on
+                        // light themes, light on dark ones.
                         div()
                             .size(px(176.))
                             .rounded(px(14.))
@@ -2184,8 +2187,8 @@ impl Shell {
                             .justify_center()
                             .bg(linear_gradient(
                                 180.,
-                                linear_color_stop(c(0x2A2B31), 0.),
-                                linear_color_stop(c(0x15161A), 1.),
+                                linear_color_stop(c(theme::raised()), 0.),
+                                linear_color_stop(c(theme::well()), 1.),
                             ))
                             .border_1()
                             .border_color(ca(eye, 0.25))
