@@ -1105,6 +1105,93 @@ pub fn commit(dir: &str, message: &str) -> Result<String, String> {
     git(dir, &["rev-parse", "--short", "HEAD"]).map(|s| s.trim().to_string())
 }
 
+/// Rewrites the messages of the commits on `dir`'s branch since `base` with
+/// `edit`, keeping each commit's tree, author and dates, and moves the branch to
+/// the new commits. Only a straight line of commits is rewritten; a merge commit
+/// on the way, or nothing to change, leaves the branch as it was. Returns how
+/// many messages changed. Uncommitted work in `dir` stays as it is.
+pub fn rewrite_messages(
+    dir: &str,
+    base: &str,
+    edit: impl Fn(&str) -> String,
+) -> Result<usize, String> {
+    let list = git(
+        dir,
+        &[
+            "rev-list",
+            "--reverse",
+            "--parents",
+            &format!("{base}..HEAD"),
+        ],
+    )?;
+    let commits: Vec<Vec<&str>> = list
+        .lines()
+        .map(|l| l.split_whitespace().collect())
+        .filter(|c: &Vec<&str>| !c.is_empty())
+        .collect();
+    if commits.is_empty() || commits.iter().any(|c| c.len() != 2) {
+        return Ok(0);
+    }
+    let mut changed = 0;
+    let mut parent = commits[0][1].to_string();
+    let mut rewritten = false;
+    for c in &commits {
+        let sha = c[0];
+        let message = git(dir, &["log", "-1", "--format=%B", sha])?;
+        let new = edit(&message);
+        let same = new == message;
+        if same && !rewritten {
+            // Nothing changed yet: the commit can stay as it is.
+            parent = sha.to_string();
+            continue;
+        }
+        if !same {
+            changed += 1;
+        }
+        let who = git(
+            dir,
+            &[
+                "log",
+                "-1",
+                "--date=raw",
+                "--format=%an%x00%ae%x00%ad%x00%cn%x00%ce%x00%cd",
+                sha,
+            ],
+        )?;
+        let f: Vec<&str> = who.trim_end_matches('\n').split('\0').collect();
+        if f.len() != 6 {
+            return Err(format!("could not read who made {sha}"));
+        }
+        let tree = format!("{sha}^{{tree}}");
+        let text = if new.trim().is_empty() {
+            message.clone()
+        } else {
+            new
+        };
+        let made = git_with(
+            dir,
+            &["commit-tree", &tree, "-p", &parent, "-F", "-"],
+            &[
+                ("GIT_AUTHOR_NAME", f[0]),
+                ("GIT_AUTHOR_EMAIL", f[1]),
+                ("GIT_AUTHOR_DATE", f[2]),
+                ("GIT_COMMITTER_NAME", f[3]),
+                ("GIT_COMMITTER_EMAIL", f[4]),
+                ("GIT_COMMITTER_DATE", f[5]),
+            ],
+            Some(text.as_bytes()),
+        )?;
+        parent = made.trim().to_string();
+        rewritten = true;
+    }
+    if rewritten {
+        // The new tip has the same tree as the old one, so a soft reset moves
+        // the branch without touching the index or the files.
+        git(dir, &["reset", "-q", "--soft", &parent])?;
+    }
+    Ok(changed)
+}
+
 /// Run git with a private index file, so snapshots never touch the user's staging area.
 fn git_index(dir: &str, index: &Path, args: &[&str]) -> Result<String, String> {
     let index = index.to_string_lossy();
@@ -1584,6 +1671,52 @@ mod tests {
         sh(&repo, &["config", "user.name", "t"]);
         // Git reports real paths, and on a Mac the temporary folder is a symlink.
         repo.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn rewriting_messages_keeps_trees_authors_and_untouched_commits() {
+        let repo = repo("rewrite");
+        let dir = repo.to_str().unwrap();
+        sh(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+        let base = head(dir).unwrap();
+        std::fs::write(repo.join("a"), "1\n").unwrap();
+        sh(&repo, &["add", "-A"]);
+        sh(&repo, &["commit", "-q", "-m", "plain"]);
+        let plain = head(dir).unwrap();
+        std::fs::write(repo.join("b"), "2\n").unwrap();
+        sh(&repo, &["add", "-A"]);
+        sh(
+            &repo,
+            &[
+                "-c",
+                "user.name=Ana",
+                "commit",
+                "-q",
+                "-m",
+                "credited\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+            ],
+        );
+        let tree = git(dir, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        std::fs::write(repo.join("c"), "left uncommitted\n").unwrap();
+
+        let n = rewrite_messages(dir, &base, crate::credits::strip).unwrap();
+        assert_eq!(n, 1);
+        // The first commit had nothing to change, so it is the same commit.
+        assert_eq!(git(dir, &["rev-parse", "HEAD~1"]).unwrap().trim(), plain);
+        assert_eq!(git(dir, &["rev-parse", "HEAD^{tree}"]).unwrap(), tree);
+        assert_eq!(
+            git(dir, &["log", "-1", "--format=%an|%B"]).unwrap().trim(),
+            "Ana|credited"
+        );
+        assert!(repo.join("c").exists());
+        // Nothing left to take out: the branch stays where it is.
+        let tip = head(dir).unwrap();
+        assert_eq!(
+            rewrite_messages(dir, &base, crate::credits::strip).unwrap(),
+            0
+        );
+        assert_eq!(head(dir).unwrap(), tip);
+        let _ = std::fs::remove_dir_all(&repo);
     }
 
     /// A repo on `main` with `f` and `g`, and a branch `feat` that changes `f`.

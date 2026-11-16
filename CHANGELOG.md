@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Fixed
+
+- **Credit the agent in commits** now does what it says. It was saved but never read, so commits kept whatever lines the agents added to credit themselves, like `Co-Authored-By: Claude` and "Generated with Claude Code". With it off (the default), Shipper takes those lines out of a job's commits before it pushes or merges, out of the pull request it writes, and out of the squash message when it merges on GitHub. Each commit keeps its changes, author and dates, and co-author lines naming people stay. Turn it on to keep the agents' lines.
+
 ## [2.0.0-alpha.15] - 2026-11-15
 
 ### Added

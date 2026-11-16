@@ -302,7 +302,11 @@ pub fn message(job: &Job) -> String {
         msg.push_str("\n\n");
         msg.push_str(words.trim());
     }
-    msg
+    if crate::settings::credit_agents() {
+        msg
+    } else {
+        crate::credits::strip(&msg)
+    }
 }
 
 /// Approves a job: commits what's left in its worktree, merges its branch into
@@ -320,9 +324,21 @@ pub fn merge(job: &Job, set_aside: bool) -> Result<git::Merged, git::MergeError>
     if git::has_uncommitted(dir) == Some(true) {
         git::commit(dir, &message(job))?;
     }
+    strip_credits(job);
     let merged = git::merge_into(repo, &job.branch, &job.base, set_aside)?;
     cleanup(job);
     Ok(merged)
+}
+
+/// Takes the lines that credit a coding agent out of the job's commits, unless
+/// the person keeps them (Credit the agent in commits). How many commits
+/// changed; 0 when there was nothing to take out or it couldn't be done, in
+/// which case the commits go as they are.
+pub fn strip_credits(job: &Job) -> usize {
+    if crate::settings::credit_agents() || job.base_sha.is_empty() || job.worktree.is_empty() {
+        return 0;
+    }
+    git::rewrite_messages(&job.worktree, &job.base_sha, crate::credits::strip).unwrap_or(0)
 }
 
 /// Throws a job's changes away: its worktree and its branch.

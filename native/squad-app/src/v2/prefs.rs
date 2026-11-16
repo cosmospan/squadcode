@@ -1005,7 +1005,7 @@ impl Shell {
                 toggle(
                     "set-credit",
                     "Credit the agent in commits",
-                    "Adds a line naming the agent",
+                    "Off: Shipper removes the lines agents add naming themselves",
                     st.attribution,
                     |s, v| s.attribution = v,
                     None,
