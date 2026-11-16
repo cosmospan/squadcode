@@ -10,6 +10,7 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ### Changed
 
+- When an engine's install or update fails, its card now says why in plain words and offers the fix, for every engine and wherever you install from (Settings > Engines, an engine's detail, first-run setup). A program already where npm wants to put the new one (npm's EEXIST) shows what's there, who put it there and its version, then offers to keep it, to update it the way it was installed (Homebrew, or the other Node.js it came from) or to replace it; replacing moves the old one aside rather than deleting it, and asks first. No permission offers installing in a folder of your own (~/.npm-global), or admin rights after asking; a root-owned npm cache can be given back to you. No Node.js offers the engine's own installer when it has one, Homebrew, or nodejs.org. Network and certificate trouble, a half-finished earlier update, an unknown package and a Node.js too old each get their own explanation, and npm's log opens in one click. An engine with its own installer now uses it when npm isn't on the computer.
 - Cursor is now one of the engines always listed in Settings > Engines and in the first-run walkthrough, with one-click Install (Cursor's own installer) and Update, next to Claude Code, Codex, OpenCode, Antigravity and Gemini. It was only behind Add an engine before.
 
 ### Fixed
