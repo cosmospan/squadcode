@@ -2803,10 +2803,14 @@ impl Shell {
     fn at_strip(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let text = self.composer.read(cx).value().to_string();
         if let Some((head, found)) = self.at_matches(&text) {
+            // Inset like the reply bar and the text below, so the list sits
+            // inside the box rather than against its edge.
             let mut list = div()
                 .flex()
                 .flex_col()
                 .gap(px(2.))
+                .px(px(10.))
+                .pt(px(10.))
                 .pb(px(8.))
                 .border_b_1()
                 .border_color(c(ui::line()))
@@ -2880,12 +2884,23 @@ impl Shell {
         if named.is_empty() {
             return None;
         }
-        let mut row = div().flex().flex_wrap().items_center().gap(px(6.)).child(
-            div()
-                .text_size(px(11.5))
-                .text_color(c(ui::faint()))
-                .child("Brings in"),
-        );
+        // Its own strip at the top of the box, inset like the text below and
+        // ruled off from it, as the reply bar is.
+        let mut row = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(6.))
+            .px(px(12.))
+            .py(px(8.))
+            .border_b_1()
+            .border_color(c(ui::line()))
+            .child(
+                div()
+                    .text_size(px(11.5))
+                    .text_color(c(ui::faint()))
+                    .child("Brings in"),
+            );
         for m in named {
             let accent = m.accent();
             row = row.child(

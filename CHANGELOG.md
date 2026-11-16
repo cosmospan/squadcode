@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Fixed
+
+- Tagging a bot in a thread's composer no longer squashes "Brings in" and the bot picker against the box's edge. Both now sit inset in their own strip at the top of the box, ruled off from the text, like a reply.
+
 ## [2.0.0-alpha.15] - 2026-11-15
 
 ### Added
