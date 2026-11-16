@@ -950,12 +950,52 @@ impl Shell {
                 toggle(
                     "set-notify",
                     "Desktop notifications",
-                    "When a job finishes or a bot needs you",
+                    "While Squad Code is behind other windows",
                     st.notifications,
                     |s, v| s.notifications = v,
                     None,
                     cx,
                 ),
+                toggle(
+                    "set-notify-ask",
+                    "When a bot needs you",
+                    "It asks for your OK or a choice",
+                    st.notify_needs_you,
+                    |s, v| s.notify_needs_you = v,
+                    None,
+                    cx,
+                )
+                .when(!st.notifications, |d| d.opacity(0.5)),
+                toggle(
+                    "set-notify-done",
+                    "When a job is done",
+                    "Or its changes are ready to review",
+                    st.notify_done,
+                    |s, v| s.notify_done = v,
+                    None,
+                    cx,
+                )
+                .when(!st.notifications, |d| d.opacity(0.5)),
+                toggle(
+                    "set-notify-failed",
+                    "When a job fails",
+                    "It stops with a problem",
+                    st.notify_failed,
+                    |s, v| s.notify_failed = v,
+                    None,
+                    cx,
+                )
+                .when(!st.notifications, |d| d.opacity(0.5)),
+                toggle(
+                    "set-notify-always",
+                    "Even when Squad Code is in front",
+                    "For what isn't on screen",
+                    st.notify_always,
+                    |s, v| s.notify_always = v,
+                    None,
+                    cx,
+                )
+                .when(!st.notifications, |d| d.opacity(0.5)),
                 sounds,
                 toggle(
                     "set-sound-ask",

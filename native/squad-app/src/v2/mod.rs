@@ -444,6 +444,10 @@ pub struct Shell {
     /// The crew: the saved store and everything running for it.
     crew: runtime::Runtime,
     composer: Entity<TextareaState>,
+    /// What you last sent from the composer: Up in an empty box brings it back.
+    last_sent: String,
+    /// A draft put aside with ⌘S, brought back by ⌘S in an empty box.
+    stash: Option<String>,
     chat_input: Entity<InputState>,
     /// Why you said no to a bot's request, when you say.
     deny_input: Entity<InputState>,
@@ -1179,6 +1183,9 @@ impl Shell {
                     }
                     let text = input.read(cx).value().trim().to_string();
                     input.update(cx, |i, cx| i.set_value("", window, cx));
+                    if !text.is_empty() {
+                        this.last_sent = text.clone();
+                    }
                     this.hand_over(text, cx);
                     this.unpin_mode(window, cx);
                 }
@@ -1394,6 +1401,8 @@ impl Shell {
                 rt
             },
             composer,
+            last_sent: String::new(),
+            stash: None,
             chat_input,
             deny_input,
             denying: None,
@@ -3638,7 +3647,7 @@ impl Shell {
         let finished = self
             .crew
             .poll(cx.global::<crate::settings::AppSettings>(), viewing);
-        self.chime(cx.global::<crate::settings::AppSettings>());
+        let waiting = self.chime(cx.global::<crate::settings::AppSettings>());
         self.poll_reading(cx);
         self.poll_follow_reading(cx);
         self.keep_warm(cx.global::<crate::settings::AppSettings>());
@@ -3662,26 +3671,49 @@ impl Shell {
                 };
                 self.say(msg);
             }
-            // Squad Code is behind other windows: tell the person on the desktop.
-            if !self.active.load(std::sync::atomic::Ordering::Relaxed) {
-                let title = match j.status {
-                    Status::Done | Status::Review => format!("{} finished", j.bot.name()),
-                    _ => format!("{} stopped", j.bot.name()),
+            // Tell the person on the desktop, the way they chose.
+            let done = matches!(j.status, Status::Done | Status::Review);
+            let st = cx.global::<crate::settings::AppSettings>();
+            let wanted = if done {
+                st.notify_done
+            } else {
+                st.notify_failed
+            };
+            if wanted && self.notify_now(st, self.place == Place::Live(*id)) {
+                let title = if done {
+                    format!("{} finished", j.bot.name())
+                } else {
+                    format!("{} stopped", j.bot.name())
                 };
-                crate::settings::notify(
+                crate::desktop_notify::send(
+                    cx,
+                    Some(*id),
                     &title,
                     &format!("{}: {}", j.label(), brain::tasks::facts(&j)),
                 );
             }
         }
+        for (job, title, body) in waiting {
+            crate::desktop_notify::send(cx, job, &title, &body);
+        }
+    }
+
+    /// Whether a desktop notification goes out now: while Squad Code is behind
+    /// other windows, or, when the person asked for always, for anything not
+    /// on screen.
+    fn notify_now(&self, st: &crate::settings::AppSettings, on_screen: bool) -> bool {
+        let active = self.active.load(std::sync::atomic::Ordering::Relaxed);
+        !active || (st.notify_always && !on_screen)
     }
 
     /// Plays a chime when something new needs the person: a bot asking for an OK
     /// or a choice, a job that failed, or one finished or ready to review. Not for
     /// what is on screen in the focused window, which the person sees anyway.
-    fn chime(&mut self, st: &crate::settings::AppSettings) {
+    /// Returns the bots newly waiting on the person that get a desktop
+    /// notification, as (job, title, body).
+    fn chime(&mut self, st: &crate::settings::AppSettings) -> Vec<(Option<u64>, String, String)> {
         if self.crew.store.demo {
-            return;
+            return Vec::new();
         }
         let active = self.active.load(std::sync::atomic::Ordering::Relaxed);
         let thread_here = match self.place {
@@ -3695,11 +3727,21 @@ impl Shell {
         };
         let mut now = std::collections::HashSet::new();
         let mut fresh = Vec::new();
+        let mut waiting = Vec::new();
+        let heard = self.heard.take();
+        let new = |key: &str| !heard.as_ref().is_none_or(|heard| heard.contains(key));
         let mut note = |key: String, cue: crate::sounds::Cue, here: bool| {
-            if !here && !self.heard.as_ref().is_none_or(|heard| heard.contains(&key)) {
+            if !here && new(&key) {
                 fresh.push(cue);
             }
             now.insert(key);
+        };
+        // A bot newly waiting on the person, for a desktop notification.
+        let notify = st.notifications && st.notify_needs_you;
+        let mut tell = |key: &str, here: bool, job: Option<u64>, title: String, body: String| {
+            if notify && new(key) && (!active || (st.notify_always && !here)) {
+                waiting.push((job, title, body));
+            }
         };
         for j in &self.crew.store.jobs {
             let here = on_screen(Some(j.id), j.thread);
@@ -3712,23 +3754,45 @@ impl Shell {
             }
             // A running bot asking for an OK.
             for r in self.crew.asks_for(j) {
-                note(format!("ask:{}", r.id), crate::sounds::Cue::NeedsYou, here);
+                let key = format!("ask:{}", r.id);
+                tell(
+                    &key,
+                    here,
+                    Some(j.id),
+                    format!("{} needs your OK", j.bot.name()),
+                    format!("{}: wants to use {}", j.label(), r.tool),
+                );
+                note(key, crate::sounds::Cue::NeedsYou, here);
             }
         }
         // Peek asking a question back, with answers to pick.
         for t in &self.crew.store.talks {
             if t.answer.is_some() && !t.choices.is_empty() {
-                note(
-                    format!("talk:{}", t.id),
-                    crate::sounds::Cue::NeedsYou,
-                    on_screen(None, t.thread),
+                let key = format!("talk:{}", t.id);
+                let here = on_screen(None, t.thread);
+                let asked: String = t
+                    .answer
+                    .as_ref()
+                    .and_then(|a| a.text.lines().rev().find(|l| !l.trim().is_empty()))
+                    .unwrap_or("")
+                    .chars()
+                    .take(140)
+                    .collect();
+                tell(
+                    &key,
+                    here,
+                    None,
+                    format!("{} asked you something", t.bot.name()),
+                    asked,
                 );
+                note(key, crate::sounds::Cue::NeedsYou, here);
             }
         }
         self.heard = Some(now);
         if let Some(cue) = crate::sounds::pick(fresh, st) {
             crate::sounds::play(cue, st);
         }
+        waiting
     }
 
     /// How a bot feels right now, from what it is really doing.
@@ -4266,6 +4330,36 @@ impl Render for Shell {
                 if this.term_focus.is_focused(window) && !m.platform {
                     return;
                 }
+                // In the composer: Up in an empty box brings back what you last
+                // sent, and ⌘S puts a draft aside or brings it back.
+                if this.composer.read(cx).focus_handle(cx).is_focused(window) {
+                    let value = this.composer.read(cx).value().trim().to_string();
+                    let plain = !(m.platform || m.control || m.alt || m.shift);
+                    if plain && key == "up" && value.is_empty() && !this.last_sent.is_empty() {
+                        let text = this.last_sent.clone();
+                        this.composer
+                            .update(cx, |i, cx| ui::put_text(i, text, window, cx));
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if (m.platform || m.control) && !(m.alt || m.shift) && key == "s" {
+                        if !value.is_empty() {
+                            this.stash = Some(value);
+                            this.composer
+                                .update(cx, |i, cx| i.set_value("", window, cx));
+                            this.say("Draft put aside. Press ⌘S in an empty box to bring it back.");
+                        } else if let Some(text) = this.stash.take() {
+                            this.composer
+                                .update(cx, |i, cx| ui::put_text(i, text, window, cx));
+                        } else {
+                            this.say("No draft put aside.");
+                        }
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                }
                 // Alt+Up and Alt+Down step through the threads (with Shift,
                 // only the unread ones), like Slack.
                 if m.alt
@@ -4283,6 +4377,21 @@ impl Render for Shell {
                     && this.focus.is_focused(window)
                     && this.inbox_key(key, cx)
                 {
+                    cx.stop_propagation();
+                    return;
+                }
+                // ⌥⌘A: the next thing waiting on you, in any project.
+                if (m.platform || m.control)
+                    && m.alt
+                    && !m.shift
+                    && key == "a"
+                    && this.place != Place::Welcome
+                {
+                    this.palette = false;
+                    if !this.next_waiting(cx) {
+                        this.say("Nothing is waiting on you.");
+                    }
+                    cx.notify();
                     cx.stop_propagation();
                     return;
                 }

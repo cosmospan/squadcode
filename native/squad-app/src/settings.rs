@@ -68,6 +68,15 @@ pub struct AppSettings {
     pub diff_colors: String,
     pub animations: bool,
     pub notifications: bool,
+    /// Which things get a desktop notification, with `notifications` on: a job
+    /// finished or ready to review, a job that stopped with a problem, and a bot
+    /// waiting on the person (an OK or a question).
+    pub notify_done: bool,
+    pub notify_failed: bool,
+    pub notify_needs_you: bool,
+    /// Also notify while Squad Code is in front, for what isn't on screen; off,
+    /// only while it's behind other windows or in the menu bar.
+    pub notify_always: bool,
     /// Play a short chime when something needs the person (see `sounds`), and which
     /// kinds of thing.
     pub sounds: bool,
@@ -300,6 +309,10 @@ impl Default for AppSettings {
             diff_colors: "default".into(),
             animations: true,
             notifications: true,
+            notify_done: true,
+            notify_failed: true,
+            notify_needs_you: true,
+            notify_always: false,
             sounds: true,
             sound_needs_you: true,
             sound_failed: true,

@@ -4,6 +4,13 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- Notifications for what's waiting on you. Squad Code now tells you when a bot needs your OK to use a tool or asks you something, as well as when a job finishes or stops, using the system's own notifications. Settings > Notifications has a switch for each kind, and one to notify even while Squad Code is in front but showing something else.
+- Mark a thread as unread from its menu, and mark a whole project as read from the project's menu or the palette. A thread you marked stays unread until something new arrives or you open it.
+- ⌥⌘A (or Next waiting in the palette) jumps to the next thing waiting on you, oldest first, across projects: a job asking for an OK or an answer, or a thread with a choice for you.
+- In the composer, Up in an empty box brings back what you last sent, and ⌘S puts a draft aside and brings it back.
+
 ### Fixed
 
 - **Credit the agent in commits** now does what it says. It was saved but never read, so commits kept whatever lines the agents added to credit themselves, like `Co-Authored-By: Claude` and "Generated with Claude Code". With it off (the default), Shipper takes those lines out of a job's commits before it pushes or merges, out of the pull request it writes, and out of the squash message when it merges on GitHub. Each commit keeps its changes, author and dates, and co-author lines naming people stay. Turn it on to keep the agents' lines.
