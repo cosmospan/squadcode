@@ -87,6 +87,14 @@ struct Steering {
     rx: Receiver<crate::agent::Event>,
 }
 
+/// A finished job's review guide being written by Peek's engine, for the
+/// bot named as its writer.
+struct Guiding {
+    id: u64,
+    by: Member,
+    rx: Receiver<crate::agent::Event>,
+}
+
 /// A thread's summary being written by Peek's engine.
 struct Summing {
     folder: String,
@@ -123,6 +131,8 @@ pub struct Runtime {
     saved: Instant,
     /// Checker's runs of the checks on finished jobs, by job.
     checking: Vec<(u64, Receiver<Vec<crate::proof::CheckRun>>)>,
+    /// Review guides being written, by job.
+    guiding: Vec<Guiding>,
     /// Shipper opening pull requests, by job.
     shipping: Vec<(u64, Receiver<ship::Step>)>,
     /// Looks at open pull requests, by job, and when the last round started.
@@ -240,6 +250,7 @@ impl Runtime {
             notes: Vec::new(),
             saved: Instant::now(),
             checking: Vec::new(),
+            guiding: Vec::new(),
             shipping: Vec::new(),
             watching: Vec::new(),
             watched: Instant::now() - Duration::from_secs(3600),
@@ -1537,6 +1548,8 @@ impl Runtime {
         job.status = Status::Review;
         job.seen = false;
         job.checks.clear();
+        // New changes get a new guide, once their checks are back.
+        job.guide = None;
         if !work::belt_checks() {
             return;
         }
@@ -2408,6 +2421,102 @@ impl Runtime {
         }
     }
 
+    // ---------- review guides ----------
+
+    /// Who is writing a job's review guide now, if anyone is.
+    pub fn guiding(&self, id: u64) -> Option<Member> {
+        self.guiding.iter().find(|g| g.id == id).map(|g| g.by)
+    }
+
+    /// Writes a job's review guide again, from its changes as they are now.
+    pub fn rewrite_guide(&mut self, st: &AppSettings, id: u64) {
+        self.guiding.retain(|g| g.id != id);
+        if let Some(j) = self.store.job_mut(id) {
+            j.guide = None;
+        }
+        self.write_guide(st, id);
+    }
+
+    /// Starts writing the review guide for a job waiting for review: Guard
+    /// or Explainer reads what it changed and Checker's results, on Peek's
+    /// engine, in the background.
+    fn write_guide(&mut self, st: &AppSettings, id: u64) {
+        if cfg!(test) || self.store.demo || self.guiding(id).is_some() {
+            return;
+        }
+        let Some(job) = self.store.job(id) else {
+            return;
+        };
+        if job.status != Status::Review
+            || job.changes.is_empty()
+            || job.worktree.is_empty()
+            || !job.remote_on.is_empty()
+        {
+            return;
+        }
+        let by = brain::guide::writer(&job.changes, Member::on_crew);
+        let diffs: Vec<(String, String)> = job
+            .changes
+            .iter()
+            .take(30)
+            .map(|c| (c.path.clone(), work::diff(job, &c.path)))
+            .collect();
+        let prompt = brain::guide::prompt(
+            by,
+            &job.title,
+            job.bot.name(),
+            &job.checks,
+            &job.changes,
+            &diffs,
+        );
+        let dir = job.worktree.clone();
+        let i = crate::settings::assistant_provider(st);
+        let p = &crate::agent::PROVIDERS[i];
+        let configured = st.agent(p.id).binary;
+        if !crate::agent::available(p.bin, &configured) {
+            return;
+        }
+        let model = crate::settings::assistant_model(st, p.id);
+        let command = crate::agent::ask_command_on(p.id, &configured, &prompt, &model);
+        let (tx, rx) = std::sync::mpsc::channel();
+        crate::agent::oneshot_within(command, &dir, Duration::from_secs(150), tx);
+        self.guiding.push(Guiding { id, by, rx });
+    }
+
+    /// Takes in the review guides that came back. One that didn't, or that
+    /// couldn't be read, leaves the job without one: Write it again tries anew.
+    fn poll_guides(&mut self) {
+        let mut back = Vec::new();
+        self.guiding.retain(|g| match g.rx.try_recv() {
+            Ok(crate::agent::Event::Output(r)) => {
+                back.push((g.id, g.by, r.ok()));
+                false
+            }
+            Ok(_) | Err(TryRecvError::Empty) => true,
+            Err(TryRecvError::Disconnected) => {
+                back.push((g.id, g.by, None));
+                false
+            }
+        });
+        for (id, by, reply) in back {
+            let Some(job) = self.store.job_mut(id) else {
+                continue;
+            };
+            let guide = reply.and_then(|r| {
+                brain::guide::parse(
+                    &crate::agent::strip_ansi(&r),
+                    &job.changes,
+                    by,
+                    store::now(),
+                )
+            });
+            if job.status == Status::Review {
+                job.guide = guide;
+                self.store.save();
+            }
+        }
+    }
+
     // ---------- thread summaries ----------
 
     /// Whether a thread's summary is being written now.
@@ -2836,6 +2945,12 @@ impl Runtime {
             if let Some(prompt) = retry {
                 // fix_turn already said why in the feed.
                 self.send_on(st, id, prompt, Some(String::new()));
+            } else if !merge {
+                // The checks are in and it waits for the person: a guide to
+                // reading it, unless one was written for these changes.
+                if self.store.job(id).is_some_and(|j| j.guide.is_none()) {
+                    self.write_guide(st, id);
+                }
             }
             self.store.save();
         }
@@ -2849,6 +2964,14 @@ impl Runtime {
                     continue;
                 }
                 self.begin_review(*id);
+                // With no checks to wait for, the guide is written now.
+                if self
+                    .store
+                    .job(*id)
+                    .is_some_and(|j| j.status == Status::Review && !j.checking)
+                {
+                    self.write_guide(st, *id);
+                }
                 self.peek(st, *id, true);
                 self.post_turn(*id);
                 self.relay_mentions(st, *id);
@@ -2858,6 +2981,7 @@ impl Runtime {
             self.store.save();
         }
         self.poll_steering(st);
+        self.poll_guides();
         self.poll_peek();
         self.poll_designs();
         self.poll_draft();

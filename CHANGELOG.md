@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- Every finished job gets a review guide. Once Checker's checks are back, Guard (for a change to sign-in, payments, secrets or data) or Explainer (for anything else) reads what changed and walks you through it in the order to read it: what the change does, then each part with its file and lines, and the tests last. The places worth a careful eye before you approve, like a failing check, a risk to customers' data or a guess the bot made, are marked Look closely, with why. Read it on the job's new Guide tab, or from Read the guide in the side panel, and click a stop's file to open its diff. Write it again redoes it from the changes as they are now.
+
 ## [2.0.0-alpha.15] - 2026-11-15
 
 ### Added

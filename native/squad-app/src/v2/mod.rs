@@ -25,6 +25,7 @@ mod engines;
 mod filetab;
 mod gitcards;
 mod goal;
+mod guidetab;
 mod history;
 mod home;
 mod issues;
@@ -3470,6 +3471,13 @@ impl Shell {
     /// Runs the checks on a job's changes again.
     pub(super) fn recheck(&mut self, id: u64, cx: &mut Context<Self>) {
         self.crew.recheck(id);
+        cx.notify();
+    }
+
+    /// Writes a job's review guide again.
+    pub(super) fn rewrite_guide(&mut self, id: u64, cx: &mut Context<Self>) {
+        let st = Self::app_settings(cx);
+        self.crew.rewrite_guide(&st, id);
         cx.notify();
     }
 
