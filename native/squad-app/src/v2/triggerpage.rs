@@ -57,7 +57,7 @@ fn area(input: &Entity<TextareaState>) -> Div {
 
 fn label(text: &'static str) -> Div {
     div()
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(10.5))
         .font_weight(FontWeight::MEDIUM)
         .text_color(c(ui::faint()))
@@ -487,7 +487,7 @@ impl Shell {
                                 .py(px(5.))
                                 .rounded(px(4.))
                                 .bg(c(ui::well()))
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(11.5))
                                 .text_color(c(ui::body()))
                                 .child(url),
@@ -548,7 +548,7 @@ impl Shell {
                             div()
                                 .w(px(120.))
                                 .flex_none()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(11.))
                                 .text_color(c(ui::faint()))
                                 .child(ago),
@@ -621,7 +621,7 @@ impl Shell {
                             div()
                                 .w(px(120.))
                                 .flex_none()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(11.))
                                 .text_color(c(ui::faint()))
                                 .child(super::triggers::clock(r.at)),
