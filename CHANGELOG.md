@@ -16,6 +16,7 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ### Fixed
 
+- The mascot's corner marks follow the theme: dark on light themes and light on dark ones, so Peek and the crew no longer fade into a light background. They take the theme's text colour, so every look, old and new, gets it. Settings > Mascot previews the bot on the theme's own ground, and the corner choice there is now called Theme or Own colour.
 - Cursor counts as installed and runs when its CLI is on PATH only as `agent`, the shorter name Cursor's CLI also goes by, not just as `cursor-agent`.
 - Cursor's model list shows models without a digit in their id, such as Auto, and no longer shows "(current" or "(default" in a model's name.
 
