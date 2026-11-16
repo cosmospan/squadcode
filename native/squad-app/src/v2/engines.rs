@@ -53,12 +53,19 @@ pub(super) fn choice(
         .child(label.into())
 }
 
-/// The command that installs agent `id`'s command-line tool here.
+/// The command that installs agent `id`'s command-line tool here: npm, or
+/// the vendor's script when it has one and npm isn't here.
 pub(super) fn install_cmd(id: &str) -> Option<String> {
     crate::registry::spec(id).and_then(|s| {
+        let script = if cfg!(windows) {
+            s.install.windows.is_some()
+        } else {
+            s.install.unix.is_some()
+        };
         s.install
             .npm
             .as_ref()
+            .filter(|_| !script || crate::install::locate("npm").is_some())
             .map(|n| format!("npm install -g {n}"))
             .or_else(|| {
                 if cfg!(windows) {
@@ -306,7 +313,7 @@ impl Shell {
                 .mb(px(-8.))
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::faint()))
@@ -318,7 +325,7 @@ impl Shell {
         let link = |id: &'static str, text: &'static str| {
             div()
                 .id(id)
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .text_color(c(ui::body()))
                 .cursor_pointer()
@@ -400,7 +407,7 @@ impl Shell {
 
     /// The engines card: each installed engine with its default mark, what it
     /// is and Update; the common ones not installed (Claude Code, Codex,
-    /// OpenCode, Antigravity, Gemini), greyed with Install; every other one
+    /// Cursor, OpenCode, Antigravity, Gemini), greyed with Install; every other one
     /// after "Add an engine". A click on an installed one opens its detail.
     fn engine_rows(
         &mut self,
@@ -409,10 +416,9 @@ impl Shell {
         default_i: usize,
         cx: &mut Context<Self>,
     ) -> Div {
-        const COMMON: [&str; 5] = ["claude", "codex", "opencode", "antigravity", "gemini"];
         let mut order: Vec<usize> = ready.to_vec();
         for (i, p) in agent::PROVIDERS.iter().enumerate() {
-            if !order.contains(&i) && (self.engines_all || COMMON.contains(&p.id)) {
+            if !order.contains(&i) && (self.engines_all || super::engine::COMMON.contains(&p.id)) {
                 order.push(i);
             }
         }
@@ -484,7 +490,7 @@ impl Shell {
                                             .rounded(px(3.))
                                             .bg(c(ui::pick_fill()))
                                             .text_color(c(ui::pick_on()))
-                                            .font_family(ui::MONO)
+                                            .font_family(ui::mono())
                                             .text_size(px(10.))
                                             .font_weight(FontWeight::MEDIUM)
                                             .line_height(px(17.))
@@ -914,7 +920,7 @@ impl Shell {
                                 .bg(c(ui::bg()))
                                 .border_1()
                                 .border_color(c(ui::line()))
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(12.))
                                 .truncate()
                                 .child(cmd),
@@ -939,7 +945,7 @@ impl Shell {
         // What the engine is: where its tool lives and the models it offers.
         let bin = st.agent(id).binary.clone();
         let tool = if bin.is_empty() {
-            p.bin.to_string()
+            agent::default_bin(p.bin).to_string()
         } else {
             bin
         };
@@ -972,7 +978,7 @@ impl Shell {
                     .bg(c(ui::bg()))
                     .border_1()
                     .border_color(c(ui::line()))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .child(tool),
             )

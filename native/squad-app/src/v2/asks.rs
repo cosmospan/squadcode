@@ -88,7 +88,7 @@ impl Shell {
                     .bg(c(ui::panel()))
                     .border_1()
                     .border_color(c(ui::line2()))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .text_color(c(ui::ink()))
                     .max_h(px(120.))

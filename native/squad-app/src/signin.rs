@@ -314,6 +314,27 @@ mod tests {
             Some(false)
         );
         assert_eq!(
+            judge(
+                "cursor",
+                "cursor-agent",
+                &dir,
+                &unset,
+                &out(true, "\n ✓ Logged in as dev@example.com\n")
+            ),
+            Some(true)
+        );
+        // An API key signs Cursor in without asking the CLI.
+        assert_eq!(
+            judge(
+                "cursor",
+                "cursor-agent",
+                &dir,
+                &|k: &str| k == "CURSOR_API_KEY",
+                &|_: &str, _: &[&str]| None
+            ),
+            Some(true)
+        );
+        assert_eq!(
             judge("codex", "codex", &dir, &unset, &|_: &str, _: &[&str]| None),
             None
         );

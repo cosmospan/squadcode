@@ -393,7 +393,7 @@ impl Tray {
                 div()
                     .min_w_0()
                     .truncate()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .text_color(c(ui::faint()))
                     .child(status),
@@ -463,7 +463,7 @@ impl Tray {
             .when_some(sent, |d, sent| {
                 d.child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .text_color(c(ui::t_green()))
                         .truncate()
@@ -565,7 +565,7 @@ impl Tray {
                                 .py(px(6.))
                                 .rounded(px(7.))
                                 .bg(c(ui::raised()))
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(11.5))
                                 .text_color(c(ui::ink()))
                                 .line_clamp(3)
@@ -669,7 +669,7 @@ impl Tray {
                         div()
                             .mt(px(1.))
                             .truncate()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(10.5))
                             .text_color(c(tone))
                             .child(meta.join(" · ")),
@@ -709,7 +709,7 @@ impl Tray {
                 d.child(
                     div()
                         .flex_none()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .text_color(c(ui::faint()))
                         .child(l.time.clone()),
@@ -806,7 +806,7 @@ impl Tray {
                 .px(px(14.))
                 .pt(px(12.))
                 .pb(px(4.))
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(c(ui::faint()))
@@ -830,7 +830,7 @@ impl Tray {
                     .px(px(14.))
                     .py(px(5.))
                     .cursor_pointer()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .text_color(c(ui::faint()))
                     .hover(|d| d.text_color(c(ui::ink())))
@@ -885,7 +885,7 @@ impl Tray {
             .py(px(10.))
             .border_t_1()
             .border_color(c(ui::line()))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(11.))
             .text_color(c(ui::body()))
             .child(

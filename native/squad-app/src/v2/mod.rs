@@ -24,6 +24,8 @@ mod emblem;
 mod engine;
 mod engines;
 mod filetab;
+mod fixes;
+pub(crate) mod fonts;
 mod gitcards;
 mod goal;
 mod history;
@@ -622,6 +624,9 @@ pub struct Shell {
     /// The run whose card is open beside the sidebar's run pill; it tucks
     /// back into the pill when you go elsewhere or click outside it.
     run_pop: Option<u64>,
+    /// A fix on a failed install's card waiting for you to confirm it: the
+    /// run and which fix.
+    run_confirm: Option<(u64, usize)>,
     /// When that card was last tucked away by a click outside it, so the
     /// same click landing on the pill doesn't open it again.
     run_pop_shut: Option<Instant>,
@@ -1339,6 +1344,7 @@ impl Shell {
             Ok("history") => Place::History,
             Ok("overview") => Place::Overview,
             Ok("engines") => Place::Settings(Pane::Engines),
+            Ok(p) if p.starts_with("engines-run:") => Place::Settings(Pane::Engines),
             Ok("server") => Place::Settings(Pane::Server),
             Ok("work") => Place::Settings(Pane::Work),
             Ok("settings") => Place::Settings(Pane::Work),
@@ -1488,6 +1494,7 @@ impl Shell {
             run_focus: cx.focus_handle(),
             run_typing: None,
             run_pop: None,
+            run_confirm: None,
             run_pop_shut: None,
             run_guess: None,
             act_from: (None, None),
@@ -1647,6 +1654,11 @@ impl Shell {
                 }
             }
             Ok("palette") => shell.open_palette(window, cx),
+            // Engines with an install run from there, for looking at how a
+            // failed one explains itself: "engines-run:npm install -g x".
+            Ok(p) if p.starts_with("engines-run:") => {
+                shell.run_setup(&p["engines-run:".len()..], cx)
+            }
             // The project's app started from the sidebar, its card open
             // beside the run pill; "run-app:tucked" with the card tucked away.
             Ok(p) if p.starts_with("run-app") => {
@@ -4359,7 +4371,7 @@ impl Render for Shell {
                 this.go(to, cx);
                 cx.stop_propagation();
             }))
-            .font_family("Geist")
+            .font_family(ui::sans())
             .text_color(c(ui::ink()))
             // The ground the sidebar sits on; the page floats over it as a canvas.
             // When the desktop shows through, the sidebar and the page each paint
@@ -4544,6 +4556,9 @@ fn apply_theme(window: &mut Window, cx: &mut App) {
         k.popover = ui::c(ui::float());
         k.popover_foreground = ui::c(ui::ink());
         k.caret = ui::c(ui::ink());
+        // The kit's text boxes and code editors draw in the picked fonts too.
+        k.font_family = ui::sans().into();
+        k.mono_font_family = ui::mono().into();
         k.ring = ui::ca(ui::VIOLET, 0.6);
         k.selection = ui::ca(ui::VIOLET, if t.light { 0.22 } else { 0.38 });
     });
@@ -4555,6 +4570,7 @@ pub fn open_window(cx: &mut App) {
     // The look first: the window opens with the background it needs.
     let st = cx.global::<crate::settings::AppSettings>();
     theme::set_pref(&st.v2_theme, system_dark(cx.window_appearance()));
+    fonts::set(&st.v2_font, &st.v2_code_font);
     issues::set_close_on_merge(st.v2_close_issues);
     work::set_belt(st.v2_belt_secrets, st.v2_belt_checks);
     theme::set_see_through(st.v2_see_through, st.v2_clear);
