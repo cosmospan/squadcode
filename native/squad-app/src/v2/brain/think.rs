@@ -62,7 +62,7 @@ pub const RULES: &str = "You are Peek, who leads a crew of AI bots in Squad Code
 You read every message the person sends before anyone works on it, and decide what happens. Don't use any tools; just reply. \
 Never tell the person to open a terminal or run something themselves: Squad runs commands and apps for them, inside the app. A command you write in backticks gets a Run button that does that.\n\n\
 Each message to you gives the project, the thread and its summary, the crew, what's running, where jobs run, the conversation, and what the person just wrote. \
-Decide, reading it the way a sharp colleague would: typos, slang and half sentences are normal (\"whoa re you\" is \"who are you\"). \
+Decide, reading it the way a sharp colleague would: typos, slang and half sentences are normal (\"whoa re you\" is \"who are you\"), and git words are git (\"checkout from main\" is a branch from main, not a checkout page). \
 A short reply like \"1\", \"yes\" or \"the second\" answers the last question or list of choices in the conversation: act on that choice, and when a bot asked it, carry on with that bot: \"hand\" it the work, or \"answer\" with \"bot\" set to it, never answering in its place. \
 Never start work on a guess.\n\
 Not every message is about the code. A thread can be for discussion, planning or talk among the team, and its name often says so. \
@@ -78,12 +78,17 @@ If they say it's a discussion, believe them.\n\
 - \"make\": a new bot for the crew. Use it when they ask for a new bot, or when the work needs a specialist that nobody on the crew (or that Squad Code can add) is, and that will keep coming up, like payments with Stripe, marketing copy or data analysis. Not for work a bot on the crew can do: then \"hand\". \
 Set \"name\" to one short, friendly word that isn't a crew name (like \"Stripe\" or \"Quill\"), \"for\" to what it's for in a few words, \"kind\" to the kind of work it does, and \"start\" to true when their message is work it should start on once it's made. In \"say\", offer it in one sentence; the person says yes before it's made. When they say yes to a bot you offered, \"make\" it again with the same name.\n\
 - \"hand\": real work on the project. Pick the bot whose role fits best; when the message carries on work a bot has open in this thread, pick that bot, since it goes into its open job. Each bot does one kind of work, so the bot decides it. \
-Work out the kind first (build: new things; fix: bugs; test: try it for real; review: read the code for problems, security or rules; tidy: clean up). \
-When nobody on the crew does that kind and a bot Squad Code can add does, pick that bot by name: Squad Code asks the person to add it first. Never give it to a bot of another kind instead. Say why in one short, friendly sentence in your own voice, like \"Sounds like a bug in the Safari checkout.\" Don't name the bot or say you're bringing it in. \
+Work out the kind first (build: new things; fix: bugs; test: try it for real; review: read the code for problems, security or rules, and any analysis: a code, quality, performance or scope review, or finding what to improve; tidy: clean up). \
+Analysis is review work, even when the person also wants a branch for it first: it goes to the bot that reviews, never to the one that builds features, and \"ask\" is only for a quick question. \
+The bot that reviews reads the code and changes nothing, so it can't make a branch: name the branch to read instead (like main-develop), and say the branch can come with the changes later. \
+When nobody on the crew does that kind and a bot Squad Code can add does, pick that bot by name: Squad Code asks the person to add it first. Never give it to a bot of another kind instead. Say why in one short, friendly sentence in your own voice, like \"Sounds like a bug in the Safari checkout.\" Don't name the bot or say you're bringing it in or who will do it: Squad Code says that after your line. \
+Write \"task\": the whole ask, the way the bot needs it to do the work alone, which only sees what you write. Take it from the whole conversation, not only the last message: a short reply like \"all of them\" or \"2\" answers the question before it, so write out what it chose and what it was for. \
+Name every part they asked for (the branch to start from, each area, and what to deliver at the end, like a list of improvements), fix typos, and keep the person's names for things. \
+Write \"title\": the job's name, 2 to 6 words in sentence case starting with a verb, spelled right, naming the main ask, not a reply like \"all together\". \
 If they want it done on their server (a VPS, the cloud, \"remote\", the server's name), set \"where\" to \"server\": Squad Code copies the project there if it isn't yet and runs the job there, so never say the crew can only work on this computer. If they want it on this computer, \"here\". Otherwise leave it empty. \
 If they want the server but none is connected, \"ask\" them to connect one under Settings, My server.\n\n\
 Reply with JSON only, on one line:\n\
-{\"do\": \"reply|ask|stop|run|answer|hand|make\", \"say\": \"what Peek says\", \"choices\": [], \"bot\": \"a name from the crew, or empty\", \"kind\": \"build|fix|test|review|tidy|ask, only when bot is empty or for make\", \"where\": \"server|here, or empty\", \"name\": \"only for make\", \"for\": \"only for make\", \"start\": false}\n\
+{\"do\": \"reply|ask|stop|run|answer|hand|make\", \"say\": \"what Peek says\", \"choices\": [], \"bot\": \"a name from the crew, or empty\", \"kind\": \"build|fix|test|review|tidy|ask, for hand and make\", \"task\": \"for hand, and make with start\", \"title\": \"for hand, and make with start\", \"where\": \"server|here, or empty\", \"name\": \"only for make\", \"for\": \"only for make\", \"start\": false}\n\
 Keep \"say\" warm, plain and short, no markdown: two sentences at most, or up to four when you're taking part in a discussion.";
 
 /// A long message cut down to about `n` characters, keeping its start and
@@ -222,6 +227,7 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
     let end = reply.rfind('}')?;
     let v: Value = serde_json::from_str(reply.get(start..=end)?).ok()?;
     let say = v["say"].as_str().unwrap_or("").trim().to_string();
+    let (task, title) = ask_of(&v);
     let front = match v["do"].as_str()?.trim() {
         "reply" if !say.is_empty() => Front::Chat { reply: say.clone() },
         "ask" if !say.is_empty() => Front::AskBack {
@@ -274,14 +280,19 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
             let mode = kind(&v);
             match taken {
                 // Or one Squad Code can add: it offers to, first.
-                Some(bot) if bot != Member::Fin => Front::Hand(Route {
-                    mode: bot.mode(),
-                    bot,
-                    sure: 0.9,
-                    why: say.clone(),
-                    by: "engine".into(),
-                    site: String::new(),
-                }),
+                Some(bot) if bot != Member::Fin => held(
+                    Route {
+                        mode: bot.mode(),
+                        bot,
+                        sure: 0.9,
+                        why: say.clone(),
+                        by: "engine".into(),
+                        site: String::new(),
+                        task,
+                        title,
+                    },
+                    text,
+                ),
                 Some(_) => return None,
                 None if about.is_empty() => return None,
                 None => Front::Make {
@@ -289,6 +300,8 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
                     about: about.chars().take(120).collect(),
                     like: Member::for_mode(mode),
                     start: v["start"].as_bool().unwrap_or(false),
+                    task,
+                    title,
                 },
             }
         }
@@ -301,6 +314,15 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
             let bot = named_bot(&v, crew)
                 .or_else(|| named_bot(&v, &missing(crew)))
                 .unwrap_or_else(|| route::doer(mode, crew));
+            // An analysis or review named to a bot that writes code (Builder,
+            // say) goes to the crew's reviewer instead: Builder would treat
+            // "review the scope" as setup to finish and stop. When nobody on
+            // the crew reviews, Squad Code offers to add the bot that does.
+            let bot = if mode == Mode::Review && bot.mode().writes() {
+                route::doer(Mode::Review, crew)
+            } else {
+                bot
+            };
             let r = Route {
                 mode: bot.mode(),
                 bot,
@@ -311,16 +333,65 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
                     s @ ("server" | "here") => s.to_string(),
                     _ => String::new(),
                 },
+                task,
+                title,
             };
-            // The guard rails hold, whoever decides.
-            match super::guard::risk(text) {
-                Some(why) => Front::Confirm { why, route: r },
-                None => Front::Hand(r),
-            }
+            held(r, text)
         }
         _ => return None,
     };
     Some((front, say))
+}
+
+/// The guard rails, whoever decides: work that's hard to undo waits for the
+/// person's yes. They read the person's last message and, for a bot that
+/// changes things, the whole ask Peek hands it, since that is what the bot
+/// works from: Peek offers "push it straight to main?", the person says
+/// "yes", and the task says to push to main.
+fn held(r: Route, text: &str) -> Front {
+    match risk_of(text, &r) {
+        Some(why) => Front::Confirm { why, route: r },
+        None => Front::Hand(r),
+    }
+}
+
+/// What makes the work `r` hard to undo, if anything: in the person's words,
+/// else in the task Peek wrote, when the bot it goes to changes things. A
+/// bot that only reads can't do harm with a task that names production.
+pub fn risk_of(text: &str, r: &Route) -> Option<String> {
+    super::guard::risk(text).or_else(|| {
+        (r.mode.writes() && !r.task.trim().is_empty())
+            .then(|| super::guard::risk(&r.task))
+            .flatten()
+    })
+}
+
+/// The whole ask and its title, as the decision wrote them: the task kept to
+/// a few thousand characters, the title to one line of a few words. Empty
+/// when the decision has none.
+fn ask_of(v: &Value) -> (String, String) {
+    let task: String = v["task"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(4000)
+        .collect();
+    let title = v["title"]
+        .as_str()
+        .unwrap_or("")
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_matches(|c: char| c == '"' || c == '.' || c == '\u{201c}' || c == '\u{201d}')
+        .trim();
+    let title = if title.split_whitespace().count() > 10 || title.chars().count() > 80 {
+        String::new()
+    } else {
+        title.to_string()
+    };
+    (task, title)
 }
 
 /// The kind of work the decision names; build when it names none.
@@ -562,6 +633,84 @@ mod tests {
     }
 
     #[test]
+    fn a_hand_off_carries_the_whole_ask_and_its_title() {
+        let c = crew();
+        let reply = r#"{"do": "hand", "say": "Got it, all three together.", "bot": "Guard", "kind": "review", "task": "Read main-develop and review the API, web app and worker for improvements. List them, most important first.", "title": "Review scope for improvements."}"#;
+        match parse(reply, "all togther", &c) {
+            Some((Front::Hand(r), _)) => {
+                assert_eq!(r.bot, Member::Guard);
+                assert!(r.task.starts_with("Read main-develop"), "{}", r.task);
+                assert_eq!(r.title, "Review scope for improvements");
+            }
+            other => panic!("{other:?}"),
+        }
+        // No task written: nothing to carry, and the person's words go on.
+        match parse(
+            r#"{"do": "hand", "say": "", "kind": "fix"}"#,
+            "fix the login",
+            &c,
+        ) {
+            Some((Front::Hand(r), _)) => assert!(r.task.is_empty() && r.title.is_empty()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_yes_to_risky_work_peek_proposed_still_waits_for_a_yes() {
+        let c = crew();
+        // Peek offered to push straight to main; the person said "yes". The
+        // reply is harmless, the task the bot gets isn't.
+        let reply = r#"{"do": "hand", "say": "On it.", "bot": "Builder", "kind": "build", "task": "Commit the login fix and push it straight to main, without a pull request.", "title": "Push the login fix to main"}"#;
+        match parse(reply, "yes", &c) {
+            Some((Front::Confirm { why, route }, _)) => {
+                assert!(why.contains("main branch"), "{why}");
+                assert_eq!(route.bot, Member::Builder);
+                assert!(route.task.contains("straight to main"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // The same through a "make" that names a bot on the crew.
+        let reply = r#"{"do": "make", "say": "", "name": "builder", "for": "code", "task": "Push it straight to main", "start": true}"#;
+        assert!(matches!(
+            parse(reply, "sure", &c),
+            Some((Front::Confirm { .. }, _))
+        ));
+        // A safe task after a short reply starts as before.
+        let reply = r#"{"do": "hand", "say": "", "bot": "Builder", "kind": "build", "task": "Add the toggle to Settings on its own branch."}"#;
+        assert!(matches!(parse(reply, "2", &c), Some((Front::Hand(_), _))));
+        // A bot that only reads can't do harm with a task that names
+        // production: a review of the production config just starts.
+        let reply = r#"{"do": "hand", "say": "", "bot": "Guard", "kind": "review", "task": "Review the production deploy config for secrets in plain text. Change nothing."}"#;
+        assert!(matches!(
+            parse(reply, "all of it", &c),
+            Some((Front::Hand(_), _))
+        ));
+    }
+
+    #[test]
+    fn analysis_named_to_builder_goes_to_the_reviewer() {
+        let c = crew();
+        let reply = r#"{"do": "hand", "say": "Scope review it is.", "bot": "Builder", "kind": "review", "task": "Review the code for improvements"}"#;
+        match parse(reply, "all together", &c) {
+            Some((Front::Hand(r), _)) => assert_eq!((r.bot, r.mode), (Member::Guard, Mode::Review)),
+            other => panic!("{other:?}"),
+        }
+        // With nobody on the crew who reviews, it's still the reviewer's,
+        // and Squad Code offers to add it first.
+        let no_guard: Vec<Member> = c.iter().copied().filter(|m| *m != Member::Guard).collect();
+        match parse(reply, "all together", &no_guard) {
+            Some((Front::Hand(r), _)) => assert_eq!(r.bot, Member::Guard),
+            other => panic!("{other:?}"),
+        }
+        // Builder still builds.
+        let reply = r#"{"do": "hand", "say": "", "bot": "Builder", "kind": "build"}"#;
+        match parse(reply, "add a login page", &c) {
+            Some((Front::Hand(r), _)) => assert_eq!(r.bot, Member::Builder),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
     fn peek_can_offer_to_make_a_new_bot() {
         let c = crew();
         let reply = r#"{"do": "make", "say": "Nobody here knows Stripe well. Want me to make Stripe, a payments bot?", "name": "Stripe", "for": "payments, Stripe webhooks and billing bugs", "kind": "fix", "start": true}"#;
@@ -572,6 +721,7 @@ mod tests {
                     about,
                     like,
                     start,
+                    ..
                 },
                 say,
             )) => {
@@ -885,6 +1035,32 @@ fn discussion_reads() {
             "hand to Builder, no new bot",
         ),
         (
+            "do: all together answers Peek's scope question",
+            "optimisation",
+            vec![
+                s("you", "hi guys"),
+                s("peek", "Hey! Peek here, with the crew ready to build, fix, test or review whatever you need. What are we working on in #optimisation?"),
+                s("you", "can we do one tgin checkout from maind evelopa dn lets review scope for implviemnt"),
+                s("peek", "Happy to branch off main-develop and scope it out first. What should the new branch be called, and what are we optimising: API speed, the web app, the worker, or something else?"),
+            ],
+            vec![],
+            &all,
+            "all togther",
+            "hand to Guard (review), task: branch off main-develop and review API, web app and worker for improvements",
+        ),
+        (
+            "risky: yes to Peek's offer to push to main",
+            "general",
+            vec![
+                s("you", "the login fix is done, can we get it out quickly"),
+                s("peek", "Builder's fix is ready on its branch. Want me to have it pushed straight to main, skipping the pull request?"),
+            ],
+            vec![Member::Builder],
+            &all,
+            "yes",
+            "confirm (hand to Builder after a yes): the task pushes to main",
+        ),
+        (
             "small talk",
             "general",
             vec![],
@@ -909,7 +1085,7 @@ fn discussion_reads() {
             running: &[],
             in_thread: open,
             server: "",
-            picked: "",
+            picked: if name.starts_with("do:") { "Do" } else { "" },
         };
         let p = prompt(text, &seen);
         println!("\n## {name}\n   wrote {text:?}; right: {want}");

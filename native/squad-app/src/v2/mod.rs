@@ -876,6 +876,30 @@ struct Offer {
     handoff: String,
     /// Where Peek said it runs ("server", "here"), or empty for the usual.
     site: String,
+    /// The whole ask as Peek read it, when it wrote one.
+    ask: Option<runtime::NextAsk>,
+}
+
+/// Peek's words for the bot it hands work to: "Bringing in Guard to review
+/// the API for improvements." when it joins the thread with this job, or
+/// "Over to Builder." when it's in the thread already.
+fn bringing(bot: &str, title: &str, joined: bool) -> String {
+    let title = title.trim().trim_end_matches('.');
+    // "Review the API" reads "to review the API"; "API speed audit" keeps
+    // its capitals.
+    let mut chars = title.chars();
+    let doing = match (chars.next(), chars.next()) {
+        (Some(a), Some(b)) if a.is_uppercase() && b.is_lowercase() => {
+            format!("{}{}", a.to_lowercase(), &title[a.len_utf8()..])
+        }
+        _ => title.to_string(),
+    };
+    match (joined, doing.is_empty()) {
+        (true, true) => format!("Over to {bot}."),
+        (true, false) => format!("Over to {bot} to {doing}."),
+        (false, true) => format!("Bringing in {bot}."),
+        (false, false) => format!("Bringing in {bot} to {doing}."),
+    }
 }
 
 /// "A", "A and B", "A, B and C".
@@ -2603,6 +2627,8 @@ impl Shell {
             about,
             like,
             start,
+            task,
+            title,
         } = made
         else {
             return;
@@ -2639,6 +2665,28 @@ impl Shell {
         } else {
             " Ask it for anything with @, or I'll send it work that fits."
         };
+        let route = brain::route::Route {
+            mode: like.mode(),
+            bot,
+            sure: 0.9,
+            why: format!("A job for {name}, who's for {about}."),
+            by: "engine".into(),
+            site: String::new(),
+            task,
+            title,
+        };
+        // A yes to making the bot isn't a yes to work that's hard to undo:
+        // that waits for its own yes, as any hand-off does.
+        let risk = start
+            .then(|| brain::think::risk_of(&text, &route))
+            .flatten();
+        let (next, choices) = match &risk {
+            Some(why) => (
+                format!(" Before it starts: {why}"),
+                vec!["Go ahead".to_string(), "Cancel".into()],
+            ),
+            None => (next.to_string(), Vec::new()),
+        };
         self.crew.fill_talk(
             talk,
             format!(
@@ -2646,18 +2694,12 @@ impl Shell {
                 like.name(),
                 like.role().to_lowercase()
             ),
-            Vec::new(),
+            choices,
         );
         self.crew.store.save();
-        if start {
-            let route = brain::route::Route {
-                mode: like.mode(),
-                bot,
-                sure: 0.9,
-                why: format!("A job for {name}, who's for {about}."),
-                by: "engine".into(),
-                site: String::new(),
-            };
+        if risk.is_some() {
+            self.confirming = Some((talk, text, route));
+        } else if start {
             let line = route.why.clone();
             self.hand_with_line(route, text, line, cx);
         }
@@ -2712,7 +2754,9 @@ impl Shell {
     }
 
     /// Peek's line on a hand-off: why this bot (the engine's reason, unless
-    /// that names the bot), and where it runs when that was asked for.
+    /// that names the bot), which bot it brings in and for what, and where it
+    /// runs when that was asked for. It shows as Peek's own message, so a bot
+    /// never turns up in the thread unannounced.
     fn handoff_line(&self, route: &brain::route::Route, said: Option<String>) -> String {
         let reason = said
             .map(|s| s.trim().to_string())
@@ -2725,7 +2769,19 @@ impl Shell {
             ("here", _) => " It runs on this computer.".to_string(),
             _ => String::new(),
         };
-        format!("{reason}{place}")
+        let here = self.crew.store.thread_here();
+        let joined = self
+            .crew
+            .store
+            .threads
+            .iter()
+            .find(|t| t.id == here)
+            .is_some_and(|t| t.bots.contains(&route.bot))
+            || self.open_here(route.bot).is_some();
+        format!(
+            "{reason} {}{place}",
+            bringing(route.bot.name(), &route.title, joined)
+        )
     }
 
     /// Starts an ask the way Peek routed it, with Peek's line on the new
@@ -2739,6 +2795,15 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let before = self.last_job();
+        // The bot joins the thread with the work, as Peek's line says.
+        if self.place == Place::Today && route.bot != Member::Fin && route.bot.on_crew() {
+            let here = self.crew.store.thread_here();
+            if let Some(t) = self.crew.store.threads.iter_mut().find(|t| t.id == here) {
+                if !t.bots.contains(&route.bot) {
+                    t.bots.push(route.bot);
+                }
+            }
+        }
         self.hand_to(route, text, cx);
         if !self.mark_new_jobs(before, &line) {
             if let Some(o) = self.offer.as_mut() {
@@ -2780,8 +2845,12 @@ impl Shell {
         self.mode_pinned = true;
         // "do it on the VPS": this job runs there, whatever the usual choice.
         self.crew.where_next = (!route.site.is_empty()).then(|| route.site.clone());
+        // The whole ask as Peek read it from the conversation, so a reply
+        // like "all together" reaches the bot with what it answers.
+        self.crew.ask_next = runtime::NextAsk::of(&route);
         self.hand_over_inner(text, cx);
         self.crew.where_next = None;
+        self.crew.ask_next = None;
         self.target = target;
         self.mode = mode;
         self.mode_pinned = pinned;
@@ -2950,6 +3019,7 @@ impl Shell {
                 race: if self.mode.writes() { racing } else { 0 },
                 handoff: String::new(),
                 site: self.crew.where_next.clone().unwrap_or_default(),
+                ask: self.crew.ask_next.clone(),
             });
             cx.notify();
             return;
@@ -3062,8 +3132,16 @@ impl Shell {
         let before = self.last_job();
         // Peek's choice of where it runs still holds once the bot is added.
         self.crew.where_next = (!o.site.is_empty()).then(|| o.site.clone());
+        // Peek already read the whole ask: the bot it picked takes it as
+        // written, rather than Peek reading the last reply alone again.
+        if o.ask.is_some() {
+            self.target = Some(o.who);
+            self.crew.ask_next = o.ask.clone();
+        }
         self.hand_over(o.text, cx);
+        self.target = None;
         self.crew.where_next = None;
+        self.crew.ask_next = None;
         if !o.handoff.is_empty() {
             self.mark_new_jobs(before, &o.handoff);
         }
@@ -4682,6 +4760,25 @@ mod side_tests {
         // Along the diagonal both axes turn alike.
         let (x, y) = gaze_towards((100., 100.), (400., 400.));
         assert!(x == y && x > 5, "{x} {y}");
+    }
+}
+
+#[cfg(test)]
+mod bringing_tests {
+    use super::bringing;
+
+    #[test]
+    fn peek_says_which_bot_it_brings_in_and_for_what() {
+        assert_eq!(
+            bringing("Guard", "Review scope for improvements", false),
+            "Bringing in Guard to review scope for improvements."
+        );
+        assert_eq!(bringing("Builder", "", true), "Over to Builder.");
+        // An acronym keeps its capitals.
+        assert_eq!(
+            bringing("Guard", "API speed audit", false),
+            "Bringing in Guard to API speed audit."
+        );
     }
 }
 
