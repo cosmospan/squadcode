@@ -8,6 +8,8 @@
 //! - [`route`]: the bot and kind of work picked, and Peek's line as it
 //!   onboards or invites the bot.
 //! - [`guard`]: risky asks wait for a yes, whoever decided.
+//! - [`guide`]: a review guide for each finished job, in reading order, with
+//!   the places to look closely marked.
 //! - [`permit`]: what a bot may do on its own, what it asks about first,
 //!   and what it never does.
 //! - [`place`]: whether a job runs on this computer or on the person's server,
@@ -26,6 +28,7 @@ pub mod digest;
 mod eval;
 pub mod front;
 pub mod guard;
+pub mod guide;
 pub mod helper;
 pub mod ideas;
 pub mod maker;

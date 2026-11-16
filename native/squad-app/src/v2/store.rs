@@ -369,6 +369,9 @@ pub struct Job {
     pub checks: Vec<crate::proof::CheckRun>,
     /// Checker is running them now.
     pub checking: bool,
+    /// The tour of its changes written once Checker's checks are back, with
+    /// the places to look closely marked. `None` until written.
+    pub guide: Option<super::brain::guide::Guide>,
     /// What happened when it was approved: "Merged into main as 3f2a1c9", or the
     /// pull request's address.
     pub shipped: String,
@@ -538,6 +541,7 @@ impl Default for Job {
             changes: Vec::new(),
             checks: Vec::new(),
             checking: false,
+            guide: None,
             shipped: String::new(),
             pr: String::new(),
             pr_number: 0,
