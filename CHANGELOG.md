@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- Rules for parts of the code. Markdown files in `.squad/rules/` with a `files:` pattern at the top (`src/api/**`), and `AGENTS.md` files in subfolders, are given in full to Builder, the other bots that change files, and Guard, only when a job touches those paths: the paths the ask names, what the bot has changed, or the changes Guard reviews. Other rules are listed in one line each, so prompts stay short. Cursor's `globs:` and Kiro's `fileMatchPattern:` are read too, and the job's feed says which rules it followed.
+
 ## [2.0.0-alpha.15] - 2026-11-15
 
 ### Added
