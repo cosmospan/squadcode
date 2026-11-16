@@ -2627,6 +2627,28 @@ impl Shell {
         } else {
             " Ask it for anything with @, or I'll send it work that fits."
         };
+        let route = brain::route::Route {
+            mode: like.mode(),
+            bot,
+            sure: 0.9,
+            why: format!("A job for {name}, who's for {about}."),
+            by: "engine".into(),
+            site: String::new(),
+            task,
+            title,
+        };
+        // A yes to making the bot isn't a yes to work that's hard to undo:
+        // that waits for its own yes, as any hand-off does.
+        let risk = start
+            .then(|| brain::think::risk_of(&text, &route))
+            .flatten();
+        let (next, choices) = match &risk {
+            Some(why) => (
+                format!(" Before it starts: {why}"),
+                vec!["Go ahead".to_string(), "Cancel".into()],
+            ),
+            None => (next.to_string(), Vec::new()),
+        };
         self.crew.fill_talk(
             talk,
             format!(
@@ -2634,20 +2656,12 @@ impl Shell {
                 like.name(),
                 like.role().to_lowercase()
             ),
-            Vec::new(),
+            choices,
         );
         self.crew.store.save();
-        if start {
-            let route = brain::route::Route {
-                mode: like.mode(),
-                bot,
-                sure: 0.9,
-                why: format!("A job for {name}, who's for {about}."),
-                by: "engine".into(),
-                site: String::new(),
-                task,
-                title,
-            };
+        if risk.is_some() {
+            self.confirming = Some((talk, text, route));
+        } else if start {
             let line = route.why.clone();
             self.hand_with_line(route, text, line, cx);
         }

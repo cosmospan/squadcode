@@ -5964,7 +5964,13 @@ fn whole_ask_real_job() {
     else {
         panic!("Peek didn't hand it on: {reply}");
     };
-    println!("Peek: {say}\n-> {} ({:?})\n   title: {}\n   task: {}", route.bot.name(), route.mode, route.title, route.task);
+    println!(
+        "Peek: {say}\n-> {} ({:?})\n   title: {}\n   task: {}",
+        route.bot.name(),
+        route.mode,
+        route.title,
+        route.task
+    );
 
     let st = AppSettings::default();
     let folder = store::Folder {
@@ -5980,7 +5986,10 @@ fn whole_ask_real_job() {
     let t = Instant::now();
     while !rt.runners.is_empty() || rt.store.jobs.iter().any(|j| j.checking) {
         rt.poll(&st, None);
-        assert!(t.elapsed() < Duration::from_secs(900), "the job never ended");
+        assert!(
+            t.elapsed() < Duration::from_secs(900),
+            "the job never ended"
+        );
         std::thread::sleep(Duration::from_millis(200));
     }
     let job = rt.store.job(id).cloned().unwrap();

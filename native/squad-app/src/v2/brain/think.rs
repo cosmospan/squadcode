@@ -280,16 +280,19 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
             let mode = kind(&v);
             match taken {
                 // Or one Squad Code can add: it offers to, first.
-                Some(bot) if bot != Member::Fin => Front::Hand(Route {
-                    mode: bot.mode(),
-                    bot,
-                    sure: 0.9,
-                    why: say.clone(),
-                    by: "engine".into(),
-                    site: String::new(),
-                    task,
-                    title,
-                }),
+                Some(bot) if bot != Member::Fin => held(
+                    Route {
+                        mode: bot.mode(),
+                        bot,
+                        sure: 0.9,
+                        why: say.clone(),
+                        by: "engine".into(),
+                        site: String::new(),
+                        task,
+                        title,
+                    },
+                    text,
+                ),
                 Some(_) => return None,
                 None if about.is_empty() => return None,
                 None => Front::Make {
@@ -333,15 +336,34 @@ pub fn parse(reply: &str, text: &str, crew: &[Member]) -> Option<(Front, String)
                 task,
                 title,
             };
-            // The guard rails hold, whoever decides.
-            match super::guard::risk(text) {
-                Some(why) => Front::Confirm { why, route: r },
-                None => Front::Hand(r),
-            }
+            held(r, text)
         }
         _ => return None,
     };
     Some((front, say))
+}
+
+/// The guard rails, whoever decides: work that's hard to undo waits for the
+/// person's yes. They read the person's last message and, for a bot that
+/// changes things, the whole ask Peek hands it, since that is what the bot
+/// works from: Peek offers "push it straight to main?", the person says
+/// "yes", and the task says to push to main.
+fn held(r: Route, text: &str) -> Front {
+    match risk_of(text, &r) {
+        Some(why) => Front::Confirm { why, route: r },
+        None => Front::Hand(r),
+    }
+}
+
+/// What makes the work `r` hard to undo, if anything: in the person's words,
+/// else in the task Peek wrote, when the bot it goes to changes things. A
+/// bot that only reads can't do harm with a task that names production.
+pub fn risk_of(text: &str, r: &Route) -> Option<String> {
+    super::guard::risk(text).or_else(|| {
+        (r.mode.writes() && !r.task.trim().is_empty())
+            .then(|| super::guard::risk(&r.task))
+            .flatten()
+    })
 }
 
 /// The whole ask and its title, as the decision wrote them: the task kept to
@@ -631,6 +653,38 @@ mod tests {
             Some((Front::Hand(r), _)) => assert!(r.task.is_empty() && r.title.is_empty()),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn a_yes_to_risky_work_peek_proposed_still_waits_for_a_yes() {
+        let c = crew();
+        // Peek offered to push straight to main; the person said "yes". The
+        // reply is harmless, the task the bot gets isn't.
+        let reply = r#"{"do": "hand", "say": "On it.", "bot": "Builder", "kind": "build", "task": "Commit the login fix and push it straight to main, without a pull request.", "title": "Push the login fix to main"}"#;
+        match parse(reply, "yes", &c) {
+            Some((Front::Confirm { why, route }, _)) => {
+                assert!(why.contains("main branch"), "{why}");
+                assert_eq!(route.bot, Member::Builder);
+                assert!(route.task.contains("straight to main"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // The same through a "make" that names a bot on the crew.
+        let reply = r#"{"do": "make", "say": "", "name": "builder", "for": "code", "task": "Push it straight to main", "start": true}"#;
+        assert!(matches!(
+            parse(reply, "sure", &c),
+            Some((Front::Confirm { .. }, _))
+        ));
+        // A safe task after a short reply starts as before.
+        let reply = r#"{"do": "hand", "say": "", "bot": "Builder", "kind": "build", "task": "Add the toggle to Settings on its own branch."}"#;
+        assert!(matches!(parse(reply, "2", &c), Some((Front::Hand(_), _))));
+        // A bot that only reads can't do harm with a task that names
+        // production: a review of the production config just starts.
+        let reply = r#"{"do": "hand", "say": "", "bot": "Guard", "kind": "review", "task": "Review the production deploy config for secrets in plain text. Change nothing."}"#;
+        assert!(matches!(
+            parse(reply, "all of it", &c),
+            Some((Front::Hand(_), _))
+        ));
     }
 
     #[test]
@@ -993,6 +1047,18 @@ fn discussion_reads() {
             &all,
             "all togther",
             "hand to Guard (review), task: branch off main-develop and review API, web app and worker for improvements",
+        ),
+        (
+            "risky: yes to Peek's offer to push to main",
+            "general",
+            vec![
+                s("you", "the login fix is done, can we get it out quickly"),
+                s("peek", "Builder's fix is ready on its branch. Want me to have it pushed straight to main, skipping the pull request?"),
+            ],
+            vec![Member::Builder],
+            &all,
+            "yes",
+            "confirm (hand to Builder after a yes): the task pushes to main",
         ),
         (
             "small talk",
