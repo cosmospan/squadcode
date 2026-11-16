@@ -9,6 +9,25 @@ use super::words;
 
 /// Words that mean "every one of them".
 const ALL: &[&str] = &["all", "every", "whole", "entire", "everything", "everyone"];
+/// Features named with "live" that are about the app, not production:
+/// "add live search" is a feature to build, not a change to the live site.
+const LIVE_FEATURES: &[&str] = &[
+    "search",
+    "chat",
+    "preview",
+    "reload",
+    "update",
+    "updates",
+    "typing",
+    "validation",
+    "editing",
+    "collaboration",
+    "cursor",
+    "cursors",
+    "counter",
+    "feed",
+    "notifications",
+];
 /// Things whose bulk removal can't easily be undone.
 const BULK: &[&str] = &[
     "folder",
@@ -47,7 +66,7 @@ fn reasons(text: &str) -> Vec<&'static str> {
 
     let live = w("prod")
         || w("production")
-        || p(" live ") && !p("live reload") && !p("live preview")
+        || p(" live ") && !LIVE_FEATURES.iter().any(|f| p(&format!(" live {f}")))
         || p("all users")
         || p("to customers");
     let changes = !ws
@@ -196,6 +215,8 @@ mod tests {
             "rotate the stripe api key in .env",
             "email everyone on the waitlist",
             "rm -rf the build folder and the caches",
+            "push the fix to the live site",
+            "change the price on live",
         ] {
             assert!(risk(t).is_some(), "{t}");
         }
@@ -216,6 +237,9 @@ mod tests {
             "the token refresh fails after an hour",
             "fix the deploy script",
             "the buy button is misaligned",
+            "see if you can do live search now",
+            "add live chat to the support page",
+            "turn on live reload",
         ] {
             assert!(risk(t).is_none(), "{t}: {:?}", risk(t));
         }
