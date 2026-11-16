@@ -221,6 +221,19 @@ Every bot is a DM away. Ask about the code in plain words: the bot reads the fol
 </tr>
 </table>
 
+### Triggers: jobs that start by themselves
+
+<img src="docs/images/triggers.png" alt="Settings, Triggers: a form for a new trigger (Schedule, Issue label, CI fails or Link, a name, when it runs, which bot does it and what to do each time), and below it Fix main when CI breaks and Morning dependency check, each with Run now, Remove, an on switch and its last runs" width="920" />
+
+Give the crew a job that starts by itself, in **Settings > Triggers** or with `squad trigger add`:
+
+- **On a schedule**, in local time: "weekdays at 9am", "every 2 hours", or a cron expression. A time missed while the app was closed runs once when it opens.
+- **When an issue gets a label**, such as `squad`. The job starts with the issue's own words and its pull request closes the issue. Only people who can triage the repository can label, so a label is their go-ahead even on a public repository.
+- **When CI fails** on a branch, such as main: Fixer reads the failed run's log and fixes it, one fix at a time.
+- **When a link is called**, from a script, a git hook or another service: `POST http://127.0.0.1:7641/v1/hooks/<secret>` while the app is open, the same path on `squad serve`'s port on your server, or `squad fire <secret>`.
+
+What a trigger brings with it (a request body, a commit title, an issue) was written outside Squad Code, so it reaches the bot quoted and marked as information, never as instructions. A trigger's jobs wait in line behind whatever its bot is on, and at most three wait at once. They land in the Inbox like any job, marked ⚡, with the trigger's other runs and **Run again**.
+
 ## The crew
 
 <img src="docs/images/crew.png" alt="The Crew page: every bot down the left with what it's doing now, and Builder's profile with its engine, its jobs, what waits for review and what shipped, and Edit, Message and Give a job" width="920" />
@@ -328,6 +341,10 @@ squad brain why tidy up the old feature flags  # where Peek would send a job, an
 | `squad issue <ref>` / `squad linear key <key>` | Read a GitHub or Linear issue, or save a Linear key |
 | `squad lessons [forget <bot> <n>]` | What the bots learned from your reviews here |
 | `squad project [init]` | Show this project's `squad.toml`, or write a starting one |
+| `squad triggers` | Jobs that start by themselves, and how their last runs went |
+| `squad trigger add <when> [--bot <name>] <words…>` | A trigger in this folder: `schedule "weekdays at 9am"`, `label squad`, `ci main` or `link` |
+| `squad trigger on\|off\|run\|rm <id>` | Turn a trigger on or off, run it now, or remove it |
+| `squad fire <secret> [words…]` | Call a link trigger from a script or a git hook |
 | `squad serve [--listen <address>\|tailscale]` | Run the crew here with no window ([below](#run-the-crew-on-a-server)) |
 | `squad pair [name]` / `devices` / `unpair <name>` | Pair a device with the server, list them, or cut one off |
 | `squad brain why <words…>` | Where Peek would send a job, and why |
@@ -351,6 +368,7 @@ squad pair laptop                # a one-time code for another device
 - **Nothing is opened to the internet.** It listens on `127.0.0.1:7640` unless told otherwise; reach it over an SSH tunnel or Tailscale.
 - **Every device pairs.** `squad pair` prints a one-time code (8 characters, 10 minutes, 5 tries) that a device trades for its own token, and `squad unpair` revokes one.
 - **One API for every client.** A small HTTP API under `/v1/` covers state, jobs and their actions, chats, goals, folders and devices, and `GET /v1/events` streams every change as server-sent events, so a job started from one device shows up live on all of them. `squad new` and the other commands on the server feed the same crew.
+- **Triggers' links reach it with their secret alone.** `POST /v1/hooks/<secret>` starts that trigger's job without a paired device, so CI, a deploy or another service can call it; `GET` and `POST /v1/triggers` list and add triggers from a paired device.
 - **Peek knows where work belongs.** When you have a server, Peek decides per job whether it runs here or there, by where the project lives, where the agent is signed in and how long the work is, and says why in the job's feed.
 
 Connecting the desktop app and the phone to a server is coming next; today you drive a server with `squad` on it or through the API.

@@ -52,6 +52,22 @@ pub enum Ask {
         dir: String,
         n: usize,
     },
+    /// A new trigger for the project at `dir`.
+    #[serde(rename = "add-trigger")]
+    AddTrigger {
+        trigger: Box<super::triggers::Trigger>,
+        dir: String,
+    },
+    /// Turns trigger `id` on or off, runs it now or removes it.
+    Trigger {
+        id: u64,
+        action: String,
+    },
+    /// A trigger's link called from this computer: its secret and what came with it.
+    Fire {
+        token: String,
+        text: String,
+    },
 }
 
 pub fn queue_path() -> PathBuf {
@@ -115,6 +131,16 @@ const HELP: &str = "squad: hand the crew jobs from a terminal.
   squad lessons [forget <bot> <n>]
                              what the bots learned from your send-backs here
   squad project [init]        what squad.toml says here, or write a starter
+  squad triggers              jobs that start by themselves, and their runs
+  squad trigger add <when> [--bot <name>] [--name <name>] <words...>
+                             a job that starts by itself in this folder.
+                             <when> is schedule \"weekdays at 9am\" (or a
+                             cron expression), label <name> [--author <login>],
+                             ci [<branch>] [--workflow <name>] or link
+  squad trigger on|off|run|rm <id>
+                             turn a trigger on or off, run it now, remove it
+  squad fire <secret> [words...]
+                             call a link trigger from a script or git hook
   squad browser <command>     use the browser of the job working in this
                              folder: open, look, click, type, press, back,
                              screenshot, eval (squad browser help)
@@ -144,6 +170,148 @@ fn cwd() -> String {
     std::env::current_dir()
         .map(|d| d.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// `squad triggers`: each trigger, what starts it and how its last run went.
+fn triggers_list(s: &Store) -> String {
+    if s.triggers.is_empty() {
+        return "No triggers yet. squad trigger add schedule \"weekdays at 9am\" <words...> makes one.".into();
+    }
+    s.triggers
+        .iter()
+        .map(|t| {
+            let last = match t.runs.last() {
+                None => "never ran".to_string(),
+                Some(r) if !r.skipped.is_empty() => format!("last skipped: {}", r.skipped),
+                Some(r) if r.job != 0 => format!(
+                    "last #{} {}",
+                    r.job,
+                    s.job(r.job).map(|j| j.status.label()).unwrap_or("gone")
+                ),
+                Some(_) => "last waiting to start".to_string(),
+            };
+            let mut line = format!(
+                "{:<4} {:<4} {:<22} {:<30} {:<10} {}",
+                t.id,
+                if t.on { "on" } else { "off" },
+                t.name,
+                t.summary(),
+                t.bot.name(),
+                last
+            );
+            if let Some(token) = t.token() {
+                line.push_str(&format!("\n     squad fire {token} [words...]"));
+            }
+            if !t.trouble.is_empty() {
+                line.push_str(&format!("\n     {}", t.trouble));
+            }
+            line
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `squad trigger add …` as a trigger, before the app checks it.
+pub fn parse_trigger(args: &[String]) -> Result<super::triggers::Trigger, String> {
+    use super::triggers::{Trigger, When};
+    let usage = "usage: squad trigger add schedule \"weekdays at 9am\"|label <name>|ci [<branch>]|link [--bot <name>] [--name <name>] <words...>";
+    let kind = args.first().ok_or(usage)?.as_str();
+    let mut rest = args[1..].iter().peekable();
+    let mut arg = String::new();
+    let takes_arg = matches!(kind, "schedule" | "label")
+        || (kind == "ci" && rest.peek().is_some_and(|a| !a.starts_with("--")));
+    if takes_arg {
+        arg = rest.next().cloned().ok_or(usage)?;
+    }
+    let (mut bot, mut name, mut author, mut workflow, mut words) = (
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        Vec::new(),
+    );
+    while let Some(a) = rest.next() {
+        let mut val = || rest.next().cloned().ok_or(format!("{a} needs a value"));
+        match a.as_str() {
+            "--bot" => bot = val()?,
+            "--name" => name = val()?,
+            "--author" => author = val()?,
+            "--workflow" => workflow = val()?,
+            "--" => {}
+            w => words.push(w.to_string()),
+        }
+    }
+    let when = match kind {
+        "schedule" => When::Schedule {
+            cron: crate::schedule::from_words(&arg)?,
+        },
+        "label" => When::Label { label: arg, author },
+        "ci" => When::CiFails {
+            branch: if arg.is_empty() { "main".into() } else { arg },
+            workflow,
+        },
+        "link" => When::Link {
+            token: super::triggers::new_token(),
+        },
+        _ => return Err(usage.into()),
+    };
+    let who = if bot.is_empty() {
+        match &when {
+            When::CiFails { .. } => Member::Fixer,
+            _ => Member::Builder,
+        }
+    } else {
+        Member::all()
+            .into_iter()
+            .find(|m| m.name().eq_ignore_ascii_case(&bot))
+            .ok_or_else(|| format!("No bot called {bot} on the crew."))?
+    };
+    let text = words.join(" ").trim().to_string();
+    if text.is_empty() {
+        return Err("Say what the job is each time it starts.".into());
+    }
+    Ok(Trigger {
+        name,
+        when,
+        text,
+        bot: who,
+        mode: who.mode(),
+        ..Default::default()
+    })
+}
+
+/// `squad trigger …`: add one, or turn one on or off, run it now or remove it.
+fn trigger(args: &[String]) -> Result<String, String> {
+    match args.first().map(String::as_str) {
+        Some("add") => {
+            let t = parse_trigger(&args[1..])?;
+            let mut out = format!("Adding \u{201c}{}\u{201d}: {}.", t.text, t.summary());
+            if let Some(token) = t.token() {
+                out.push_str(&format!(
+                    "\nCall it with: squad fire {token} [words...]\nor POST to http://127.0.0.1:{}/v1/hooks/{token} while the app is open (port {} under squad serve).",
+                    super::triggers::HOOK_PORT,
+                    super::server::PORT
+                ));
+            }
+            push(&Ask::AddTrigger {
+                trigger: Box::new(t),
+                dir: cwd(),
+            })?;
+            Ok(out)
+        }
+        Some(action @ ("on" | "off" | "run" | "rm")) => {
+            let id = args
+                .get(1)
+                .and_then(|s| s.parse().ok())
+                .ok_or(format!("usage: squad trigger {action} <id>"))?;
+            push(&Ask::Trigger {
+                id,
+                action: action.to_string(),
+            })?;
+            Ok(format!("Trigger {id}: {action}."))
+        }
+        _ => Err("usage: squad trigger add|on|off|run|rm …  (squad help)".into()),
+    }
 }
 
 /// `squad later`: the waiting jobs, one for later, or cancelling one.
@@ -487,6 +655,16 @@ pub fn main(args: &[String]) -> i32 {
             }
         }),
         "lessons" => lessons(&args[1..]),
+        "triggers" => Ok(triggers_list(&Store::load_view())),
+        "trigger" => trigger(&args[1..]),
+        "fire" => match args.get(1) {
+            Some(token) => push(&Ask::Fire {
+                token: token.clone(),
+                text: args[2..].join(" "),
+            })
+            .map(|_| "Handed to the crew.".into()),
+            None => Err("usage: squad fire <secret> [words...]".into()),
+        },
         "project" => project(&args[1..]),
         "brain" => super::brain::cli::main(&args[1..]),
         // The job's browser, from a shell: what engines without MCP use, and how the
@@ -532,6 +710,55 @@ mod tests {
 
     fn words(s: &str) -> Vec<String> {
         s.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn triggers_read_their_words() {
+        use super::super::data::Member;
+        use super::super::triggers::When;
+        let mut args = words("schedule");
+        args.push("weekdays at 9am".into());
+        args.extend(words("--bot keeper tidy the flaky tests"));
+        let t = super::parse_trigger(&args).unwrap();
+        assert_eq!(
+            t.when,
+            When::Schedule {
+                cron: "0 9 * * 1-5".into()
+            }
+        );
+        assert_eq!(
+            (t.bot, t.text.as_str()),
+            (Member::Keeper, "tidy the flaky tests")
+        );
+        let t = super::parse_trigger(&words("ci --workflow tests fix it")).unwrap();
+        assert_eq!(
+            t.when,
+            When::CiFails {
+                branch: "main".into(),
+                workflow: "tests".into()
+            }
+        );
+        assert_eq!(t.bot, Member::Fixer);
+        let t = super::parse_trigger(&words("label squad --author ana -- work on it")).unwrap();
+        assert!(
+            matches!(t.when, When::Label { ref label, ref author } if label == "squad" && author == "ana")
+        );
+        assert_eq!(
+            super::parse_trigger(&words("link look at it"))
+                .unwrap()
+                .token()
+                .map(str::len),
+            Some(32)
+        );
+        assert!(super::parse_trigger(&words("label squad")).is_err());
+        assert!(super::parse_trigger(&words("sometimes do it")).is_err());
+        // It goes through the queue and back.
+        let ask = Ask::AddTrigger {
+            trigger: Box::new(t),
+            dir: "/p".into(),
+        };
+        let line = serde_json::to_string(&ask).unwrap();
+        assert_eq!(serde_json::from_str::<Ask>(&line).unwrap(), ask);
     }
 
     #[test]

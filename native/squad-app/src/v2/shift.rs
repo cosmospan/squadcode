@@ -43,6 +43,9 @@ pub struct Later {
     pub issue_url: String,
     /// Sent from another computer: the branch and commit it starts from.
     pub handoff: Option<super::work::Handoff>,
+    /// The trigger that put it here, 0 for none, and what set it off.
+    pub trigger: u64,
+    pub trigger_why: String,
 }
 
 impl Default for Later {
@@ -60,6 +63,8 @@ impl Default for Later {
             issue: String::new(),
             issue_url: String::new(),
             handoff: None,
+            trigger: 0,
+            trigger_why: String::new(),
         }
     }
 }

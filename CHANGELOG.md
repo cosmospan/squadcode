@@ -4,6 +4,11 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- Triggers: jobs that start by themselves. Make one in Settings > Triggers, or with `squad trigger add`, and pick what starts it: a schedule ("weekdays at 9am", "every 2 hours" or a cron expression, in local time), an issue getting a label such as `squad`, CI failing on a branch such as main, or a link with a secret called from a script, a git hook or another service. A labelled issue's job starts with the issue's words and its pull request closes the issue; a CI failure goes to Fixer with the failed run to read, one fix at a time. What a trigger brings with it is quoted for the bot as information, not instructions. Its jobs wait for their bot like `/later` jobs, at most three at a time, and land in the Inbox marked with a bolt, with the trigger's other runs and Run again. Each trigger shows its last runs, its next time or last look at GitHub, and Run now, an on switch and Remove.
+- `squad triggers`, `squad trigger add|on|off|run|rm` and `squad fire <secret>`, and on `squad serve`, `POST /v1/hooks/<secret>` (no paired device needed) and `/v1/triggers` for paired devices.
+
 ## [2.0.0-alpha.15] - 2026-11-15
 
 ### Added

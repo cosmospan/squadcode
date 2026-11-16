@@ -76,6 +76,10 @@ pub struct Store {
     /// What bots learned from your send-backs, each for one project.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub lessons: Vec<super::learn::Lesson>,
+    /// Jobs that start by themselves: on a schedule, a GitHub label, CI failing
+    /// or a link being called.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<super::triggers::Trigger>,
     /// A made-up store for looking at every screen (SQUADCODE_DEMO): never saved.
     #[serde(skip)]
     pub demo: bool,
@@ -452,6 +456,11 @@ pub struct Job {
     /// Its bot is answering review comments on the open pull request: when
     /// the turn ends, Shipper pushes the fix to the same pull request.
     pub answering: bool,
+    /// The trigger that started it, 0 for none; what set the trigger off; and
+    /// the words it started with, for Run again.
+    pub trigger: u64,
+    pub trigger_why: String,
+    pub trigger_text: String,
 }
 
 /// One file a job changed.
@@ -556,6 +565,9 @@ impl Default for Job {
             issue_url: String::new(),
             pr_seen: String::new(),
             answering: false,
+            trigger: 0,
+            trigger_why: String::new(),
+            trigger_text: String::new(),
         }
     }
 }

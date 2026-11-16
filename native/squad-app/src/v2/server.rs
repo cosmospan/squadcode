@@ -517,6 +517,23 @@ pub fn respond(http: &Http, base: &Path, hub: &Mutex<Hub>) -> Reply {
         http.method == "POST",
         http.method == "DELETE",
     );
+    // A trigger's link: its secret is in the path, so it needs no paired device.
+    // What it sends may be any text, not only JSON.
+    if let Some(token) = super::triggers::token_in(path) {
+        if !post {
+            return err(405, "Call a trigger's link with POST.");
+        }
+        let sent = super::triggers::sent_of(&http.body);
+        let mut hub = hub.lock().unwrap_or_else(|e| e.into_inner());
+        return match hub.rt.fire_link(token, &sent) {
+            Ok(name) => (
+                202,
+                json!({ "trigger": name, "message": "Handed to the crew." }),
+            ),
+            Err(why) if why.starts_with("No trigger") => err(404, why),
+            Err(why) => err(409, why),
+        };
+    }
     let body: Value = if http.body.is_empty() {
         json!({})
     } else {
@@ -635,6 +652,46 @@ pub fn respond(http: &Http, base: &Path, hub: &Mutex<Hub>) -> Reply {
             hub.rt.store.add_folder(PathBuf::from(path));
             hub.rt.store.save();
             (200, json!({ "ok": true, "current": hub.rt.store.current }))
+        }
+        ["v1", "triggers"] if get => (200, json!(hub.rt.store.triggers)),
+        // A trigger made from another device: its project is a folder on the server.
+        ["v1", "triggers"] if post => {
+            let mut t: super::triggers::Trigger = match serde_json::from_value(body.clone()) {
+                Ok(t) => t,
+                Err(e) => return err(400, format!("That isn't a trigger: {e}")),
+            };
+            let path = body["dir"].as_str().unwrap_or(&t.folder.path).trim().to_string();
+            if path.is_empty() || !Path::new(&path).is_dir() {
+                return err(400, "That folder isn't on the server.");
+            }
+            t.folder = hub.rt.folder_for(&path);
+            match hub.rt.add_trigger(t) {
+                Ok(id) => {
+                    let t = hub.rt.store.triggers.iter().find(|t| t.id == id);
+                    (200, json!(t))
+                }
+                Err(why) => err(400, why),
+            }
+        }
+        ["v1", "triggers", id, action] if post => {
+            let Ok(id) = id.parse::<u64>() else {
+                return err(404, "No such trigger.");
+            };
+            if !hub.rt.store.triggers.iter().any(|t| t.id == id) {
+                return err(404, "No such trigger.");
+            }
+            match *action {
+                "on" => hub.rt.set_trigger_on(id, true),
+                "off" => hub.rt.set_trigger_on(id, false),
+                "remove" => hub.rt.remove_trigger(id),
+                "run" => {
+                    if let Err(why) = hub.rt.run_trigger_now(id) {
+                        return err(409, why);
+                    }
+                }
+                _ => return err(404, "No such action."),
+            }
+            (200, json!({ "ok": true }))
         }
         ["v1", "devices"] if get => (
             200,
@@ -1237,6 +1294,74 @@ mod tests {
         assert_eq!(
             call(&dir, &hub, "GET", "/v1/state", &token, Value::Null).0,
             401
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_triggers_link_needs_its_secret_not_a_paired_device() {
+        let dir = base("hooks");
+        let hub = hub();
+        let code = new_code(&dir, "Laptop");
+        let token = call(&dir, &hub, "POST", "/v1/pair", "", json!({ "code": code })).1["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        // A paired device makes the trigger, in a folder on the server.
+        let (status, t) = call(
+            &dir,
+            &hub,
+            "POST",
+            "/v1/triggers",
+            &token,
+            json!({
+                "name": "Deploy broke",
+                "when": { "kind": "link", "token": "" },
+                "text": "Find out why the deploy broke.",
+                "bot": "Fixer",
+                "mode": "Fix",
+                "dir": dir.to_string_lossy(),
+            }),
+        );
+        assert_eq!(status, 200, "{t}");
+        let secret = t["when"]["token"].as_str().unwrap().to_string();
+        assert_eq!(secret.len(), 32);
+        let hook = format!("/v1/hooks/{secret}");
+        assert_eq!(call(&dir, &hub, "GET", &hook, "", Value::Null).0, 405);
+        assert_eq!(
+            call(
+                &dir,
+                &hub,
+                "POST",
+                "/v1/hooks/wrong",
+                "",
+                json!({ "text": "x" })
+            )
+            .0,
+            404
+        );
+        // Plain text works as well as JSON, with no device token.
+        let http = Http {
+            method: "POST".into(),
+            path: hook.clone(),
+            body: b"502 on /cart".to_vec(),
+            ..Default::default()
+        };
+        let (status, reply) = respond(&http, &dir, &hub);
+        assert_eq!(status, 202, "{reply}");
+        assert_eq!(reply["trigger"], "Deploy broke");
+        {
+            let h = hub.lock().unwrap();
+            let l = h.rt.store.later.last().expect("its job waits to start");
+            assert_eq!(l.bot, Member::Fixer);
+            assert!(l.text.contains("> 502 on /cart"));
+        }
+        let id = t["id"].as_u64().unwrap();
+        let off = format!("/v1/triggers/{id}/off");
+        assert_eq!(call(&dir, &hub, "POST", &off, &token, Value::Null).0, 200);
+        assert_eq!(
+            call(&dir, &hub, "POST", &hook, "", json!({ "text": "x" })).0,
+            409
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -19,6 +19,7 @@ use super::data::{Member, Mode};
 use super::store::{self, Said, Status, Store, Talk};
 use super::{brain, cli, engine, goal, jobs, ship, trouble, work};
 
+mod fire;
 mod more;
 
 type Landing = Receiver<Result<(), String>>;
@@ -200,7 +201,19 @@ pub struct Runtime {
     learning: Vec<(u64, Receiver<crate::agent::Event>)>,
     /// Shipper pushing a review fix to an open pull request, by job.
     updating: Vec<(u64, Receiver<ship::Step>)>,
+    /// GitHub looks for triggers running now, by trigger.
+    trigger_reads: Vec<(u64, TriggerRead)>,
+    /// When the triggers were last looked at.
+    triggers_at: Instant,
+    /// The listener for triggers' links on this computer, once one is asked for.
+    pub hooks: Option<super::triggers::Hooks>,
+    /// This runtime may listen for links on this computer: the desktop app's
+    /// does; `squad serve` takes them on its own port, and tests don't listen.
+    pub hooks_wanted: bool,
 }
+
+/// One look at GitHub for a trigger, on its way.
+type TriggerRead = Receiver<Result<Vec<super::triggers::Event>, String>>;
 
 /// What one git look found: each job's commits ahead and behind, and the
 /// pairs of jobs that change the same lines.
@@ -276,6 +289,10 @@ impl Runtime {
             learning: Vec::new(),
             updating: Vec::new(),
             handoff: None,
+            trigger_reads: Vec::new(),
+            triggers_at: Instant::now() - Duration::from_secs(3600),
+            hooks: None,
+            hooks_wanted: false,
         }
     }
 
@@ -1424,6 +1441,40 @@ impl Runtime {
             }
             cli::Ask::Rewind { id, to } => {
                 if let Err(why) = self.rewind(id, to) {
+                    self.say(why);
+                }
+            }
+            cli::Ask::AddTrigger { trigger, dir } => {
+                let mut t = *trigger;
+                t.folder = self.folder_for(&dir);
+                match self.add_trigger(t) {
+                    Ok(id) => {
+                        let t = self.store.triggers.iter().find(|t| t.id == id);
+                        if let Some(t) = t {
+                            let line = format!(
+                                "New trigger from the terminal: \u{201c}{}\u{201d}, {}.",
+                                t.name,
+                                t.summary()
+                            );
+                            self.say(line);
+                        }
+                    }
+                    Err(why) => self.say(format!("Couldn't add the trigger: {why}")),
+                }
+            }
+            cli::Ask::Trigger { id, action } => match action.as_str() {
+                "on" => self.set_trigger_on(id, true),
+                "off" => self.set_trigger_on(id, false),
+                "rm" => self.remove_trigger(id),
+                "run" => {
+                    if let Err(why) = self.run_trigger_now(id) {
+                        self.say(why);
+                    }
+                }
+                _ => {}
+            },
+            cli::Ask::Fire { token, text } => {
+                if let Err(why) = self.fire_link(&token, &text) {
                     self.say(why);
                 }
             }
@@ -2865,6 +2916,7 @@ impl Runtime {
         self.poll_queue(st);
         self.poll_queued(st);
         self.poll_shift(st);
+        self.poll_triggers();
         self.poll_feedback(st);
         self.poll_learning();
         self.poll_bringing();

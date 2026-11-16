@@ -38,6 +38,8 @@ pub enum Pane {
     Engines,
     /// What the crew spent and did.
     Usage,
+    /// Jobs that start by themselves.
+    Triggers,
     /// Your own server, for jobs that carry on with this computer closed.
     Server,
 }
@@ -51,6 +53,7 @@ impl Pane {
             Pane::Mascot => "Mascot",
             Pane::Engines => "Engines",
             Pane::Usage => "Usage",
+            Pane::Triggers => "Triggers",
             Pane::Server => "Servers",
         }
     }
@@ -63,6 +66,7 @@ impl Pane {
             Pane::Mascot => "Peek, colours and props",
             Pane::Engines => "Agents and models",
             Pane::Usage => "Spend, jobs and time",
+            Pane::Triggers => "Jobs that start by themselves",
             Pane::Server => "Jobs that run with the lid closed",
         }
     }
@@ -75,6 +79,7 @@ impl Pane {
             Pane::Mascot => IconName::Bot,
             Pane::Engines => IconName::Cpu,
             Pane::Usage => IconName::ChartColumn,
+            Pane::Triggers => IconName::Zap,
             Pane::Server => IconName::Server,
         }
     }
@@ -325,6 +330,7 @@ impl Shell {
             Pane::Mascot => self.settings_mascot(cx),
             Pane::Engines => self.engines(cx),
             Pane::Usage => self.usage(cx),
+            Pane::Triggers => self.settings_triggers(cx),
             Pane::Server => self.settings_server(cx),
         };
         div()
@@ -346,7 +352,10 @@ impl Shell {
     /// Settings' own column: its title, then the panes in small groups.
     fn settings_nav(&mut self, pane: Pane, cx: &mut Context<Self>) -> Div {
         let groups: [(&'static str, &[Pane]); 3] = [
-            ("CREW", &[Pane::Work, Pane::Engines, Pane::Usage]),
+            (
+                "CREW",
+                &[Pane::Work, Pane::Engines, Pane::Triggers, Pane::Usage],
+            ),
             ("APP", &[Pane::General, Pane::Appearance, Pane::Mascot]),
             ("CONNECTIONS", &[Pane::Server]),
         ];
