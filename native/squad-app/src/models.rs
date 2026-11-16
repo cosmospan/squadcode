@@ -303,20 +303,35 @@ pub(crate) fn parse_model_list(text: &str) -> Vec<ModelInfo> {
             .map(|(a, b)| (a, b.trim()))
             .unwrap_or((line, ""));
         let id = id.trim_end_matches(':');
+        // `agent models` (Cursor) names each model after " - ", so an id there needs no
+        // digit or dash, as with `auto - Auto` or `cheetah - Cheetah` (but is lower case,
+        // unlike a line such as `Error - not logged in`).
+        let named = rest.starts_with("- ") || rest.starts_with("– ");
         let looks_like_model = !id.is_empty()
             && id.len() < 60
-            && id.chars().any(|c| c.is_ascii_digit() || c == '-')
+            && ((named && !id.chars().any(|c| c.is_ascii_uppercase()))
+                || id.chars().any(|c| c.is_ascii_digit() || c == '-'))
             && id
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || "-._/:".contains(c));
         if !looks_like_model {
             continue;
         }
-        let name = rest
-            .trim_start_matches(['-', '–', '(', '|'])
-            .trim()
-            .trim_end_matches(')')
-            .trim();
+        let name = rest.trim_start_matches(['-', '–', '(', '|']).trim();
+        // Cursor marks its picks as `sonnet-4.5 - Claude 4.5 Sonnet  (current, default)`.
+        let name = match name.rsplit_once('(') {
+            Some((before, mark))
+                if mark.trim_end_matches(')').split(',').all(|w| {
+                    matches!(
+                        w.trim().to_lowercase().as_str(),
+                        "current" | "default" | "selected"
+                    )
+                }) =>
+            {
+                before.trim()
+            }
+            _ => name.trim_end_matches(')').trim(),
+        };
         // `grok models` marks its default as `* grok-4.7 (default)`, which is no name.
         let (label, desc) = if name.is_empty() || name.eq_ignore_ascii_case("default") {
             (id.to_string(), String::new())
@@ -478,6 +493,22 @@ mod tests {
             ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"]
         );
         assert_eq!(models[0].choice.label, "grok-4.7");
+        // What `agent models` (Cursor) prints: an id, " - ", a name, and its picks marked.
+        let cursor = "Available models\n\nauto - Auto\ncheetah - Cheetah\nsonnet-4.5 - Claude 4.5 Sonnet  (current, default)\ngpt-5 - GPT-5 (default)\n\nTip: use --model <id> (or /model <id> in interactive mode) to switch.\n";
+        let models = parse_model_list(cursor);
+        let got: Vec<(&str, &str)> = models
+            .iter()
+            .map(|m| (m.choice.value.as_str(), m.choice.label.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("auto", "Auto"),
+                ("cheetah", "Cheetah"),
+                ("sonnet-4.5", "Claude 4.5 Sonnet"),
+                ("gpt-5", "GPT-5")
+            ]
+        );
         let help = "  --model <model>  Set the AI model (choices: \"claude-sonnet-4.5\", \"gpt-5\",\n                   \"gemini-3-pro\")\n  --other";
         let ids: Vec<String> = help_model_choices(help)
             .into_iter()

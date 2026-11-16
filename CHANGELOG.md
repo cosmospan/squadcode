@@ -4,6 +4,15 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Changed
+
+- Cursor is now one of the engines always listed in Settings > Engines and in the first-run walkthrough, with one-click Install (Cursor's own installer) and Update, next to Claude Code, Codex, OpenCode, Antigravity and Gemini. It was only behind Add an engine before.
+
+### Fixed
+
+- Cursor counts as installed and runs when its CLI is on PATH only as `agent`, the shorter name Cursor's CLI also goes by, not just as `cursor-agent`.
+- Cursor's model list shows models without a digit in their id, such as Auto, and no longer shows "(current" or "(default" in a model's name.
+
 ## [2.0.0-alpha.15] - 2026-11-15
 
 ### Added

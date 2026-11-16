@@ -23,6 +23,17 @@ pub fn bot_key(who: Member) -> String {
     }
 }
 
+/// The engines Settings and the first-run walkthrough always list, installed or
+/// not; every other one is behind "Add an engine".
+pub const COMMON: [&str; 6] = [
+    "claude",
+    "codex",
+    "cursor",
+    "opencode",
+    "antigravity",
+    "gemini",
+];
+
 /// The company behind an agent, so the challenger can be from another one.
 pub fn vendor(agent_id: &str) -> &'static str {
     match agent_id {

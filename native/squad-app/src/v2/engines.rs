@@ -389,7 +389,7 @@ impl Shell {
 
     /// The engines card: each installed engine with its default mark, what it
     /// is and Update; the common ones not installed (Claude Code, Codex,
-    /// OpenCode, Antigravity, Gemini), greyed with Install; every other one
+    /// Cursor, OpenCode, Antigravity, Gemini), greyed with Install; every other one
     /// after "Add an engine". A click on an installed one opens its detail.
     fn engine_rows(
         &mut self,
@@ -398,10 +398,9 @@ impl Shell {
         default_i: usize,
         cx: &mut Context<Self>,
     ) -> Div {
-        const COMMON: [&str; 5] = ["claude", "codex", "opencode", "antigravity", "gemini"];
         let mut order: Vec<usize> = ready.to_vec();
         for (i, p) in agent::PROVIDERS.iter().enumerate() {
-            if !order.contains(&i) && (self.engines_all || COMMON.contains(&p.id)) {
+            if !order.contains(&i) && (self.engines_all || super::engine::COMMON.contains(&p.id)) {
                 order.push(i);
             }
         }
@@ -924,7 +923,7 @@ impl Shell {
         // What the engine is: where its tool lives and the models it offers.
         let bin = st.agent(id).binary.clone();
         let tool = if bin.is_empty() {
-            p.bin.to_string()
+            agent::default_bin(p.bin).to_string()
         } else {
             bin
         };

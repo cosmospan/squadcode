@@ -381,7 +381,7 @@ pub fn ask(
     // The warm engine answers in a second or two; a cold start takes six.
     if super::warm::can(p.id) {
         let bin = if configured.trim().is_empty() {
-            p.bin.to_string()
+            agent::default_bin(p.bin).to_string()
         } else {
             configured.trim().to_string()
         };
@@ -436,7 +436,7 @@ pub fn prepare(st: &AppSettings, dir: &str) {
         return;
     }
     let bin = if configured.trim().is_empty() {
-        p.bin.to_string()
+        agent::default_bin(p.bin).to_string()
     } else {
         configured.trim().to_string()
     };
