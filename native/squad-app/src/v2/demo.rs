@@ -330,6 +330,30 @@ pub fn seed() -> Store {
     ];
     jobs.push(j);
 
+    // Started by a trigger when CI failed on main, waiting for review.
+    let mut j = base(
+        11,
+        Member::Fixer,
+        Mode::Fix,
+        "CI failed on main: the CI run on commit 9c1e2d4",
+        2_400,
+        230,
+    );
+    j.status = Status::Review;
+    j.seen = false;
+    j.trigger = 30;
+    j.trigger_why = "CI failed on main".into();
+    j.short = "Fix the cart total test that broke on main".into();
+    j.changes = vec![change("src/cart/total.ts", "M", 6, 2)];
+    j.checks = vec![check("npm test", true, 44)];
+    j.feed = vec![
+        Item::Note("Started by the trigger \u{201c}Fix main when CI breaks\u{201d}: CI failed on main.".into()),
+        tool("Run gh run view 7731 --log-failed", "bash", 1),
+        tool("Edit src/cart/total.ts", "edit", 1),
+        Item::Text("The cart total rounded each line before adding them up, so three items at $6.665 came to $19.98 instead of $19.99. It now rounds once, at the end. The test passes again.".into()),
+    ];
+    jobs.push(j);
+
     // Working now: the last job, so SQUADCODE_PLACE=live opens it.
     let mut j = base(
         8,
@@ -450,8 +474,88 @@ pub fn seed() -> Store {
         ship: String::new(),
         ..Default::default()
     };
+    let run = |ago: u64, why: &str, job: u64| super::triggers::Run {
+        at: t - ago,
+        why: why.into(),
+        job,
+        ..Default::default()
+    };
+    let triggers = vec![
+        super::triggers::Trigger {
+            id: 30,
+            name: "Fix main when CI breaks".into(),
+            when: super::triggers::When::CiFails {
+                branch: "main".into(),
+                workflow: String::new(),
+            },
+            text: "Find out why CI broke and fix it.".into(),
+            bot: Member::Fixer,
+            mode: Mode::Fix,
+            folder: folder.clone(),
+            made: t - 600_000,
+            looked: t - 70,
+            looked_once: true,
+            runs: vec![
+                run(400_000, "CI failed on main", 1),
+                super::triggers::Run {
+                    at: t - 399_000,
+                    why: "CI failed on main".into(),
+                    skipped: "its last job, #1, is still open".into(),
+                    ..Default::default()
+                },
+                run(2_400, "CI failed on main", 11),
+            ],
+            ..Default::default()
+        },
+        super::triggers::Trigger {
+            id: 31,
+            name: "Morning dependency check".into(),
+            when: super::triggers::When::Schedule {
+                cron: "0 9 * * 1-5".into(),
+            },
+            text: "Check for outdated dependencies and update the safe ones.".into(),
+            bot: Member::Keeper,
+            mode: Mode::Tidy,
+            folder: folder.clone(),
+            made: t - 900_000,
+            next_at: super::triggers::next_time("0 9 * * 1-5", t),
+            runs: vec![run(7_200, "Weekdays at 9:00", 2)],
+            ..Default::default()
+        },
+        super::triggers::Trigger {
+            id: 32,
+            name: "Issues labelled squad".into(),
+            when: super::triggers::When::Label {
+                label: "squad".into(),
+                author: String::new(),
+            },
+            text: "Fix the issue and open a pull request.".into(),
+            bot: Member::Builder,
+            mode: Mode::Build,
+            folder: folder.clone(),
+            made: t - 50_000,
+            looked: t - 30,
+            looked_once: true,
+            ..Default::default()
+        },
+        super::triggers::Trigger {
+            id: 33,
+            name: "Deploy failed".into(),
+            when: super::triggers::When::Link {
+                token: "3f9a0c27d18e4b6a9e51c0d2b7a4f813".into(),
+            },
+            text: "Look at why the deploy failed and tell me what to do.".into(),
+            bot: Member::Explainer,
+            mode: Mode::Ask,
+            folder: folder.clone(),
+            on: false,
+            made: t - 20_000,
+            ..Default::default()
+        },
+    ];
     Store {
         format: super::store::FORMAT,
+        triggers,
         setups,
         // The night shift: one job waiting for tonight, one for its bot.
         later: vec![
@@ -578,7 +682,7 @@ pub fn seed() -> Store {
         current: 0,
         jobs,
         chats,
-        next_id: 11,
+        next_id: 40,
         made,
         removed: Vec::new(),
         set_up: true,

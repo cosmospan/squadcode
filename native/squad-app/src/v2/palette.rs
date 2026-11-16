@@ -231,6 +231,12 @@ impl Shell {
             ),
             (Place::Server, IconName::Server, "Machines", ""),
             (
+                Place::Settings(Pane::Triggers),
+                IconName::Zap,
+                "Settings: Triggers",
+                "",
+            ),
+            (
                 Place::Settings(Pane::Usage),
                 IconName::ChartColumn,
                 "Usage",

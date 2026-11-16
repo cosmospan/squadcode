@@ -2,6 +2,7 @@
 //! problem) and All jobs (every job, grouped by where it stands).
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::Icon;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use squad_holo::{Framing, Mood};
@@ -241,12 +242,23 @@ impl Shell {
                                     .text_size(px(11.))
                                     .text_color(c(ui::faint()))
                                     .truncate()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.))
                                     .child(format!(
                                         "{} · #{} · {}",
                                         j.bot.name(),
                                         id,
                                         j.folder.name
-                                    )),
+                                    ))
+                                    // Started by a trigger, not by you.
+                                    .when(j.trigger != 0, |d| {
+                                        d.child("·").child(
+                                            Icon::new(IconName::Zap)
+                                                .size(px(11.))
+                                                .text_color(c(ui::faint())),
+                                        )
+                                    }),
                             )
                             .child(div().mt(px(3.)).child(ui::mono_status(tone.0, &word))),
                     )
@@ -484,6 +496,7 @@ impl Shell {
         let belt = held.then(|| self.belt_box(j, cx));
         let clash = self.clash_box(j, cx);
         let trouble = self.trouble_card(j, cx).map(|t| t.ml(px(0.)));
+        let triggered = self.trigger_box(j, cx);
         let in_the_way = self.in_the_way_card(j, cx);
         let shipping = matches!(j.status, Status::Shipping | Status::Shipped)
             .then(|| self.review_body(j, cx))
@@ -591,6 +604,7 @@ impl Shell {
                     .flex_col()
                     .gap(px(14.))
                     .child(title)
+                    .children(triggered)
                     .child(said_lines)
                     .children(belt)
                     .children(clash)

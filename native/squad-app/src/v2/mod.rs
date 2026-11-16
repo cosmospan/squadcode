@@ -70,6 +70,8 @@ mod term;
 mod theme;
 mod today;
 pub(crate) mod tray;
+mod triggerpage;
+mod triggers;
 mod trouble;
 mod ui;
 mod usage;
@@ -752,6 +754,17 @@ pub struct Shell {
     server_arm: Option<(String, Instant)>,
     server_stopped: std::collections::HashSet<u32>,
     server_cmd: Entity<InputState>,
+    /// Settings, Triggers: a new trigger's name, its schedule, label or branch,
+    /// what it asks, its kind (schedule, label, CI, link) and bot; what adding
+    /// said (and whether it failed); and the trigger whose Remove waits for a
+    /// second click.
+    trig_name: Entity<InputState>,
+    trig_arg: Entity<InputState>,
+    trig_text: Entity<TextareaState>,
+    trig_kind: u8,
+    trig_bot: Member,
+    trig_note: (String, bool),
+    trig_arm: Option<u64>,
     /// The server's screen: being set up, and once it's shared, the tunnel
     /// that keeps it reachable.
     server_screen_rx: Option<std::sync::mpsc::Receiver<Result<machine::Screen, String>>>,
@@ -1007,6 +1020,14 @@ impl Shell {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let maker_name = cx.new(|cx| InputState::new(window, cx).placeholder("Scout"));
+        let trig_name = cx.new(|cx| InputState::new(window, cx).placeholder("Morning tidy"));
+        let trig_arg =
+            cx.new(|cx| InputState::new(window, cx).placeholder(triggerpage::ARG_EXAMPLES[0]));
+        let trig_text = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Run the tests, fix what's flaky and tell me what you changed.")
+                .auto_grow(3, 8)
+        });
         let key_secret = cx.new(|cx| {
             InputState::new(window, cx)
                 .masked(true)
@@ -1392,6 +1413,7 @@ impl Shell {
             Ok("mascot") => Place::Settings(Pane::Mascot),
             Ok("appearance") => Place::Settings(Pane::Appearance),
             Ok("usage") => Place::Settings(Pane::Usage),
+            Ok("triggers") => Place::Settings(Pane::Triggers),
             Ok("machine") => Place::Server,
             Ok("needs") => Place::Inbox,
             Ok("goal") => store
@@ -1451,6 +1473,9 @@ impl Shell {
                 rt.link = remote::load().map(remote::Link::start);
                 if demo {
                     rt.repos = demo::repos();
+                } else {
+                    // Triggers' links reach the app on this computer.
+                    rt.listen_for_links();
                 }
                 rt
             },
@@ -1609,6 +1634,13 @@ impl Shell {
             server_arm: None,
             server_stopped: Default::default(),
             server_cmd,
+            trig_name,
+            trig_arg,
+            trig_text,
+            trig_kind: 0,
+            trig_bot: Member::Builder,
+            trig_note: (String::new(), false),
+            trig_arm: None,
             server_screen_rx: None,
             server_screen: None,
             server_desktop: None,

@@ -85,6 +85,9 @@ impl Runtime {
         job.issue = l.issue.clone();
         job.issue_url = l.issue_url.clone();
         job.shift = night;
+        if l.trigger != 0 {
+            self.started_by_trigger(&mut job, &l);
+        }
         if night {
             job.feed.insert(
                 0,
