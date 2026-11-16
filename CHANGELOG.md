@@ -4,9 +4,19 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Added
+
+- Pick your fonts under Settings > Appearance. The interface can be Geist (still the default), Inter, IBM Plex Sans, Figtree, Atkinson Hyperlegible or your system's own font, and code, the terminal, diffs and paths can be JetBrains Mono (still the default), Geist Mono, IBM Plex Mono or Fira Code. Each choice is a tile drawn in its own font, and the whole window changes the moment you pick one, in every theme, light or dark. All of them ship with the app, so they look the same whether or not they're installed; JetBrains Mono used to fall back to another mono font on computers that didn't have it.
+
 ### Changed
 
 - When an engine's install or update fails, its card now says why in plain words and offers the fix, for every engine and wherever you install from (Settings > Engines, an engine's detail, first-run setup). A program already where npm wants to put the new one (npm's EEXIST) shows what's there, who put it there and its version, then offers to keep it, to update it the way it was installed (Homebrew, or the other Node.js it came from) or to replace it; replacing moves the old one aside rather than deleting it, and asks first. No permission offers installing in a folder of your own (~/.npm-global), or admin rights after asking; a root-owned npm cache can be given back to you. No Node.js offers the engine's own installer when it has one, Homebrew, or nodejs.org. Network and certificate trouble, a half-finished earlier update, an unknown package and a Node.js too old each get their own explanation, and npm's log opens in one click. An engine with its own installer now uses it when npm isn't on the computer.
+- Cursor is now one of the engines always listed in Settings > Engines and in the first-run walkthrough, with one-click Install (Cursor's own installer) and Update, next to Claude Code, Codex, OpenCode, Antigravity and Gemini. It was only behind Add an engine before.
+
+### Fixed
+
+- Cursor counts as installed and runs when its CLI is on PATH only as `agent`, the shorter name Cursor's CLI also goes by, not just as `cursor-agent`.
+- Cursor's model list shows models without a digit in their id, such as Auto, and no longer shows "(current" or "(default" in a model's name.
 
 ## [2.0.0-alpha.15] - 2026-11-15
 

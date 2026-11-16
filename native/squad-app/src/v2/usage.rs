@@ -24,7 +24,7 @@ fn label(left: impl Into<SharedString>, right: Option<AnyElement>) -> Div {
         .flex()
         .items_center()
         .justify_between()
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(10.5))
         .font_weight(FontWeight::MEDIUM)
         .text_color(c(ui::faint()))
@@ -110,7 +110,7 @@ impl Shell {
                     .px(px(9.))
                     .py(px(4.))
                     .rounded(px(4.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
@@ -161,7 +161,7 @@ impl Shell {
                 .when(!first, |d| d.border_l_1().border_color(c(ui::line())))
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(17.))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::ink()))
@@ -169,7 +169,7 @@ impl Shell {
                 )
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .text_color(c(ui::faint()))
                         .child(k.to_uppercase()),
@@ -234,7 +234,7 @@ impl Shell {
                     .when(short || is_today, |d| {
                         d.child(
                             div()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(10.5))
                                 .text_color(c(if is_today { ui::ink() } else { ui::faint() }))
                                 .child(name),
@@ -308,7 +308,7 @@ impl Shell {
                             .w(px(44.))
                             .flex()
                             .justify_end()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .child(if by_money {
                                 format!("${:.2}", s.spend)
@@ -396,7 +396,7 @@ impl Shell {
                                     .child(div().truncate().child(j.title.clone()))
                                     .child(
                                         div()
-                                            .font_family(ui::MONO)
+                                            .font_family(ui::mono())
                                             .text_size(px(11.))
                                             .text_color(c(ui::faint()))
                                             .child(format!("#{id}")),
@@ -426,7 +426,7 @@ impl Shell {
                             .w(px(48.))
                             .flex()
                             .justify_end()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .text_color(c(ui::ink()))
                             .child(format!("${v:.2}")),

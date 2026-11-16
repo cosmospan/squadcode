@@ -287,7 +287,7 @@ impl Shell {
                     .child(
                         div()
                             .flex_none()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .text_color(c(ui::faint()))
                             .child(format!("#{}", job.id)),
@@ -1011,7 +1011,7 @@ impl Shell {
                             div()
                                 .flex()
                                 .gap(px(4.))
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(11.))
                                 .child(div().text_color(c(ui::add())).child(format!("+{a}")))
                                 .child(
@@ -1293,7 +1293,7 @@ impl Shell {
                         div()
                             .w(px(64.))
                             .flex_none()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.))
                             .text_color(c(ui::faint()))
                             .child(store::ago(m.at)),
@@ -1673,7 +1673,7 @@ impl Shell {
                                             .rounded(px(3.))
                                             .bg(c(ui::pick_fill()))
                                             .text_color(c(ui::pick_on()))
-                                            .font_family(ui::MONO)
+                                            .font_family(ui::mono())
                                             .text_size(px(10.))
                                             .child(l),
                                     )

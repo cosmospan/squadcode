@@ -568,7 +568,7 @@ impl Shell {
                     .bg(c(ui::raised()))
                     .border_1()
                     .border_color(c(ui::line_hi()))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .child(div().size(px(6.)).flex_none().rounded(px(1.)).bg(c(dot)))
                     .child(
@@ -822,7 +822,7 @@ impl Shell {
                         .flex_none()
                         .px(px(18.))
                         .pb(px(8.))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.))
                         .text_color(c(ui::faint()))
                         .child(line.clone()),
@@ -1006,7 +1006,7 @@ impl Shell {
                         .flex_none()
                         .max_w(px(200.))
                         .truncate()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.))
                         .text_color(c(ui::t_amber()))
                         .child(picked.short()),
@@ -1021,7 +1021,7 @@ impl Shell {
                 .child(
                     div()
                         .flex_none()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .text_color(c(ui::faint()))
                         .child(goes.to_uppercase()),

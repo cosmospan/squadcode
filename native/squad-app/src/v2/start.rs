@@ -131,7 +131,7 @@ impl Shell {
                             .py(px(6.))
                             .rounded(px(6.))
                             .bg(c(ui::raised()))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .text_color(c(ui::body()))
                             .child(text),
@@ -176,7 +176,7 @@ impl Shell {
                                 .rounded(px(4.))
                                 .border_1()
                                 .border_color(c(ui::line()))
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(10.5))
                                 .font_weight(FontWeight::NORMAL)
                                 .text_color(c(ui::faint()))
@@ -417,7 +417,7 @@ impl Shell {
                             .bg(c(ui::bg()))
                             .border_1()
                             .border_color(c(ui::line()))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .truncate()
                             .child(cmd),
