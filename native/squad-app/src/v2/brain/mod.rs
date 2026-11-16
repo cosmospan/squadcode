@@ -24,6 +24,8 @@
 
 pub mod cli;
 pub mod digest;
+#[cfg(test)]
+mod eval;
 pub mod front;
 pub mod guard;
 pub mod guide;

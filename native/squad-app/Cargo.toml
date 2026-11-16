@@ -67,6 +67,8 @@ squad-holo = { path = "../squad-holo" }
 embed-resource = "3.0.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# API keys the person adds live in the macOS Keychain (see `keys`).
+keyring = { version = "3.6", default-features = false, features = ["apple-native"] }
 block2 = "0.6"
 dispatch2 = "0.3"
 objc2 = "0.6"
@@ -99,3 +101,7 @@ objc2-web-kit = { version = "0.3", default-features = false, features = [
     "WKWebView",
     "WKWebViewConfiguration",
 ] }
+
+[target.'cfg(windows)'.dependencies]
+# API keys the person adds live in the Windows Credential Manager (see `keys`).
+keyring = { version = "3.6", default-features = false, features = ["windows-native"] }

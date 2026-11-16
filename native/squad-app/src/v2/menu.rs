@@ -65,6 +65,9 @@ enum Act {
     DeleteProject(String),
     OpenThread(String, u64),
     MarkRead(String, u64),
+    MarkUnread(String, u64),
+    /// Every thread in a project is read now.
+    MarkAllRead(String),
     RenameThread(String, u64),
     ArchiveThread(String, u64),
     DeleteThread(String, u64),
@@ -261,9 +264,20 @@ impl Shell {
                     return Vec::new();
                 };
                 let p = f.path.clone();
+                let read_all = store.any_unread(&p).then(|| {
+                    item(
+                        "Mark all as read",
+                        IconName::MailOpen,
+                        Act::MarkAllRead(p.clone()),
+                    )
+                });
                 vec![
                     item("Open", IconName::ArrowRight, Act::OpenProject(p.clone())),
                     item("New thread", IconName::Hash, Act::NewThread(p.clone())),
+                ]
+                .into_iter()
+                .chain(read_all)
+                .chain(vec![
                     item(
                         "Change emblem\u{2026}",
                         IconName::Palette,
@@ -296,7 +310,8 @@ impl Shell {
                         IconName::Trash,
                         Act::DeleteProject(p),
                     ),
-                ]
+                ])
+                .collect()
             }
             Ctx::Projects => {
                 let emblems = super::emblem::all(&store.folders);
@@ -392,6 +407,12 @@ impl Shell {
                         "Mark as read",
                         IconName::MailOpen,
                         Act::MarkRead(path.clone(), id),
+                    ));
+                } else {
+                    v.push(item(
+                        "Mark as unread",
+                        IconName::Mail,
+                        Act::MarkUnread(path.clone(), id),
                     ));
                 }
                 v.push(item(
@@ -643,6 +664,15 @@ impl Shell {
             }
             Act::MarkRead(p, id) => {
                 self.crew.store.mark_seen(&p, id);
+                self.crew.store.clear_marked(&format!("{p}#{id}"));
+                self.crew.store.save();
+            }
+            Act::MarkUnread(p, id) => {
+                self.crew.store.mark_unread(&p, id);
+                self.crew.store.save();
+            }
+            Act::MarkAllRead(p) => {
+                self.crew.store.mark_all_seen(&p);
                 self.crew.store.save();
             }
             Act::RenameThread(p, id) => {
@@ -886,7 +916,7 @@ impl Shell {
                         let n = div()
                             .flex_none()
                             .ml(px(10.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(10.5))
                             .font_weight(FontWeight::NORMAL);
                         d.child(match kind {
@@ -1235,7 +1265,7 @@ impl Shell {
                         .bg(c(ui::raised()))
                         .border_1()
                         .border_color(c(ui::line()))
-                        .font_family("Geist Mono")
+                        .font_family(ui::mono())
                         .text_size(px(12.))
                         .text_color(c(ui::ink()))
                         .child(path.clone()),
