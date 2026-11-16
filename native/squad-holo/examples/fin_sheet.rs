@@ -55,6 +55,7 @@ fn main() {
                     gaze: (0, 0),
                     offset: 0,
                     from: None,
+                    ink: None,
                 },
                 cell,
             ));
@@ -76,6 +77,7 @@ fn main() {
                 gaze: (0, 0),
                 offset: 0,
                 from: None,
+                ink: None,
             },
             cell,
         ));
@@ -111,6 +113,7 @@ fn main() {
                         gaze: (0, 0),
                         offset: 0,
                         from: None,
+                        ink: None,
                     },
                     t,
                     Framing::Bust,

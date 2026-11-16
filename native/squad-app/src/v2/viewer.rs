@@ -406,7 +406,7 @@ impl Shell {
                         div()
                             .min_w_0()
                             .truncate()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .text_color(c(ui::muted()))
                             .child(folder),
@@ -420,7 +420,7 @@ impl Shell {
                         d.child(
                             div()
                                 .flex_none()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(10.5))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(c(tone))
@@ -446,7 +446,7 @@ impl Shell {
             .gap(px(16.))
             .border_t_1()
             .border_color(c(ui::line()))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(11.))
             .text_color(c(ui::muted()))
             .child(div().flex_1().min_w_0().truncate().child(facts.join(" · ")))
@@ -727,7 +727,7 @@ fn page_style(cx: &App) -> gpui_kit::component::text::TextViewStyle {
             StyleRefinement::default()
                 .bg(c(ui::float()))
                 .text_color(c(ui::muted()))
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(11.)),
         )
         .table_cell(StyleRefinement::default().border_r_0().px_0().py(px(8.)));

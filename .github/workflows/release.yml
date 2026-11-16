@@ -422,6 +422,10 @@ jobs:
             on && /^## \[/ { exit }
             on { print }
           ' CHANGELOG.md | sed '/./,$!d' > notes.md
+          # GitHub turns a bare @word in release notes into a mention of that account and
+          # lists it under Contributors ("@line" credited github.com/line). Wrap each bare
+          # @word in backticks; code spans, emails and paths are left as they are.
+          perl -pi -e 's{(`[^`]*`)|(?<![\w.`/\\])(@[A-Za-z0-9][A-Za-z0-9-]*)}{defined $1 ? $1 : "`$2`"}ge' notes.md
           if [ ! -s notes.md ]; then
             echo "::warning::CHANGELOG.md has no section for $version, so the notes list the merged pull requests."
             gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body > notes.md

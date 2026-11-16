@@ -8,6 +8,7 @@
 //!
 //! Squad Code v1 stays one click away on the rail while v2 grows.
 
+mod apikeys;
 mod apps;
 mod asks;
 mod board;
@@ -23,8 +24,11 @@ mod emblem;
 mod engine;
 mod engines;
 mod filetab;
+mod fixes;
+pub(crate) mod fonts;
 mod gitcards;
 mod goal;
+mod guidetab;
 mod history;
 mod home;
 mod issues;
@@ -49,6 +53,7 @@ mod review;
 mod rewind;
 mod rfb;
 mod rich;
+mod rules;
 mod runtime;
 mod screenview;
 pub mod server;
@@ -225,6 +230,10 @@ impl Holos {
         scale: f32,
         moving: bool,
     ) -> Arc<RenderImage> {
+        // The mascot's outline takes the theme's text colour: dark on light
+        // themes, light on dark ones. It is part of the pose, so switching
+        // themes draws fresh frames rather than reusing the old ones.
+        let pose = pose.inked(squad_holo::Rgb(theme::ink()));
         let device = (logical * scale).round().clamp(8.0, 1024.0) as u16;
         let bust = framing == Framing::Bust;
         let fps = fps_for(logical, &pose);
@@ -379,11 +388,14 @@ fn painter() -> (Painters, std::sync::mpsc::Receiver<Painted>) {
 struct Painters(Vec<std::sync::mpsc::Sender<Paint>>);
 
 impl Painters {
-    fn send(&self, p: Paint) -> Result<(), std::sync::mpsc::SendError<Paint>> {
+    /// Queues `p` with its painter; false when that painter has gone.
+    fn send(&self, p: Paint) -> bool {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         p.slot.hash(&mut h);
-        self.0[(h.finish() % self.0.len() as u64) as usize].send(p)
+        self.0[(h.finish() % self.0.len() as u64) as usize]
+            .send(p)
+            .is_ok()
     }
 }
 
@@ -446,6 +458,10 @@ pub struct Shell {
     /// The crew: the saved store and everything running for it.
     crew: runtime::Runtime,
     composer: Entity<TextareaState>,
+    /// What you last sent from the composer: Up in an empty box brings it back.
+    last_sent: String,
+    /// A draft put aside with ⌘S, brought back by ⌘S in an empty box.
+    stash: Option<String>,
     chat_input: Entity<InputState>,
     /// Why you said no to a bot's request, when you say.
     deny_input: Entity<InputState>,
@@ -549,6 +565,14 @@ pub struct Shell {
     /// Engines shows each bot's brain rather than the engines themselves.
     /// Settings › Engines lists every engine it knows, not just the common ones.
     engines_all: bool,
+    /// Engines › API keys: the add-a-key form is open, on this provider.
+    key_form: Option<&'static str>,
+    /// The key being pasted, shown masked.
+    key_secret: Entity<InputState>,
+    /// The person's name for it.
+    key_label: Entity<InputState>,
+    /// Keys being checked with their provider right now, by id.
+    key_checking: Vec<String>,
     /// The Settings pane last open, where the sidebar's Settings goes back to.
     settings_pane: Pane,
     /// The bot being dressed in Settings → Mascot.
@@ -615,6 +639,9 @@ pub struct Shell {
     /// The run whose card is open beside the sidebar's run pill; it tucks
     /// back into the pill when you go elsewhere or click outside it.
     run_pop: Option<u64>,
+    /// A fix on a failed install's card waiting for you to confirm it: the
+    /// run and which fix.
+    run_confirm: Option<(u64, usize)>,
     /// When that card was last tucked away by a click outside it, so the
     /// same click landing on the pill doesn't open it again.
     run_pop_shut: Option<Instant>,
@@ -868,6 +895,30 @@ struct Offer {
     handoff: String,
     /// Where Peek said it runs ("server", "here"), or empty for the usual.
     site: String,
+    /// The whole ask as Peek read it, when it wrote one.
+    ask: Option<runtime::NextAsk>,
+}
+
+/// Peek's words for the bot it hands work to: "Bringing in Guard to review
+/// the API for improvements." when it joins the thread with this job, or
+/// "Over to Builder." when it's in the thread already.
+fn bringing(bot: &str, title: &str, joined: bool) -> String {
+    let title = title.trim().trim_end_matches('.');
+    // "Review the API" reads "to review the API"; "API speed audit" keeps
+    // its capitals.
+    let mut chars = title.chars();
+    let doing = match (chars.next(), chars.next()) {
+        (Some(a), Some(b)) if a.is_uppercase() && b.is_lowercase() => {
+            format!("{}{}", a.to_lowercase(), &title[a.len_utf8()..])
+        }
+        _ => title.to_string(),
+    };
+    match (joined, doing.is_empty()) {
+        (true, true) => format!("Over to {bot}."),
+        (true, false) => format!("Over to {bot} to {doing}."),
+        (false, true) => format!("Bringing in {bot}."),
+        (false, false) => format!("Bringing in {bot} to {doing}."),
+    }
 }
 
 /// "A", "A and B", "A, B and C".
@@ -977,6 +1028,12 @@ impl Shell {
                 .placeholder("Run the tests, fix what's flaky and tell me what you changed.")
                 .auto_grow(3, 8)
         });
+        let key_secret = cx.new(|cx| {
+            InputState::new(window, cx)
+                .masked(true)
+                .placeholder("Paste the key")
+        });
+        let key_label = cx.new(|cx| InputState::new(window, cx).placeholder("Personal (optional)"));
         let maker_role =
             cx.new(|cx| InputState::new(window, cx).placeholder("Checks the docs match the code"));
         let maker_skills =
@@ -1200,6 +1257,9 @@ impl Shell {
                     }
                     let text = input.read(cx).value().trim().to_string();
                     input.update(cx, |i, cx| i.set_value("", window, cx));
+                    if !text.is_empty() {
+                        this.last_sent = text.clone();
+                    }
                     this.hand_over(text, cx);
                     this.unpin_mode(window, cx);
                 }
@@ -1345,6 +1405,7 @@ impl Shell {
             Ok("history") => Place::History,
             Ok("overview") => Place::Overview,
             Ok("engines") => Place::Settings(Pane::Engines),
+            Ok(p) if p.starts_with("engines-run:") => Place::Settings(Pane::Engines),
             Ok("server") => Place::Settings(Pane::Server),
             Ok("work") => Place::Settings(Pane::Work),
             Ok("settings") => Place::Settings(Pane::Work),
@@ -1419,6 +1480,8 @@ impl Shell {
                 rt
             },
             composer,
+            last_sent: String::new(),
+            stash: None,
             chat_input,
             deny_input,
             denying: None,
@@ -1463,6 +1526,10 @@ impl Shell {
             maker_open: false,
             engine_sel: None,
             engines_all: false,
+            key_form: None,
+            key_secret,
+            key_label,
+            key_checking: Vec::new(),
             settings_pane: Pane::Work,
             applied_theme: look(),
             fin_sel: Member::Guard,
@@ -1494,6 +1561,7 @@ impl Shell {
             run_focus: cx.focus_handle(),
             run_typing: None,
             run_pop: None,
+            run_confirm: None,
             run_pop_shut: None,
             run_guess: None,
             act_from: (None, None),
@@ -1660,6 +1728,11 @@ impl Shell {
                 }
             }
             Ok("palette") => shell.open_palette(window, cx),
+            // Engines with an install run from there, for looking at how a
+            // failed one explains itself: "engines-run:npm install -g x".
+            Ok(p) if p.starts_with("engines-run:") => {
+                shell.run_setup(&p["engines-run:".len()..], cx)
+            }
             // The project's app started from the sidebar, its card open
             // beside the run pill; "run-app:tucked" with the card tucked away.
             Ok(p) if p.starts_with("run-app") => {
@@ -2597,6 +2670,8 @@ impl Shell {
             about,
             like,
             start,
+            task,
+            title,
         } = made
         else {
             return;
@@ -2633,6 +2708,28 @@ impl Shell {
         } else {
             " Ask it for anything with @, or I'll send it work that fits."
         };
+        let route = brain::route::Route {
+            mode: like.mode(),
+            bot,
+            sure: 0.9,
+            why: format!("A job for {name}, who's for {about}."),
+            by: "engine".into(),
+            site: String::new(),
+            task,
+            title,
+        };
+        // A yes to making the bot isn't a yes to work that's hard to undo:
+        // that waits for its own yes, as any hand-off does.
+        let risk = start
+            .then(|| brain::think::risk_of(&text, &route))
+            .flatten();
+        let (next, choices) = match &risk {
+            Some(why) => (
+                format!(" Before it starts: {why}"),
+                vec!["Go ahead".to_string(), "Cancel".into()],
+            ),
+            None => (next.to_string(), Vec::new()),
+        };
         self.crew.fill_talk(
             talk,
             format!(
@@ -2640,18 +2737,12 @@ impl Shell {
                 like.name(),
                 like.role().to_lowercase()
             ),
-            Vec::new(),
+            choices,
         );
         self.crew.store.save();
-        if start {
-            let route = brain::route::Route {
-                mode: like.mode(),
-                bot,
-                sure: 0.9,
-                why: format!("A job for {name}, who's for {about}."),
-                by: "engine".into(),
-                site: String::new(),
-            };
+        if risk.is_some() {
+            self.confirming = Some((talk, text, route));
+        } else if start {
             let line = route.why.clone();
             self.hand_with_line(route, text, line, cx);
         }
@@ -2706,7 +2797,9 @@ impl Shell {
     }
 
     /// Peek's line on a hand-off: why this bot (the engine's reason, unless
-    /// that names the bot), and where it runs when that was asked for.
+    /// that names the bot), which bot it brings in and for what, and where it
+    /// runs when that was asked for. It shows as Peek's own message, so a bot
+    /// never turns up in the thread unannounced.
     fn handoff_line(&self, route: &brain::route::Route, said: Option<String>) -> String {
         let reason = said
             .map(|s| s.trim().to_string())
@@ -2719,7 +2812,19 @@ impl Shell {
             ("here", _) => " It runs on this computer.".to_string(),
             _ => String::new(),
         };
-        format!("{reason}{place}")
+        let here = self.crew.store.thread_here();
+        let joined = self
+            .crew
+            .store
+            .threads
+            .iter()
+            .find(|t| t.id == here)
+            .is_some_and(|t| t.bots.contains(&route.bot))
+            || self.open_here(route.bot).is_some();
+        format!(
+            "{reason} {}{place}",
+            bringing(route.bot.name(), &route.title, joined)
+        )
     }
 
     /// Starts an ask the way Peek routed it, with Peek's line on the new
@@ -2733,6 +2838,15 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let before = self.last_job();
+        // The bot joins the thread with the work, as Peek's line says.
+        if self.place == Place::Today && route.bot != Member::Fin && route.bot.on_crew() {
+            let here = self.crew.store.thread_here();
+            if let Some(t) = self.crew.store.threads.iter_mut().find(|t| t.id == here) {
+                if !t.bots.contains(&route.bot) {
+                    t.bots.push(route.bot);
+                }
+            }
+        }
         self.hand_to(route, text, cx);
         if !self.mark_new_jobs(before, &line) {
             if let Some(o) = self.offer.as_mut() {
@@ -2774,8 +2888,12 @@ impl Shell {
         self.mode_pinned = true;
         // "do it on the VPS": this job runs there, whatever the usual choice.
         self.crew.where_next = (!route.site.is_empty()).then(|| route.site.clone());
+        // The whole ask as Peek read it from the conversation, so a reply
+        // like "all together" reaches the bot with what it answers.
+        self.crew.ask_next = runtime::NextAsk::of(&route);
         self.hand_over_inner(text, cx);
         self.crew.where_next = None;
+        self.crew.ask_next = None;
         self.target = target;
         self.mode = mode;
         self.mode_pinned = pinned;
@@ -2944,6 +3062,7 @@ impl Shell {
                 race: if self.mode.writes() { racing } else { 0 },
                 handoff: String::new(),
                 site: self.crew.where_next.clone().unwrap_or_default(),
+                ask: self.crew.ask_next.clone(),
             });
             cx.notify();
             return;
@@ -3056,8 +3175,16 @@ impl Shell {
         let before = self.last_job();
         // Peek's choice of where it runs still holds once the bot is added.
         self.crew.where_next = (!o.site.is_empty()).then(|| o.site.clone());
+        // Peek already read the whole ask: the bot it picked takes it as
+        // written, rather than Peek reading the last reply alone again.
+        if o.ask.is_some() {
+            self.target = Some(o.who);
+            self.crew.ask_next = o.ask.clone();
+        }
         self.hand_over(o.text, cx);
+        self.target = None;
         self.crew.where_next = None;
+        self.crew.ask_next = None;
         if !o.handoff.is_empty() {
             self.mark_new_jobs(before, &o.handoff);
         }
@@ -3505,6 +3632,13 @@ impl Shell {
         cx.notify();
     }
 
+    /// Writes a job's review guide again.
+    pub(super) fn rewrite_guide(&mut self, id: u64, cx: &mut Context<Self>) {
+        let st = Self::app_settings(cx);
+        self.crew.rewrite_guide(&st, id);
+        cx.notify();
+    }
+
     /// What Approve does for this job's project.
     pub(super) fn way(&mut self, job: &store::Job) -> ship::Way {
         self.crew.way(job)
@@ -3670,7 +3804,7 @@ impl Shell {
         let finished = self
             .crew
             .poll(cx.global::<crate::settings::AppSettings>(), viewing);
-        self.chime(cx.global::<crate::settings::AppSettings>());
+        let waiting = self.chime(cx.global::<crate::settings::AppSettings>());
         self.poll_reading(cx);
         self.poll_follow_reading(cx);
         self.keep_warm(cx.global::<crate::settings::AppSettings>());
@@ -3694,26 +3828,49 @@ impl Shell {
                 };
                 self.say(msg);
             }
-            // Squad Code is behind other windows: tell the person on the desktop.
-            if !self.active.load(std::sync::atomic::Ordering::Relaxed) {
-                let title = match j.status {
-                    Status::Done | Status::Review => format!("{} finished", j.bot.name()),
-                    _ => format!("{} stopped", j.bot.name()),
+            // Tell the person on the desktop, the way they chose.
+            let done = matches!(j.status, Status::Done | Status::Review);
+            let st = cx.global::<crate::settings::AppSettings>();
+            let wanted = if done {
+                st.notify_done
+            } else {
+                st.notify_failed
+            };
+            if wanted && self.notify_now(st, self.place == Place::Live(*id)) {
+                let title = if done {
+                    format!("{} finished", j.bot.name())
+                } else {
+                    format!("{} stopped", j.bot.name())
                 };
-                crate::settings::notify(
+                crate::desktop_notify::send(
+                    cx,
+                    Some(*id),
                     &title,
                     &format!("{}: {}", j.label(), brain::tasks::facts(&j)),
                 );
             }
         }
+        for (job, title, body) in waiting {
+            crate::desktop_notify::send(cx, job, &title, &body);
+        }
+    }
+
+    /// Whether a desktop notification goes out now: while Squad Code is behind
+    /// other windows, or, when the person asked for always, for anything not
+    /// on screen.
+    fn notify_now(&self, st: &crate::settings::AppSettings, on_screen: bool) -> bool {
+        let active = self.active.load(std::sync::atomic::Ordering::Relaxed);
+        !active || (st.notify_always && !on_screen)
     }
 
     /// Plays a chime when something new needs the person: a bot asking for an OK
     /// or a choice, a job that failed, or one finished or ready to review. Not for
     /// what is on screen in the focused window, which the person sees anyway.
-    fn chime(&mut self, st: &crate::settings::AppSettings) {
+    /// Returns the bots newly waiting on the person that get a desktop
+    /// notification, as (job, title, body).
+    fn chime(&mut self, st: &crate::settings::AppSettings) -> Vec<(Option<u64>, String, String)> {
         if self.crew.store.demo {
-            return;
+            return Vec::new();
         }
         let active = self.active.load(std::sync::atomic::Ordering::Relaxed);
         let thread_here = match self.place {
@@ -3727,11 +3884,21 @@ impl Shell {
         };
         let mut now = std::collections::HashSet::new();
         let mut fresh = Vec::new();
+        let mut waiting = Vec::new();
+        let heard = self.heard.take();
+        let new = |key: &str| !heard.as_ref().is_none_or(|heard| heard.contains(key));
         let mut note = |key: String, cue: crate::sounds::Cue, here: bool| {
-            if !here && !self.heard.as_ref().is_none_or(|heard| heard.contains(&key)) {
+            if !here && new(&key) {
                 fresh.push(cue);
             }
             now.insert(key);
+        };
+        // A bot newly waiting on the person, for a desktop notification.
+        let notify = st.notifications && st.notify_needs_you;
+        let mut tell = |key: &str, here: bool, job: Option<u64>, title: String, body: String| {
+            if notify && new(key) && (!active || (st.notify_always && !here)) {
+                waiting.push((job, title, body));
+            }
         };
         for j in &self.crew.store.jobs {
             let here = on_screen(Some(j.id), j.thread);
@@ -3744,23 +3911,45 @@ impl Shell {
             }
             // A running bot asking for an OK.
             for r in self.crew.asks_for(j) {
-                note(format!("ask:{}", r.id), crate::sounds::Cue::NeedsYou, here);
+                let key = format!("ask:{}", r.id);
+                tell(
+                    &key,
+                    here,
+                    Some(j.id),
+                    format!("{} needs your OK", j.bot.name()),
+                    format!("{}: wants to use {}", j.label(), r.tool),
+                );
+                note(key, crate::sounds::Cue::NeedsYou, here);
             }
         }
         // Peek asking a question back, with answers to pick.
         for t in &self.crew.store.talks {
             if t.answer.is_some() && !t.choices.is_empty() {
-                note(
-                    format!("talk:{}", t.id),
-                    crate::sounds::Cue::NeedsYou,
-                    on_screen(None, t.thread),
+                let key = format!("talk:{}", t.id);
+                let here = on_screen(None, t.thread);
+                let asked: String = t
+                    .answer
+                    .as_ref()
+                    .and_then(|a| a.text.lines().rev().find(|l| !l.trim().is_empty()))
+                    .unwrap_or("")
+                    .chars()
+                    .take(140)
+                    .collect();
+                tell(
+                    &key,
+                    here,
+                    None,
+                    format!("{} asked you something", t.bot.name()),
+                    asked,
                 );
+                note(key, crate::sounds::Cue::NeedsYou, here);
             }
         }
         self.heard = Some(now);
         if let Some(cue) = crate::sounds::pick(fresh, st) {
             crate::sounds::play(cue, st);
         }
+        waiting
     }
 
     /// How a bot feels right now, from what it is really doing.
@@ -4298,6 +4487,36 @@ impl Render for Shell {
                 if this.term_focus.is_focused(window) && !m.platform {
                     return;
                 }
+                // In the composer: Up in an empty box brings back what you last
+                // sent, and ⌘S puts a draft aside or brings it back.
+                if this.composer.read(cx).focus_handle(cx).is_focused(window) {
+                    let value = this.composer.read(cx).value().trim().to_string();
+                    let plain = !(m.platform || m.control || m.alt || m.shift);
+                    if plain && key == "up" && value.is_empty() && !this.last_sent.is_empty() {
+                        let text = this.last_sent.clone();
+                        this.composer
+                            .update(cx, |i, cx| ui::put_text(i, text, window, cx));
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if (m.platform || m.control) && !(m.alt || m.shift) && key == "s" {
+                        if !value.is_empty() {
+                            this.stash = Some(value);
+                            this.composer
+                                .update(cx, |i, cx| i.set_value("", window, cx));
+                            this.say("Draft put aside. Press ⌘S in an empty box to bring it back.");
+                        } else if let Some(text) = this.stash.take() {
+                            this.composer
+                                .update(cx, |i, cx| ui::put_text(i, text, window, cx));
+                        } else {
+                            this.say("No draft put aside.");
+                        }
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                }
                 // Alt+Up and Alt+Down step through the threads (with Shift,
                 // only the unread ones), like Slack.
                 if m.alt
@@ -4315,6 +4534,21 @@ impl Render for Shell {
                     && this.focus.is_focused(window)
                     && this.inbox_key(key, cx)
                 {
+                    cx.stop_propagation();
+                    return;
+                }
+                // ⌥⌘A: the next thing waiting on you, in any project.
+                if (m.platform || m.control)
+                    && m.alt
+                    && !m.shift
+                    && key == "a"
+                    && this.place != Place::Welcome
+                {
+                    this.palette = false;
+                    if !this.next_waiting(cx) {
+                        this.say("Nothing is waiting on you.");
+                    }
+                    cx.notify();
                     cx.stop_propagation();
                     return;
                 }
@@ -4372,7 +4606,7 @@ impl Render for Shell {
                 this.go(to, cx);
                 cx.stop_propagation();
             }))
-            .font_family("Geist")
+            .font_family(ui::sans())
             .text_color(c(ui::ink()))
             // The ground the sidebar sits on; the page floats over it as a canvas.
             // When the desktop shows through, the sidebar and the page each paint
@@ -4557,6 +4791,9 @@ fn apply_theme(window: &mut Window, cx: &mut App) {
         k.popover = ui::c(ui::float());
         k.popover_foreground = ui::c(ui::ink());
         k.caret = ui::c(ui::ink());
+        // The kit's text boxes and code editors draw in the picked fonts too.
+        k.font_family = ui::sans().into();
+        k.mono_font_family = ui::mono().into();
         k.ring = ui::ca(ui::VIOLET, 0.6);
         k.selection = ui::ca(ui::VIOLET, if t.light { 0.22 } else { 0.38 });
     });
@@ -4568,6 +4805,7 @@ pub fn open_window(cx: &mut App) {
     // The look first: the window opens with the background it needs.
     let st = cx.global::<crate::settings::AppSettings>();
     theme::set_pref(&st.v2_theme, system_dark(cx.window_appearance()));
+    fonts::set(&st.v2_font, &st.v2_code_font);
     issues::set_close_on_merge(st.v2_close_issues);
     work::set_belt(st.v2_belt_secrets, st.v2_belt_checks);
     theme::set_see_through(st.v2_see_through, st.v2_clear);
@@ -4672,6 +4910,25 @@ mod side_tests {
         // Along the diagonal both axes turn alike.
         let (x, y) = gaze_towards((100., 100.), (400., 400.));
         assert!(x == y && x > 5, "{x} {y}");
+    }
+}
+
+#[cfg(test)]
+mod bringing_tests {
+    use super::bringing;
+
+    #[test]
+    fn peek_says_which_bot_it_brings_in_and_for_what() {
+        assert_eq!(
+            bringing("Guard", "Review scope for improvements", false),
+            "Bringing in Guard to review scope for improvements."
+        );
+        assert_eq!(bringing("Builder", "", true), "Over to Builder.");
+        // An acronym keeps its capitals.
+        assert_eq!(
+            bringing("Guard", "API speed audit", false),
+            "Bringing in Guard to API speed audit."
+        );
     }
 }
 

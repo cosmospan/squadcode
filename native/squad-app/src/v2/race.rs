@@ -215,7 +215,7 @@ impl Shell {
                 .child(div().text_color(c(ui::muted())).child(label.to_string()))
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_color(c(ui::ink()))
                         .child(value),
                 )
@@ -269,7 +269,7 @@ impl Shell {
                             .flex()
                             .gap(px(8.))
                             .text_size(px(12.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .child(
                                 div()
                                     .flex_1()
@@ -479,7 +479,7 @@ impl Shell {
             .child(
                 div()
                     .flex_none()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .text_color(c(ui::faint()))
                     .child(format!(
@@ -574,7 +574,7 @@ impl Shell {
         };
         let mono = |s: String, col: u32| {
             div()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(12.))
                 .text_color(c(col))
                 .child(s)

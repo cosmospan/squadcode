@@ -1,0 +1,110 @@
+# Scores Peek's decisions on the cases in native/squad-app/evals/peek with the
+# real engine, and fails when a case that was right in the committed baseline
+# is now mostly wrong. Runs on pull requests that change Peek's rules or the
+# cases, and by hand from any branch (Actions > Peek eval > Run workflow).
+#
+# Needs the ANTHROPIC_API_KEY repository secret for Claude Code. Without it
+# (or on a fork's pull request) the run says so and passes.
+name: Peek eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Model Peek reads with
+        default: haiku
+      runs:
+        description: Runs per case
+        default: "3"
+      only:
+        description: Only cases whose id holds this (empty for all)
+        default: ""
+  pull_request:
+    paths:
+      - native/squad-app/src/v2/brain/think.rs
+      - native/squad-app/src/v2/brain/talk.rs
+      - native/squad-app/src/v2/brain/guard.rs
+      - native/squad-app/src/v2/brain/front.rs
+      - native/squad-app/src/v2/brain/route.rs
+      - native/squad-app/src/v2/brain/eval.rs
+      - native/squad-app/evals/peek/**
+      - .github/workflows/peek-eval.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: peek-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      MODEL: ${{ inputs.model || 'haiku' }}
+      RUNS: ${{ inputs.runs || '3' }}
+      ONLY: ${{ inputs.only || '' }}
+      JOBS: "6"
+      PEEK_EVAL_OUT: ${{ github.workspace }}/peek-eval
+    steps:
+      - name: Check for the engine's key
+        id: key
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::notice::No ANTHROPIC_API_KEY secret here, so Peek's eval didn't run."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == 'true'
+
+      - name: Install Linux build dependencies
+        if: steps.key.outputs.ok == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libfontconfig-dev libfreetype-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libx11-dev libx11-xcb-dev \
+            libxcb1-dev libxcb-render0-dev libxcb-shm0-dev libxcb-xkb-dev \
+            libwayland-dev libvulkan-dev
+
+      - name: Install Rust
+        if: steps.key.outputs.ok == 'true'
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.key.outputs.ok == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.ok == 'true'
+        with:
+          node-version: 22
+
+      - name: Install Claude Code
+        if: steps.key.outputs.ok == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Score Peek
+        if: steps.key.outputs.ok == 'true'
+        run: cargo test -p squadcode peek_eval -- --ignored --nocapture
+
+      - name: Summary
+        if: always() && steps.key.outputs.ok == 'true'
+        run: |
+          if [ -f "$PEEK_EVAL_OUT/report.md" ]; then
+            cat "$PEEK_EVAL_OUT/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.key.outputs.ok == 'true'
+        with:
+          name: peek-eval-${{ env.MODEL }}
+          path: peek-eval/
+          if-no-files-found: ignore

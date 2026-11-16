@@ -164,7 +164,7 @@ impl Shell {
                         .px(px(6.))
                         .flex()
                         .justify_between()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .text_color(c(ui::faint()))
                         .child(heading.to_uppercase())
@@ -238,7 +238,7 @@ impl Shell {
                             )
                             .child(
                                 div()
-                                    .font_family(ui::MONO)
+                                    .font_family(ui::mono())
                                     .text_size(px(11.))
                                     .text_color(c(ui::faint()))
                                     .truncate()
@@ -365,7 +365,7 @@ impl Shell {
                                 }
                             })
                             .child(name)
-                            .child(div().font_family(ui::MONO).opacity(0.7).child(n.to_string()))
+                            .child(div().font_family(ui::mono()).opacity(0.7).child(n.to_string()))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.inbox_project = path.clone();
                                 this.inbox_pick = None;
@@ -384,7 +384,7 @@ impl Shell {
                     .py(px(8.))
                     .border_t_1()
                     .border_color(c(ui::line2()))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .text_color(c(ui::faint()))
                     .child("\u{2191}\u{2193} move \u{b7} \u{21b5} open \u{b7} A approve \u{b7} E mark seen"),
@@ -433,7 +433,7 @@ impl Shell {
                     .truncate()
                     .flex()
                     .gap(px(6.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .text_color(c(ui::faint()))
                     .child(
@@ -472,7 +472,7 @@ impl Shell {
                     div()
                         .mt(px(4.))
                         .truncate()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.5))
                         .text_color(c(ui::body()))
                         .child(meta.join(" \u{b7} ")),
@@ -534,7 +534,7 @@ impl Shell {
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .text_color(c(ui::faint()))
                     .child(hint),
@@ -552,7 +552,7 @@ impl Shell {
                     d.child(
                         div()
                             .ml(px(6.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(10.5))
                             .text_color(c(ui::faint()))
                             .child(if held { "HELD" } else { "CLASH" }),
@@ -1122,7 +1122,7 @@ impl Shell {
             .flex()
             .items_center()
             .gap(px(7.))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(10.5))
             .child(
                 div()
@@ -1173,7 +1173,7 @@ impl Shell {
                     .child(
                         div()
                             .flex_none()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.))
                             .text_color(c(ui::faint()))
                             .child(format!("#{}", j.id)),
@@ -1329,7 +1329,7 @@ fn col_head(label: &str, col: u32, n: usize) -> Div {
         .flex()
         .items_center()
         .gap(px(7.))
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(10.5))
         .child(div().size(px(6.)).flex_none().bg(c(col)))
         .child(
@@ -1413,7 +1413,7 @@ fn chip() -> Div {
         .bg(c(ui::well()))
         .border_1()
         .border_color(c(ui::line2()))
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(11.))
         .text_color(c(ui::muted()))
 }

@@ -69,7 +69,7 @@ impl Shell {
                     div()
                         .min_w_0()
                         .truncate()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_color(c(ui::body()))
                         .child(branch),
                 )
@@ -108,7 +108,7 @@ impl Shell {
                         div()
                             .min_w_0()
                             .truncate()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .text_color(c(ui::muted()))
                             .child(place),
@@ -197,7 +197,7 @@ impl Shell {
                 div()
                     .px(px(12.))
                     .py(px(5.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .text_color(c(ui::body()))
                     .when(n > 0, |d| d.border_t_1().border_color(c(tone.2)))
@@ -555,7 +555,7 @@ impl Shell {
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(14.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(c(ui::ink()))
@@ -700,7 +700,7 @@ impl Shell {
                             div()
                                 .w(px(14.))
                                 .flex_none()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(11.5))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(c(col))
@@ -710,7 +710,7 @@ impl Shell {
                             div()
                                 .min_w_0()
                                 .truncate()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(12.))
                                 .text_color(c(ui::body()))
                                 .child(file.clone()),
@@ -773,7 +773,7 @@ impl Shell {
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .font_family(ui::MONO)
+                                    .font_family(ui::mono())
                                     .text_size(px(12.))
                                     .text_color(c(ui::ink()))
                                     .child(j.branch.clone()),
@@ -836,7 +836,7 @@ impl Shell {
                                     .gap(px(6.))
                                     .text_size(px(11.))
                                     .text_color(c(ui::faint()))
-                                    .child(div().font_family(ui::MONO).child(hash.clone()))
+                                    .child(div().font_family(ui::mono()).child(hash.clone()))
                                     .child("\u{b7}")
                                     .child(when.clone()),
                             ),

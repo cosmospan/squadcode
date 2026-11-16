@@ -33,6 +33,7 @@ fn pose(tint: Tint, lead: bool, state: State) -> FinPose {
         gaze: (0, 0),
         offset: 0,
         from: None,
+        ink: None,
     }
 }
 

@@ -370,6 +370,15 @@ pub fn providers() -> &'static [crate::agent::Provider] {
     registry().providers
 }
 
+/// The other names the CLI whose usual command is `bin` installs under.
+pub fn alt_bins(bin: &str) -> impl Iterator<Item = &'static str> + '_ {
+    registry()
+        .specs
+        .iter()
+        .filter(move |s| s.bin == bin)
+        .flat_map(|s| s.alt_bins.iter().map(String::as_str))
+}
+
 /// The manifest entry of `id`.
 pub fn spec(id: &str) -> Option<&'static AgentSpec> {
     registry().specs.iter().find(|s| s.id == id)

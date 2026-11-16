@@ -389,7 +389,7 @@ impl Shell {
             )
             .child(
                 div()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .text_color(c(ui::faint()))
                     .child(what),
@@ -455,7 +455,7 @@ impl Shell {
                     .p(px(10.))
                     .rounded(px(8.))
                     .bg(c(ui::term().bg))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .text_color(c(ui::term().fg))
                     .child(cmd),
@@ -811,7 +811,7 @@ impl Shell {
             procs_card = procs_card.child(
                 row()
                     .py(px(8.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .text_color(c(ui::faint()))
                     .child(div().w(px(64.)).child("PID"))
@@ -836,7 +836,7 @@ impl Shell {
             procs_card = procs_card.child(
                 row()
                     .py(px(7.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .text_color(c(ui::muted()))
                     .child(div().w(px(64.)).child(pid.to_string()))
@@ -871,7 +871,7 @@ impl Shell {
                                 } else {
                                     ui::line_hi()
                                 }))
-                                .font_family("Geist")
+                                .font_family(ui::sans())
                                 .text_size(px(11.5))
                                 .text_color(c(if armed || force { ui::t_red() } else { ui::ink() }))
                                 .cursor_pointer()
@@ -919,7 +919,7 @@ impl Shell {
                         .bg(c(ui::bg()))
                         .border_1()
                         .border_color(c(ui::line()))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(12.5))
                         .child(div().text_color(c(ui::faint())).child("$"))
                         .child(Input::new(&self.server_cmd).appearance(false).bordered(false)),
@@ -992,7 +992,7 @@ impl Shell {
                                     .gap(px(6.))
                                     .text_size(px(12.5))
                                     .text_color(c(if *failed { ui::t_red() } else { ui::muted() }))
-                                    .when(mono, |d| d.font_family(ui::MONO))
+                                    .when(mono, |d| d.font_family(ui::mono()))
                                     .child(
                                         Icon::new(if *failed {
                                             IconName::CircleX
@@ -1012,7 +1012,7 @@ impl Shell {
                                         .p(px(10.))
                                         .rounded(px(8.))
                                         .bg(c(ui::term().bg))
-                                        .font_family(ui::MONO)
+                                        .font_family(ui::mono())
                                         .text_size(px(11.5))
                                         // The box is the terminal's dark in every
                                         // theme: the bright red reads on it.

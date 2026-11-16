@@ -2,7 +2,7 @@
 //! job's card: what it is, where it stands, its changes and the buttons to
 //! decide, without leaving the conversation. Expand opens the job workspace:
 //! the bot's conversation always on the left, and the job's Changes,
-//! Checks, Browser, Terminal and Files as tabs on the right.
+//! Guide, Checks, Browser, Terminal and Files as tabs on the right.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::Input;
@@ -27,6 +27,9 @@ pub(super) const TALK_W: f32 = 430.;
 pub(super) enum Tab {
     #[default]
     Changes,
+    /// The review guide: a tour of the changes in reading order, with the
+    /// places to look closely marked.
+    Guide,
     /// The screens a design job's bot made, as a board to comment on.
     Design,
     Checks,
@@ -36,8 +39,9 @@ pub(super) enum Tab {
 }
 
 impl Tab {
-    pub(super) const ALL: [Tab; 6] = [
+    pub(super) const ALL: [Tab; 7] = [
         Tab::Changes,
+        Tab::Guide,
         Tab::Design,
         Tab::Checks,
         Tab::Browser,
@@ -48,6 +52,7 @@ impl Tab {
     pub(super) fn name(self) -> &'static str {
         match self {
             Tab::Changes => "Changes",
+            Tab::Guide => "Guide",
             Tab::Design => "Design",
             Tab::Checks => "Checks",
             Tab::Browser => "Browser",
@@ -135,7 +140,7 @@ fn timeline(rows: Vec<Step>) -> Div {
 fn label(text: &str) -> Div {
     div()
         .mb(px(6.))
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(10.5))
         .font_weight(FontWeight::MEDIUM)
         .text_color(c(ui::faint()))
@@ -159,7 +164,7 @@ fn kv(left: Div, right: Div) -> Div {
 
 fn mono_ink(text: String) -> Div {
     div()
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(12.))
         .text_color(c(ui::ink()))
         .child(text)
@@ -167,7 +172,7 @@ fn mono_ink(text: String) -> Div {
 
 fn mono_tone(text: String, tone: u32) -> Div {
     div()
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(12.))
         .text_color(c(tone))
         .child(text)
@@ -248,7 +253,7 @@ impl Shell {
                     .truncate()
                     .flex()
                     .gap(px(6.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .text_color(c(ui::faint()))
                     .child(
@@ -297,7 +302,7 @@ impl Shell {
                 )
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.5))
                         .text_color(c(ui::body()))
                         .child(by),
@@ -325,7 +330,7 @@ impl Shell {
             .items_center()
             .gap_x(px(14.))
             .gap_y(px(4.))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(12.))
             .text_color(c(ui::body()))
             .child(ui::mono_status(col, &state_word).flex_none())
@@ -397,6 +402,7 @@ impl Shell {
         let checks = peek_checks(job).filter(|_| !ships);
         // A job waiting for you shows its diff right here, to comment on.
         let reviewing = job.status == Status::Review && !job.changes.is_empty();
+        let guide = reviewing.then(|| self.peek_guide(job, cx)).flatten();
         let changes = if reviewing {
             self.peek_diff(job, cx)
         } else {
@@ -493,7 +499,7 @@ impl Shell {
                     .when(!first, |d| d.border_l_1().border_color(c(ui::line())))
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(15.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(c(ui::ink()))
@@ -501,7 +507,7 @@ impl Shell {
                     )
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(10.5))
                             .text_color(c(ui::faint()))
                             .child(k.to_uppercase()),
@@ -548,6 +554,7 @@ impl Shell {
                     .children(in_the_way.map(|d| d.mx(px(0.)).mb(px(0.))))
                     .children(shipped)
                     .children(checks)
+                    .children(guide.filter(|_| !ships))
                     .children(changes.filter(|_| !ships))
                     .children(more)
                     .children(log.filter(|_| !reviewing && !ships))
@@ -673,7 +680,7 @@ impl Shell {
                 .child(label("Checks on GitHub"))
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .text_color(c(ui::faint()))
                         .child(match (done, total) {
@@ -803,7 +810,7 @@ impl Shell {
             .gap(px(8.))
             .border_b_1()
             .border_color(c(ui::line()))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(12.))
             .child(
                 Icon::new(IconName::File)
@@ -868,7 +875,7 @@ impl Shell {
             .justify_between()
             .border_t_1()
             .border_color(c(ui::line()))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(11.))
             .text_color(c(ui::faint()))
             .child(if total > SHOWN {
@@ -901,7 +908,7 @@ impl Shell {
                         .child(label("Changes"))
                         .child(
                             div()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(10.5))
                                 .text_color(c(ui::faint()))
                                 .child(format!(
@@ -943,7 +950,7 @@ impl Shell {
                             .flex()
                             .flex_none()
                             .gap(px(6.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .when(f.added > 0, |d| {
                                 d.child(
@@ -1006,7 +1013,7 @@ impl Shell {
                                 .id(SharedString::from(format!("belt-at-{place}")))
                                 .min_w_0()
                                 .truncate()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(12.))
                                 .text_color(c(ui::ink()))
                                 .child(short)
@@ -1159,7 +1166,7 @@ impl Shell {
                         d.child(
                             div()
                                 .mr(px(4.))
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(10.5))
                                 .text_color(c(ui::faint()))
                                 .child(if held { "HELD" } else { "CLASH" }),
@@ -1313,8 +1320,11 @@ impl Shell {
         };
         let talk = self.live_talk(&job, cx);
         let design = super::board::has_design(&job);
-        // A job without design work has no Design tab to be on.
-        if self.ws_tab == Tab::Design && !design {
+        // A job without design work has no Design tab to be on, and one
+        // without changes no Guide.
+        if (self.ws_tab == Tab::Design && !design)
+            || (self.ws_tab == Tab::Guide && job.changes.is_empty())
+        {
             self.ws_tab = Tab::Changes;
         }
         let tab = self.ws_tab;
@@ -1330,10 +1340,16 @@ impl Shell {
             if t == Tab::Design && !design {
                 continue;
             }
+            // Only a job with changes to read has a guide to them.
+            if t == Tab::Guide && job.changes.is_empty() {
+                continue;
+            }
             let on = t == tab;
             let count = match t {
                 Tab::Changes if !job.changes.is_empty() => Some(job.changes.len()),
                 Tab::Checks if !job.checks.is_empty() => Some(job.checks.len()),
+                // How many places to look closely at.
+                Tab::Guide => job.guide.as_ref().map(|g| g.closely()).filter(|n| *n > 0),
                 _ => None,
             };
             tabs = tabs.child(
@@ -1345,7 +1361,7 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
@@ -1432,6 +1448,14 @@ impl Shell {
                 )
                 .into_any_element(),
             },
+            Tab::Guide => div()
+                .id("ws-guide")
+                .size_full()
+                .overflow_y_scroll()
+                .px(px(18.))
+                .py(px(16.))
+                .child(self.guide_tab(&job, cx))
+                .into_any_element(),
             Tab::Checks => div()
                 .id("ws-checks")
                 .size_full()

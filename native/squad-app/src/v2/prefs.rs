@@ -2,7 +2,8 @@
 //! same dark cards, pills and hairlines as the rest of v2.
 //!
 //! - **General**: how the app behaves while the crew works, and the limits.
-//! - **Appearance**: the theme, solid or frosted glass, with a preview of each.
+//! - **Appearance**: the theme, solid or frosted glass, with a preview of each,
+//!   and the fonts for the interface and for code.
 //! - **Mascot**: the crew's look. Peek's outline, and each bot's colour and
 //!   props, with a live preview.
 //! - **Engines**: which coding agent and model each bot runs on.
@@ -21,6 +22,7 @@ use squad_holo::{Figure, Framing, Mood, Tint};
 use crate::settings::AppSettings;
 
 use super::data::Member;
+use super::fonts;
 use super::mascot;
 use super::popover::Pop;
 use super::theme::{self, Theme};
@@ -62,7 +64,7 @@ impl Pane {
         match self {
             Pane::Work => "When the crew checks with you",
             Pane::General => "Alerts, motion and limits",
-            Pane::Appearance => "Themes, glass, background and the mascot",
+            Pane::Appearance => "Themes, fonts, glass and background",
             Pane::Mascot => "Peek, colours and props",
             Pane::Engines => "Agents and models",
             Pane::Usage => "Spend, jobs and time",
@@ -178,7 +180,7 @@ fn group(title: &'static str, rows: Vec<Div>) -> Div {
         .gap(px(7.))
         .child(
             div()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(c(ui::faint()))
@@ -385,7 +387,7 @@ impl Shell {
                     .px(px(9.))
                     .pt(px(14.))
                     .pb(px(6.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(10.5))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::faint()))
@@ -673,7 +675,7 @@ impl Shell {
                                 d.child(
                                     div()
                                         .mt(px(2.))
-                                        .font_family(ui::MONO)
+                                        .font_family(ui::mono())
                                         .text_size(px(10.))
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(c(ui::accent_text()))
@@ -702,7 +704,7 @@ impl Shell {
             div()
                 .flex()
                 .justify_between()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(c(ui::faint()))
@@ -959,12 +961,52 @@ impl Shell {
                 toggle(
                     "set-notify",
                     "Desktop notifications",
-                    "When a job finishes or a bot needs you",
+                    "While Squad Code is behind other windows",
                     st.notifications,
                     |s, v| s.notifications = v,
                     None,
                     cx,
                 ),
+                toggle(
+                    "set-notify-ask",
+                    "When a bot needs you",
+                    "It asks for your OK or a choice",
+                    st.notify_needs_you,
+                    |s, v| s.notify_needs_you = v,
+                    None,
+                    cx,
+                )
+                .when(!st.notifications, |d| d.opacity(0.5)),
+                toggle(
+                    "set-notify-done",
+                    "When a job is done",
+                    "Or its changes are ready to review",
+                    st.notify_done,
+                    |s, v| s.notify_done = v,
+                    None,
+                    cx,
+                )
+                .when(!st.notifications, |d| d.opacity(0.5)),
+                toggle(
+                    "set-notify-failed",
+                    "When a job fails",
+                    "It stops with a problem",
+                    st.notify_failed,
+                    |s, v| s.notify_failed = v,
+                    None,
+                    cx,
+                )
+                .when(!st.notifications, |d| d.opacity(0.5)),
+                toggle(
+                    "set-notify-always",
+                    "Even when Squad Code is in front",
+                    "For what isn't on screen",
+                    st.notify_always,
+                    |s, v| s.notify_always = v,
+                    None,
+                    cx,
+                )
+                .when(!st.notifications, |d| d.opacity(0.5)),
                 sounds,
                 toggle(
                     "set-sound-ask",
@@ -1014,7 +1056,7 @@ impl Shell {
                 toggle(
                     "set-credit",
                     "Credit the agent in commits",
-                    "Adds a line naming the agent",
+                    "Off: Shipper removes the lines agents add naming themselves",
                     st.attribution,
                     |s, v| s.attribution = v,
                     None,
@@ -1084,6 +1126,7 @@ impl Shell {
 
     fn settings_appearance(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let looks = self.looks_card(cx);
+        let type_card = self.fonts_card(cx);
         let window = self.transparency_card(cx);
         let picture = self.image_card(cx);
         let backdrop = self.pattern_card(cx);
@@ -1097,6 +1140,7 @@ impl Shell {
                 .gap(px(20.))
                 // Themes first: the choice most people come here for.
                 .child(looks)
+                .child(type_card)
                 .child(window)
                 .child(backdrop)
                 .child(picture),
@@ -1265,7 +1309,7 @@ impl Shell {
                 div()
                     .flex()
                     .justify_between()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(10.5))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::faint()))
@@ -1285,6 +1329,192 @@ impl Shell {
                     .border_color(c(ui::line()))
                     .child(row("Light or dark", note, modes).border_t(px(0.))),
             )
+    }
+
+    /// The fonts: one for the interface and one for code, each a tile that
+    /// shows itself in its own face. A pick redraws the whole window in it.
+    fn fonts_card(&mut self, cx: &mut Context<Self>) -> Div {
+        let sans_on = fonts::sans_face().id;
+        let code_on = fonts::code_face().id;
+        let tile = |face: &'static fonts::Face, code: bool, on: bool| {
+            let sample = if code {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.))
+                    .font_family(face.family)
+                    .text_size(px(12.5))
+                    .text_color(c(ui::ink()))
+                    .child(div().child("fn ship() -> Result<()> {"))
+                    .child(
+                        div()
+                            .text_color(c(ui::muted()))
+                            .child("    if a != b => ok // 0O1lI"),
+                    )
+                    .into_any_element()
+            } else {
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(px(10.))
+                    .font_family(face.family)
+                    .text_color(c(ui::ink()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(28.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Aa"),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(13.))
+                            .text_color(c(ui::body()))
+                            .child("The crew is on it."),
+                    )
+                    .into_any_element()
+            };
+            div()
+                .id(SharedString::from(format!(
+                    "font-{}-{}",
+                    if code { "code" } else { "ui" },
+                    face.id
+                )))
+                .tooltip(move |w, cx| Tooltip::new(face.line).build(w, cx))
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .rounded(px(6.))
+                .overflow_hidden()
+                .cursor_pointer()
+                .bg(c(ui::raised()))
+                .map(|d| {
+                    if on {
+                        d.border_2().border_color(c(ui::ink()))
+                    } else {
+                        d.border_1()
+                            .border_color(c(ui::line()))
+                            .hover(|s| s.border_color(c(ui::line_hi())))
+                    }
+                })
+                .child(
+                    div()
+                        .h(px(66.))
+                        .px(px(12.))
+                        .flex()
+                        .items_center()
+                        .relative()
+                        .overflow_hidden()
+                        .bg(c(ui::well()))
+                        .border_b_1()
+                        .border_color(c(ui::line()))
+                        .child(sample)
+                        .when(on, |d| {
+                            d.child(
+                                div()
+                                    .absolute()
+                                    .top(px(6.))
+                                    .right(px(6.))
+                                    .size(px(18.))
+                                    .rounded(px(4.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(c(ui::pick_fill()))
+                                    .text_color(c(ui::pick_on()))
+                                    .child(Icon::new(IconName::Check).size(px(12.))),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .px(px(11.))
+                        .pt(px(8.))
+                        .pb(px(9.))
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(
+                            div()
+                                .text_size(px(13.5))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c(ui::ink()))
+                                .truncate()
+                                .child(face.name),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(c(ui::muted()))
+                                .truncate()
+                                .child(face.line),
+                        ),
+                )
+                .on_click(cx.listener(move |_, _, window, cx| {
+                    let (sans, code_id) = if code {
+                        (fonts::sans_face().id, face.id)
+                    } else {
+                        (face.id, fonts::code_face().id)
+                    };
+                    fonts::set(sans, code_id);
+                    save(cx, |st| {
+                        st.v2_font = sans.to_string();
+                        st.v2_code_font = code_id.to_string();
+                    });
+                    // The kit's text boxes and editors take the new fonts too.
+                    super::apply_theme(window, cx);
+                    cx.notify();
+                }))
+        };
+        let grid = |tiles: Vec<Stateful<Div>>, per_row: usize| {
+            let mut cards = div().flex().flex_col().gap(px(14.));
+            let mut tiles = tiles.into_iter().peekable();
+            while tiles.peek().is_some() {
+                let mut line = div().flex().gap(px(14.));
+                for _ in 0..per_row {
+                    line = match tiles.next() {
+                        Some(tile) => line.child(tile),
+                        None => line.child(div().flex_1().min_w_0()),
+                    };
+                }
+                cards = cards.child(line);
+            }
+            cards
+        };
+        let heading = |left: &'static str, right: &'static str| {
+            div()
+                .flex()
+                .justify_between()
+                .font_family(ui::mono())
+                .text_size(px(10.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c(ui::faint()))
+                .child(left)
+                .child(right)
+        };
+        let sans = fonts::SANS
+            .iter()
+            .map(|f| tile(f, false, f.id == sans_on))
+            .collect();
+        let code = fonts::CODE
+            .iter()
+            .map(|f| tile(f, true, f.id == code_on))
+            .collect();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(7.))
+            .child(heading("INTERFACE FONT", "menus, messages and buttons"))
+            .child(grid(sans, LOOKS_PER_ROW))
+            .child(
+                div()
+                    .mt(px(12.))
+                    .child(heading("CODE FONT", "the terminal, diffs and paths")),
+            )
+            .child(grid(code, 2))
     }
 
     /// Window transparency: a switch, and a slider for how far the desktop shows
@@ -1348,7 +1578,7 @@ impl Shell {
                         .w(px(38.))
                         .flex_none()
                         .text_right()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(12.))
                         .text_color(c(if on { ui::ink() } else { ui::faint() }))
                         .child(if on {
@@ -1412,7 +1642,7 @@ impl Shell {
                         .w(px(38.))
                         .flex_none()
                         .text_right()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(12.))
                         .text_color(c(if pop_live { ui::ink() } else { ui::faint() }))
                         .child(if pop_live {
@@ -1683,7 +1913,7 @@ impl Shell {
                             .w(px(END_W))
                             .flex_none()
                             .text_right()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .text_color(c(if on { ui::ink() } else { ui::faint() }))
                             .child(if on {
@@ -1873,6 +2103,7 @@ impl Shell {
             gaze: (0, 0),
             offset: 0,
             from: None,
+            ink: None,
         });
         // Glide from one state's face to the next, as the bots do in the app.
         let figure = self.eased(figure, (who, u32::MAX, false, 0));
@@ -2124,7 +2355,7 @@ impl Shell {
                 .flex()
                 .items_center()
                 .justify_between()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(c(ui::faint()))
@@ -2133,7 +2364,7 @@ impl Shell {
         };
         let small = |text: &'static str| {
             div()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(c(ui::faint()))
@@ -2184,7 +2415,9 @@ impl Shell {
                     .items_center()
                     .gap(px(10.))
                     .child(
-                        // A dark stage: the lens reads best on graphite.
+                        // The stage takes the theme's ground, so the preview shows
+                        // the corners as the rest of the app draws them: dark on
+                        // light themes, light on dark ones.
                         div()
                             .size(px(176.))
                             .rounded(px(14.))
@@ -2193,8 +2426,8 @@ impl Shell {
                             .justify_center()
                             .bg(linear_gradient(
                                 180.,
-                                linear_color_stop(c(0x2A2B31), 0.),
-                                linear_color_stop(c(0x15161A), 1.),
+                                linear_color_stop(c(theme::raised()), 0.),
+                                linear_color_stop(c(theme::well()), 1.),
                             ))
                             .border_1()
                             .border_color(ca(eye, 0.25))

@@ -265,7 +265,7 @@ An **engine** is one of the coding agents Squad Code drives and the model it run
 | Codex | `codex` | | Amp | `amp` |
 | Gemini | `gemini` | | Droid | `droid` |
 | OpenCode | `opencode` | | Qwen Code | `qwen` |
-| Cursor | `cursor-agent` | | Grok | `grok` |
+| Cursor | `cursor-agent` or `agent` | | Grok | `grok` |
 | Antigravity | `agy` | | Pi | `pi` |
 
 See [provider setup](docs/providers.md) for installing and signing in to each one.
@@ -308,6 +308,22 @@ checks = ["pnpm lint", "pnpm test"] # what Checker runs
 ```
 
 **Run app** starts what `run` says. With no `squad.toml`, Squad works it out from the project: a `dev`, `start`, `serve` or `preview` script in `package.json` (with pnpm, yarn or bun when their lockfile is there), `deno task`, `cargo run`, Django's `manage.py`, a Python `app.py` or `main.py` (FastAPI under uvicorn, Streamlit, Flask; through uv, Poetry or the project's `.venv` when it has one), `go run .`, Flutter, Rails, Laravel, Phoenix, Rack, Spring Boot with Maven or Gradle, `dotnet run`, Hugo, Jekyll, a Procfile's `web:` line, a `dev`, `run`, `serve` or `start` target in a Makefile or justfile, Docker Compose, a Dockerfile, PHP, and last a plain `index.html` (at the top or in `public/`, `docs/` or `dist/`) served as files. When it can't tell, Run app opens Setup on the Overview so you can say.
+
+## Rules for parts of the code
+
+Rules that only matter for some files can live next to them, so every job's prompt stays short. Put Markdown files in `.squad/rules/`, each with the paths it's for at the top:
+
+```markdown
+---
+files: src/api/**, src/db/**/*.sql
+description: How we write API handlers
+---
+Every handler checks the session first, with `requireUser()`.
+```
+
+A rule without `files:` is for the whole project. `globs:` (Cursor) and `fileMatchPattern:` (Kiro) work too, so rules written for those tools can be copied over as they are. An `AGENTS.md` in a subfolder is a rule for the files in that folder.
+
+Builder, every other bot that changes files, and Guard when it reviews get the rules for the files a job touches in full: the paths the ask names, what the bot has changed so far, and the changes a review was pointed at. Every other rule is one line naming it and its paths, so a bot that wanders into those files reads it first. The job's feed says which rules it was given.
 
 ## Squad in a terminal
 
