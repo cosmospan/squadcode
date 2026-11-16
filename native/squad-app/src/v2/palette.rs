@@ -487,7 +487,7 @@ impl Shell {
                         .px(px(18.))
                         .pt(px(12.))
                         .pb(px(4.))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::faint()))
@@ -502,7 +502,7 @@ impl Shell {
                     .text_color(c(ui::body()))
                     .into_any_element(),
                 _ if e.group == Group::Threads => div()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(13.))
                     .text_color(c(ui::accent_text()))
                     .child("#")
@@ -594,7 +594,7 @@ impl Shell {
                         d.child(
                             div()
                                 .flex_none()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(11.))
                                 .text_color(c(ui::faint()))
                                 .child(e.hint),
@@ -688,7 +688,7 @@ impl Shell {
                             .border_t_1()
                             .border_color(c(ui::line()))
                             .bg(c(ui::bg()))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.))
                             .text_color(c(ui::faint()))
                             .child(foot_key("↑↓", "move"))
