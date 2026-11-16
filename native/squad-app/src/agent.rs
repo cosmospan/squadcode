@@ -99,7 +99,24 @@ pub fn available(bin: &str, configured: &str) -> bool {
     }
 }
 
+/// Whether `bin` is on PATH, or another name its CLI installs under (such as Cursor's
+/// `agent` for `cursor-agent`).
 pub fn installed(bin: &str) -> bool {
+    on_path(bin) || crate::registry::alt_bins(bin).any(on_path)
+}
+
+/// The command to run for an agent whose usual name is `bin` when Settings names none:
+/// `bin` itself, or the first other name of its CLI that is on PATH when `bin` isn't.
+pub fn default_bin(bin: &'static str) -> &'static str {
+    if on_path(bin) {
+        return bin;
+    }
+    crate::registry::alt_bins(bin)
+        .find(|b| on_path(b))
+        .unwrap_or(bin)
+}
+
+fn on_path(bin: &str) -> bool {
     let suffixes: &[&str] = if cfg!(windows) {
         &["", ".exe", ".cmd", ".bat"]
     } else {
@@ -1176,7 +1193,7 @@ pub fn ask_model_flag(provider: &str) -> Option<&'static str> {
 /// `ask_command` on `model`; empty leaves the agent on its own default.
 pub fn ask_command_on(provider: &str, configured_bin: &str, prompt: &str, model: &str) -> Command {
     let bin = if configured_bin.trim().is_empty() {
-        self::provider(provider).bin
+        default_bin(self::provider(provider).bin)
     } else {
         configured_bin.trim()
     };
@@ -1221,6 +1238,12 @@ pub fn ask_command_on(provider: &str, configured_bin: &str, prompt: &str, model:
             command.args(&model_args).args(["-p", prompt]);
         }
     }
+    crate::keys::apply(
+        &mut command,
+        provider,
+        &crate::keys::default_for(provider),
+        true,
+    );
     command
 }
 
@@ -1277,7 +1300,7 @@ impl Handle {
 /// The program to run for a turn: the agent's Settings binary, else its usual name.
 fn program<'a>(spec: &RunSpec<'a>) -> &'a str {
     if spec.opts.binary.trim().is_empty() {
-        self::provider(spec.provider).bin
+        default_bin(self::provider(spec.provider).bin)
     } else {
         spec.opts.binary.trim()
     }
@@ -1296,6 +1319,8 @@ pub fn turn_command(spec: &RunSpec) -> Command {
             }
         }
     }
+    // After the person's own lines: a key chosen for the run wins over them.
+    crate::keys::apply(&mut command, spec.provider, &spec.opts.key, spec.local);
     command
 }
 
@@ -1599,6 +1624,7 @@ fn pump<R: Read + Send + 'static>(reader: R, target: Target, is_err: bool, tx: S
 
 /// The event for a line read from a run's stdout or stderr (`is_err`).
 pub(crate) fn line_event(target: Target, is_err: bool, line: String) -> Event {
+    let line = crate::keys::scrub(line);
     match target {
         Target::Session(_) if is_err => Event::Err(line),
         Target::Session(_) => match crate::stream::parse_line(&line) {
@@ -1688,15 +1714,21 @@ mod tests {
         let mut slow = Command::new("sh");
         slow.args(["-c", "sleep 10"]);
         oneshot_within(slow, ".", Duration::from_millis(300), tx);
-        // The quick one answers first; the slow one is stopped at its limit.
+        // The quick one answers; the slow one is stopped at its limit. On a
+        // busy machine the limit can come before the echo, so order is not
+        // part of the promise.
         let got: Vec<Result<String, String>> = (0..2)
             .map(|_| match rx.recv_timeout(Duration::from_secs(5)).unwrap() {
                 Event::Output(result) => result,
                 _ => unreachable!(),
             })
             .collect();
-        assert_eq!(got[0], Ok("recap".into()));
-        assert!(got[1].as_ref().unwrap_err().contains("timed out"));
+        assert!(got.contains(&Ok("recap".into())), "{got:?}");
+        assert!(
+            got.iter()
+                .any(|r| r.as_ref().is_err_and(|e| e.contains("timed out"))),
+            "{got:?}"
+        );
     }
 
     #[test]
@@ -2102,6 +2134,18 @@ mod arg_tests {
                 assert!(!ok);
                 break;
             }
+        }
+    }
+
+    #[test]
+    fn cursor_runs_under_either_of_its_names() {
+        let alts: Vec<&str> = crate::registry::alt_bins("cursor-agent").collect();
+        assert_eq!(alts, ["agent"]);
+        assert_eq!(crate::registry::alt_bins("codex").count(), 0);
+        // With neither on PATH, the usual name stays.
+        if !on_path("cursor-agent") && !on_path("agent") {
+            assert_eq!(default_bin("cursor-agent"), "cursor-agent");
+            assert!(!installed("cursor-agent"));
         }
     }
 

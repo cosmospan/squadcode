@@ -91,7 +91,7 @@ fn card(title: &'static str) -> Div {
                 .px(px(14.))
                 .pt(px(11.))
                 .pb(px(8.))
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(c(ui::faint()))
@@ -111,7 +111,7 @@ fn field(input: &Entity<InputState>) -> Div {
         .bg(c(ui::raised()))
         .border_1()
         .border_color(c(ui::line_hi()))
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(12.5))
         .child(Input::new(input).appearance(false).bordered(false))
 }

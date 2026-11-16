@@ -46,6 +46,10 @@ pub enum Front {
         about: String,
         like: Member,
         start: bool,
+        /// The whole ask and its title, for the work it starts on, as on
+        /// [`Route`]; empty when Peek wrote none.
+        task: String,
+        title: String,
     },
 }
 
@@ -126,6 +130,8 @@ mod tests {
             why: String::new(),
             by: "engine".into(),
             site: String::new(),
+            task: String::new(),
+            title: String::new(),
         }
     }
 

@@ -532,6 +532,7 @@ impl Fin {
             gaze: (0, 0),
             offset: 0,
             from: None,
+            ink: None,
         }
     }
 
@@ -584,6 +585,10 @@ pub struct FinPose {
     /// [`MOOD_EASE`] seconds after that the face glides from the old look to
     /// the new one instead of snapping.
     pub from: Option<(State, u32)>,
+    /// The colour of the viewfinder's corner marks, taken from the theme's
+    /// text colour so the outline reads on light and dark grounds alike.
+    /// `None` keeps the soft white drawn on a dark ground.
+    pub ink: Option<crate::look::Rgb>,
 }
 
 /// Seconds Peek takes to ease from one mood's face into the next.
@@ -593,6 +598,12 @@ pub const MOOD_EASE: f64 = 0.4;
 pub const OFFSET_STEP: f64 = 0.37;
 
 impl FinPose {
+    /// With its outline drawn in `ink` (see [`FinPose::ink`]).
+    pub fn inked(mut self, ink: crate::look::Rgb) -> Self {
+        self.ink = Some(ink);
+        self
+    }
+
     /// Looking towards `gaze` (see [`FinPose::gaze`]).
     pub fn looking(mut self, gaze: (i8, i8)) -> Self {
         self.gaze = (gaze.0.clamp(-10, 10), gaze.1.clamp(-10, 10));
@@ -2156,6 +2167,7 @@ mod tests {
                     gaze: (0, 0),
                     offset: 0,
                     from: None,
+                    ink: None,
                 };
                 let px = r.draw(&pose, 1.3, Framing::Full);
                 assert!(coverage(px) > 150, "{m:?} {s:?} drew almost nothing");
@@ -2230,6 +2242,7 @@ mod tests {
                 gaze: (0, 0),
                 offset: 0,
                 from: None,
+                ink: None,
             };
             r.draw(&pose, 0.5, Framing::Bust).to_vec()
         };

@@ -162,6 +162,8 @@ pub fn seed() -> Store {
         "src/checkout/pay.ts:58 \u{b7} console.log left in from debugging".into(),
     ];
     j.clash_with = vec![(9, "pay.ts around line 22".into())];
+    // Guard's tour of it, written once Checker's checks came back.
+    j.guide = Some(guide_for_double_charges(t));
     j.plan = vec![
         ("Find where retries charge again".into(), 2),
         ("Send an idempotency key".into(), 2),
@@ -732,4 +734,52 @@ pub(super) fn issues() -> Vec<super::issues::Listed> {
         issue(27, "Gift card balance shows NaN after a refund", &["bug"]),
         issue(24, "Dark mode for the account pages", &["design"]),
     ]
+}
+
+/// Guard's review guide for the double-charge fix: a payment change, so
+/// Guard wrote it, and the key it found is one of the places to look closely.
+fn guide_for_double_charges(t: u64) -> super::brain::guide::Guide {
+    use super::brain::guide::{Guide, Stop};
+    let stop = |file: &str, lines: &str, title: &str, note: &str, look: &str| Stop {
+        file: file.into(),
+        lines: lines.into(),
+        title: title.into(),
+        note: note.into(),
+        look: look.into(),
+    };
+    Guide {
+        by: Some(Member::Guard),
+        intro: "When a payment timed out and the app tried again, the customer could be charged twice. Each charge now carries a key, so the payment service ignores a repeat.".into(),
+        stops: vec![
+            stop(
+                "src/checkout/pay.ts",
+                "14-30",
+                "Where the key is made",
+                "Before charging, it makes one key per order and keeps it with the order, so a retry reuses it instead of making a new one.",
+                "",
+            ),
+            stop(
+                "src/checkout/pay.ts",
+                "36-44",
+                "Sending the key with the charge",
+                "The key goes to the payment service with each charge.",
+                "Line 41 has what looks like a real Stripe secret key written into the code. It should come from settings, not sit in the file.",
+            ),
+            stop(
+                "src/checkout/pay.ts",
+                "52-60",
+                "Trying again after a timeout",
+                "A timed-out charge is tried up to twice more, with the same key.",
+                "A console.log on line 58 prints the payment request, which would put customer details in the logs.",
+            ),
+            stop(
+                "src/checkout/pay.test.ts",
+                "",
+                "The tests",
+                "Two new tests: one retries twice and checks there's a single charge, the other retries after the first charge went through and gets that charge back. Both pass.",
+                "",
+            ),
+        ],
+        at: t - 1_400,
+    }
 }

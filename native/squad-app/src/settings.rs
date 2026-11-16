@@ -16,6 +16,10 @@ pub struct AgentOptions {
     pub model_override: String,
     /// Extra arguments, shell-style quoting.
     pub extra_args: String,
+    /// How the agent signs in (see `keys`): empty as it already does, `"login"` its own
+    /// login with stray key variables removed, or `"<provider>:<id>"` a stored key.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub key: String,
     /// One `KEY=VALUE` per line.
     pub env: String,
     /// Claude: low…max. Codex: model_reasoning_effort.
@@ -68,6 +72,15 @@ pub struct AppSettings {
     pub diff_colors: String,
     pub animations: bool,
     pub notifications: bool,
+    /// Which things get a desktop notification, with `notifications` on: a job
+    /// finished or ready to review, a job that stopped with a problem, and a bot
+    /// waiting on the person (an OK or a question).
+    pub notify_done: bool,
+    pub notify_failed: bool,
+    pub notify_needs_you: bool,
+    /// Also notify while Squad Code is in front, for what isn't on screen; off,
+    /// only while it's behind other windows or in the menu bar.
+    pub notify_always: bool,
     /// Play a short chime when something needs the person (see `sounds`), and which
     /// kinds of thing.
     pub sounds: bool,
@@ -85,7 +98,8 @@ pub struct AppSettings {
     pub default_provider: String,
     /// Stop the computer from sleeping while an agent runs.
     pub keep_awake: bool,
-    /// Add a line crediting the agent to commits made from Squad Code.
+    /// Keep the lines coding agents add to credit themselves in commits; off,
+    /// Shipper takes them out before it pushes or merges (see `credits`).
     pub attribution: bool,
     /// How Peek's outline is drawn, as `weight.ink.eyes` (see
     /// `squad_holo::fin::Line`), such as `bold.pastel.dots`. Empty is the default.
@@ -159,6 +173,12 @@ pub struct AppSettings {
     pub v2_bg_dim: u8,
     /// How far the image shows through the page and the sidebar, 0 to 100.
     pub v2_bg_show: u8,
+    /// The Squad Code window's interface font, by id from `v2::fonts::SANS`:
+    /// "geist", "inter", "system"…
+    pub v2_font: String,
+    /// The font for code, the terminal and paths, by id from `v2::fonts::CODE`:
+    /// "jetbrains-mono", "fira-code"…
+    pub v2_code_font: String,
     /// Interface font: "bundled" (Squad Code's own, tuned for sharp small text) or "system".
     pub font: String,
     /// macOS font smoothing, which thickens text strokes. Off keeps text crisp and light.
@@ -264,6 +284,10 @@ pub struct AppSettings {
     /// empty is the published one.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub brain_model_url: String,
+    /// API keys the person added. Only what tells them apart is here; each secret is
+    /// in the keychain (see `keys`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub api_keys: Vec<crate::keys::ApiKey>,
     /// Settings this build doesn't know, such as ones a newer or older Squad Code
     /// wrote. Kept as they are, so saving never drops them.
     #[serde(flatten)]
@@ -278,6 +302,9 @@ pub struct BotEngine {
     pub agent: String,
     /// Its model; empty is the agent's own default.
     pub model: String,
+    /// How it signs in, as `AgentOptions::key`; empty follows the agent's setting.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub key: String,
 }
 
 impl Default for AppSettings {
@@ -296,9 +323,15 @@ impl Default for AppSettings {
             v2_bg_blur: 0,
             v2_bg_dim: 15,
             v2_bg_show: 80,
+            v2_font: "geist".into(),
+            v2_code_font: "jetbrains-mono".into(),
             diff_colors: "default".into(),
             animations: true,
             notifications: true,
+            notify_done: true,
+            notify_failed: true,
+            notify_needs_you: true,
+            notify_always: false,
             sounds: true,
             sound_needs_you: true,
             sound_failed: true,
@@ -375,6 +408,7 @@ impl Default for AppSettings {
             brain_model: String::new(),
             brain_url: String::new(),
             brain_model_url: String::new(),
+            api_keys: Vec::new(),
             extra: serde_json::Map::new(),
         }
     }
@@ -433,6 +467,14 @@ pub fn changed_elsewhere() -> Option<AppSettings> {
 }
 
 impl AppSettings {
+    /// The stored key a run choice names, when it still exists.
+    pub fn api_key(&self, choice: &str) -> Option<&crate::keys::ApiKey> {
+        let (provider, id) = crate::keys::parse_choice(choice)?;
+        self.api_keys
+            .iter()
+            .find(|k| k.id == id && k.provider == provider)
+    }
+
     pub fn agent(&self, id: &str) -> AgentOptions {
         self.agents.get(id).cloned().unwrap_or_default()
     }
@@ -441,6 +483,7 @@ impl AppSettings {
         let mut settings: Self = crate::store::read_json_or_backup(&settings_path());
         mark_known();
         settings.migrate();
+        crate::keys::sync(&settings);
         settings
     }
 
@@ -482,6 +525,7 @@ impl AppSettings {
     }
 
     pub fn save(&self) {
+        crate::keys::sync(self);
         crate::store::write_json(&settings_path(), self);
         mark_known();
     }
@@ -526,6 +570,7 @@ impl AppSettings {
         REMOVE_BUILD_OUTPUT.store(self.remove_build_output, Ordering::Relaxed);
         AUTOSCROLL.store(self.autoscroll, Ordering::Relaxed);
         KEEP_AWAKE.store(self.keep_awake, Ordering::Relaxed);
+        CREDIT_AGENTS.store(self.attribution, Ordering::Relaxed);
         crate::mcp::set_shared(&self.mcp_shared);
         crate::connections::set_all(&self.connections);
         COVE_TOOLS.store(self.cove_tools, Ordering::Relaxed);
@@ -605,6 +650,13 @@ static CREW_RUNNING: AtomicU32 = AtomicU32::new(3);
 static PLAN_HOLD: AtomicU32 = AtomicU32::new(0);
 
 static CATCH_UP: AtomicBool = AtomicBool::new(true);
+static CREDIT_AGENTS: AtomicBool = AtomicBool::new(false);
+
+/// Whether lines a coding agent adds to credit itself stay in the commits
+/// Shipper pushes and merges (Settings, General, Credit the agent in commits).
+pub fn credit_agents() -> bool {
+    CREDIT_AGENTS.load(Ordering::Relaxed)
+}
 
 pub fn cove_tools() -> bool {
     COVE_TOOLS.load(Ordering::Relaxed)

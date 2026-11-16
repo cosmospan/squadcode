@@ -1017,7 +1017,7 @@ impl Shell {
                     this.edit(cx, |e| {
                         e.engine = BotEngine {
                             agent: id.to_string(),
-                            model: String::new(),
+                            ..BotEngine::default()
                         }
                     })
                 })),
@@ -1032,10 +1032,8 @@ impl Shell {
                     cx.listener(move |this, _, _, cx| {
                         let value = value.clone();
                         this.edit(cx, |e| {
-                            e.engine = BotEngine {
-                                agent: id.to_string(),
-                                model: value,
-                            }
+                            e.engine.agent = id.to_string();
+                            e.engine.model = value;
                         })
                     }),
                 ),
@@ -1057,7 +1055,7 @@ impl Shell {
                 .bg(c(ui::well()))
                 .border_1()
                 .border_color(c(ui::line2()))
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(12.))
                 .child(
                     Textarea::new(&self.maker_instr)
@@ -1500,7 +1498,7 @@ fn skill_row(id: (&'static str, usize), on: bool, name: &str, line: &str) -> Sta
                 .min_w_0()
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(12.))
                         .text_color(c(if on { ui::ink() } else { ui::body() }))
                         .child(name.to_string()),
@@ -1559,7 +1557,7 @@ fn field(label: &'static str, input: &Entity<InputState>, w: f32) -> Div {
         .child(
             div()
                 .flex_none()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(9.5))
                 .text_color(c(ui::faint()))
                 .child(label),

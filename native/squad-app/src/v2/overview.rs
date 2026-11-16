@@ -117,7 +117,7 @@ fn card_head(title: &str, sub: Option<String>) -> Div {
         .gap(px(2.))
         .child(
             div()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(c(ui::faint()))
@@ -151,7 +151,7 @@ fn field(key: &str, value: Div) -> Div {
             div()
                 .w(px(70.))
                 .flex_none()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(12.))
                 .text_color(c(ui::faint()))
                 .child(key.to_lowercase()),
@@ -168,7 +168,7 @@ fn code(text: String) -> Div {
             .child("\u{2014}")
     } else {
         div()
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(12.5))
             .text_color(c(ui::ink()))
             .child(text)
@@ -256,7 +256,7 @@ fn input_box(input: &Entity<InputState>, w: Option<f32>, badge: Option<String>) 
         .bg(c(ui::raised()))
         .border_1()
         .border_color(c(ui::line()))
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(12.5))
         .child(
             div()
@@ -272,7 +272,7 @@ fn input_box(input: &Entity<InputState>, w: Option<f32>, badge: Option<String>) 
                     .py(px(1.))
                     .rounded(px(4.))
                     .bg(ui::ca(ui::accent_bar(), 0.16))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(10.))
                     .text_color(c(ui::accent_text()))
                     .child(b.to_uppercase()),
@@ -336,7 +336,7 @@ impl Shell {
                         div()
                             .min_w_0()
                             .truncate()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .text_color(c(ui::faint()))
                             .child(sub.join(" \u{b7} ")),
@@ -380,7 +380,7 @@ impl Shell {
                     .items_center()
                     .border_b_1()
                     .border_color(c(ui::line()))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::ink()))
@@ -549,7 +549,7 @@ impl Shell {
                         .py(px(9.))
                         .rounded(px(6.))
                         .bg(c(ui::well()))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(12.5))
                         .text_color(c(ui::ink()))
                         .child(cmd),
@@ -870,7 +870,7 @@ impl Shell {
                     div()
                         .w(px(40.))
                         .flex_none()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.5))
                         .text_color(c(ui::faint()))
                         .child(format!("#{n}")),
@@ -972,7 +972,7 @@ impl Shell {
                     )
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .text_color(c(ui::t_green()))
                             .child(tail),

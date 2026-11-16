@@ -203,7 +203,7 @@ impl Shell {
             .border_color(c(ui::line()))
             .child(
                 div()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(10.5))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::faint()))
@@ -355,7 +355,7 @@ impl Shell {
                 )
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.))
                         .text_color(c(ui::faint()))
                         .child(sub),
@@ -450,7 +450,7 @@ impl Shell {
                     )
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .text_color(c(ui::faint()))
                             .child(super::sidebar::short_path(path)),
@@ -470,7 +470,7 @@ impl Shell {
                 .border_color(c(ui::line()))
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::faint()))
@@ -494,7 +494,7 @@ impl Shell {
                 .when(!first, |d| d.border_l_1().border_color(c(ui::line())))
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(16.))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::ink()))
@@ -502,7 +502,7 @@ impl Shell {
                 )
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .text_color(c(ui::faint()))
                         .child(k.to_uppercase()),
@@ -565,7 +565,7 @@ impl Shell {
                     )
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.))
                             .text_color(c(ui::faint()))
                             .child(spec.join(" \u{b7} ")),

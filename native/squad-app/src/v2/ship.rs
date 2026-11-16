@@ -137,7 +137,11 @@ pub fn pr_body(job: &Job) -> String {
         job.changes.len(),
         job.bot.name()
     ));
-    body
+    if crate::settings::credit_agents() {
+        body
+    } else {
+        crate::credits::strip(&body)
+    }
 }
 
 /// Squashes, updates, pushes and opens the pull request on another thread,
@@ -176,6 +180,18 @@ fn ship(job: &Job, tx: &Sender<Step>) -> Result<(), Step> {
         } else {
             let _ = tx.send(Step::Did("Committed the change".into()));
         }
+    }
+    // Lines the agent added to credit itself go, unless the person keeps them.
+    let stripped = work::strip_credits(job);
+    if stripped > 0 {
+        let _ = tx.send(Step::Did(format!(
+            "Took the agent's credit lines out of {}",
+            if stripped == 1 {
+                "the commit".to_string()
+            } else {
+                format!("{stripped} commits")
+            }
+        )));
     }
     // 2. Up to date with the base on the remote.
     let remote = git::remote_name(dir);
@@ -269,15 +285,64 @@ pub fn watch(dir: String, url: String) -> Receiver<Option<PrStatus>> {
 pub fn merge_pr(dir: String, url: String) -> Receiver<Result<(), String>> {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
-        let r = run(
-            &dir,
-            "gh",
-            &["pr", "merge", &url, "--squash", "--delete-branch"],
-        )
-        .map(|_| ());
+        let mut args = vec!["pr", "merge", url.as_str(), "--squash", "--delete-branch"];
+        // GitHub writes the squash message from the commits, credit lines and
+        // all; when the person doesn't keep those, Shipper writes it instead.
+        let body = if crate::settings::credit_agents() {
+            None
+        } else {
+            run(&dir, "gh", &["pr", "view", &url, "--json", "commits"])
+                .ok()
+                .and_then(|json| squash_body(&json))
+        };
+        if let Some(body) = body.as_deref() {
+            args.extend(["--body", body]);
+        }
+        let r = run(&dir, "gh", &args).map(|_| ());
         let _ = tx.send(r);
     });
     rx
+}
+
+/// The squash message GitHub would write from a pull request's commits (`gh pr
+/// view --json commits`), without the lines that credit a coding agent. None
+/// when no commit has such a line, so GitHub's own message stands.
+pub fn squash_body(json: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let commits = v["commits"].as_array()?;
+    let parts: Vec<(String, String)> = commits
+        .iter()
+        .map(|c| {
+            (
+                c["messageHeadline"]
+                    .as_str()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+                c["messageBody"].as_str().unwrap_or("").trim().to_string(),
+            )
+        })
+        .collect();
+    if !parts.iter().any(|(_, b)| crate::credits::has(b)) {
+        return None;
+    }
+    let body = if let [(_, b)] = parts.as_slice() {
+        crate::credits::strip(b)
+    } else {
+        parts
+            .iter()
+            .map(|(h, b)| {
+                let b = crate::credits::strip(b);
+                if b.trim().is_empty() {
+                    format!("* {h}")
+                } else {
+                    format!("* {h}\n\n{}", b.trim())
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    Some(body.trim().to_string())
 }
 
 /// Closes the pull request without merging, on another thread.
@@ -354,6 +419,20 @@ pub(crate) fn review_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_squash_message_loses_agent_credits_only_when_there_are_some() {
+        let none =
+            r#"{"commits":[{"messageHeadline":"Fix login","messageBody":"Loops on Safari."}]}"#;
+        assert_eq!(squash_body(none), None);
+        let one = r#"{"commits":[{"messageHeadline":"Fix login","messageBody":"Loops on Safari.\n\nCo-Authored-By: Claude <noreply@anthropic.com>"}]}"#;
+        assert_eq!(squash_body(one).as_deref(), Some("Loops on Safari."));
+        let two = r#"{"commits":[{"messageHeadline":"Fix login","messageBody":"Co-authored-by: Codex <codex@openai.com>"},{"messageHeadline":"Address review feedback","messageBody":""}]}"#;
+        assert_eq!(
+            squash_body(two).as_deref(),
+            Some("* Fix login\n\n* Address review feedback")
+        );
+    }
 
     #[test]
     fn github_remotes_are_recognised() {
