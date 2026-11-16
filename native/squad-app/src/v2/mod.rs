@@ -52,6 +52,7 @@ mod review;
 mod rewind;
 mod rfb;
 mod rich;
+mod rules;
 mod runtime;
 mod screenview;
 pub mod server;

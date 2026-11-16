@@ -70,6 +70,26 @@ fn git(dir: &str, args: &[&str]) -> Result<String, String> {
     git_with(dir, args, &[], None)
 }
 
+/// The files in `dir` called `name`, in any folder, from `dir`: the ones git
+/// tracks and new ones it doesn't ignore. None when `dir` isn't in a repository.
+pub fn tracked_named(dir: &str, name: &str) -> Option<Vec<String>> {
+    let pattern = format!(":(glob)**/{name}");
+    git(
+        dir,
+        &[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            &pattern,
+        ],
+    )
+    .ok()
+    .map(|out| split_z(&out))
+}
+
 /// Whether `rev` names an object in the repository.
 fn exists(dir: &str, rev: &str) -> bool {
     git(

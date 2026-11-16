@@ -6,6 +6,7 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ### Added
 
+- Rules for parts of the code. Markdown files in `.squad/rules/` with a `files:` pattern at the top (`src/api/**`), and `AGENTS.md` files in subfolders, are given in full to Builder, the other bots that change files, and Guard, only when a job touches those paths: the paths the ask names, what the bot has changed, or the changes Guard reviews. Other rules are listed in one line each, so prompts stay short. Cursor's `globs:` and Kiro's `fileMatchPattern:` are read too, and the job's feed says which rules it followed.
 - Notifications for what's waiting on you. Squad Code now tells you when a bot needs your OK to use a tool or asks you something, as well as when a job finishes or stops, using the system's own notifications. Settings > Notifications has a switch for each kind, and one to notify even while Squad Code is in front but showing something else.
 - Mark a thread as unread from its menu, and mark a whole project as read from the project's menu or the palette. A thread you marked stays unread until something new arrives or you open it.
 - ⌥⌘A (or Next waiting in the palette) jumps to the next thing waiting on you, oldest first, across projects: a job asking for an OK or an answer, or a thread with a choice for you.

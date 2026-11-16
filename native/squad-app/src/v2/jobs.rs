@@ -136,7 +136,14 @@ fn shell_quote(s: &str) -> String {
 
 /// What the bot is told, around the person's words. `browser` is how it reaches
 /// the job's browser, when it can.
-fn prompt(job: &Job, text: &str, follow_up: bool, checks: &[String], browser: &str) -> String {
+fn prompt(
+    job: &Job,
+    text: &str,
+    follow_up: bool,
+    checks: &[String],
+    browser: &str,
+    scoped: &str,
+) -> String {
     if follow_up {
         return text.to_string();
     }
@@ -164,6 +171,11 @@ fn prompt(job: &Job, text: &str, follow_up: bool, checks: &[String], browser: &s
         part.push_str(&lessons);
         part.push_str("\n\n");
     }
+    // The project's rules for the files this job touches.
+    if !scoped.is_empty() {
+        part.push_str(scoped);
+        part.push_str("\n\n");
+    }
     if job.mode.writes() {
         let setup = super::project::load(job.dir())
             .map(|p| p.brief(job.id))
@@ -177,6 +189,42 @@ fn prompt(job: &Job, text: &str, follow_up: bool, checks: &[String], browser: &s
         "{}\n\n{part}{rules}{browser_rule}{crew} Do the whole job before you wrap up: a first step, like starting a branch or looking around, isn't the job, so carry on to what was asked for at the end (the change, the review, the list of findings). If you can't finish part of it, say plainly what's left and why. When you finish, wrap up like a friendly teammate, for someone who may not code: open with the result in one upbeat line (what works now, or what you found), then how to try it in a sentence or two. Put each link (like http://localhost:3000), command or file path on its own, written out in full, so Squad Code can turn it into a button. If you need something from the person, end with one clear question, with the choices spelled out. Keep it short and warm; a little personality is welcome, a wall of text is not.\n\nThe job: {text}",
         super::setup::brief(job.bot)
     )
+}
+
+/// Whether `job`'s bot is told the project's rules: Builder and every bot that
+/// changes files, and Guard (or any review).
+fn takes_rules(job: &Job) -> bool {
+    job.mode.writes() || job.mode == Mode::Review || job.bot.like() == Member::Guard
+}
+
+/// The files `job` touches, from the top of the project: the paths its ask
+/// names, what it changed so far, and the unmerged work it was pointed at
+/// (or, for a review of the folder itself, the changes waiting there).
+fn touched(job: &Job, text: &str) -> Vec<String> {
+    let mut out = super::rules::named_paths(text);
+    if job.mode.writes() {
+        out.extend(super::work::changed(job).into_iter().map(|c| c.path));
+    } else if job.reads.is_empty() {
+        out.extend(
+            crate::git::changed_paths(job.dir(), 500)
+                .0
+                .into_iter()
+                .map(|(_, p)| p),
+        );
+    }
+    if !job.reads.is_empty() {
+        let base = crate::git::default_branch(&job.folder.path);
+        for dir in &job.reads {
+            out.extend(
+                crate::git::changes_since(dir, &base)
+                    .into_iter()
+                    .map(|c| c.path),
+            );
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Starts `job` (or a follow-up in it) on the bot's engine.
@@ -311,7 +359,26 @@ pub fn start(
     } else {
         browser
     };
-    let sent = prompt(job, text, resume, &checks, &browser);
+    // The project's rules for the files this job touches, for a bot that
+    // changes files and for a review. A resumed run was told them already.
+    let rules = if !resume && takes_rules(job) {
+        let all = super::rules::load(&dir);
+        let touched = touched(job, text);
+        let used: Vec<&str> = super::rules::for_paths(&all, &touched)
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect();
+        if !used.is_empty() {
+            job.feed.push(Item::Note(format!(
+                "Following the project's rules: {}.",
+                used.join(", ")
+            )));
+        }
+        super::rules::brief(&all, &touched)
+    } else {
+        String::new()
+    };
+    let sent = prompt(job, text, resume, &checks, &browser, &rules);
     let spec = agent::RunSpec {
         provider: p.id,
         prompt: &sent,
