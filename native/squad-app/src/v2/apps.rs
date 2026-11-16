@@ -785,7 +785,7 @@ impl Shell {
                         .py(px(6.))
                         .rounded(px(6.))
                         .bg(c(ui::bg()))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.5))
                         .text_color(c(ui::ink()))
                         .child(cmd),
