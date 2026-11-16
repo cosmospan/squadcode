@@ -20,6 +20,7 @@ mod connections;
 mod copies;
 mod cove;
 mod coveserver;
+mod credits;
 mod crew;
 mod design;
 #[allow(dead_code)]
@@ -37,6 +38,7 @@ mod harness;
 mod health;
 mod icons;
 mod install;
+mod keys;
 #[cfg(target_os = "macos")]
 mod macfile;
 mod mcp;
@@ -269,13 +271,7 @@ fn set_dock_icon() {
 fn set_dock_icon() {}
 
 fn load_fonts(cx: &mut App) {
-    let fonts: Vec<std::borrow::Cow<'static, [u8]>> = vec![
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist-Regular.otf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist-Medium.otf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist-SemiBold.otf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist-Bold.otf")),
-    ];
-    let _ = cx.text_system().add_fonts(fonts);
+    v2::fonts::load(cx);
 }
 
 fn main() {

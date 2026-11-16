@@ -22,7 +22,7 @@ pub const AMBER: u32 = 0xF59E0B;
 pub const BLUE: u32 = 0x3B82F6;
 pub const VIOLET: u32 = 0x7B4DF5;
 pub const RED: u32 = 0xF2364F;
-pub const MONO: &str = "JetBrains Mono";
+pub use super::fonts::{mono, sans};
 
 /// One of the redesign's looks (Graphite and lime, Harbour, Orchid, Sumi, Moss,
 /// Petrol), light or dark: picked things go ink and the look's accent, not
@@ -472,7 +472,7 @@ pub fn badge(tone: Tone, label: impl Into<SharedString>) -> Div {
         .flex_none()
         .items_center()
         .gap(px(6.))
-        .font_family(MONO)
+        .font_family(mono())
         .text_size(px(10.5))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(c(text))
@@ -490,7 +490,7 @@ pub fn kbd(text: impl Into<SharedString>) -> Div {
         .rounded(px(3.))
         .bg(c(hover()))
         .text_size(px(10.5))
-        .font_family(MONO)
+        .font_family(mono())
         .text_color(c(muted()))
         .child(text.into())
 }
@@ -559,7 +559,7 @@ pub fn heading(label: &str, dot: Option<u32>, count: Option<usize>) -> Div {
         .flex()
         .items_center()
         .gap(px(7.))
-        .font_family(MONO)
+        .font_family(mono())
         .text_size(px(10.5))
         .font_weight(FontWeight::MEDIUM)
         .text_color(c(faint()))
@@ -572,7 +572,7 @@ pub fn heading(label: &str, dot: Option<u32>, count: Option<usize>) -> Div {
 /// The small uppercase mono caption the design puts over and under things.
 pub fn caption(text: impl Into<SharedString>) -> Div {
     div()
-        .font_family(MONO)
+        .font_family(mono())
         .text_size(px(9.5))
         .text_color(c(faint()))
         .child(text.into())
@@ -598,7 +598,7 @@ pub fn mono_status(color: u32, label: &str) -> Div {
         .flex()
         .items_center()
         .gap(px(6.))
-        .font_family(MONO)
+        .font_family(mono())
         .text_size(px(10.5))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(c(color))

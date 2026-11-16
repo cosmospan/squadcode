@@ -186,7 +186,7 @@ fn prompt(
         }
     }
     format!(
-        "{}\n\n{part}{rules}{browser_rule}{crew} When you finish, wrap up like a friendly teammate, for someone who may not code: open with the result in one upbeat line (what works now, or what you found), then how to try it in a sentence or two. Put each link (like http://localhost:3000), command or file path on its own, written out in full, so Squad Code can turn it into a button. If you need something from the person, end with one clear question, with the choices spelled out. Keep it short and warm; a little personality is welcome, a wall of text is not.\n\nThe job: {text}",
+        "{}\n\n{part}{rules}{browser_rule}{crew} Do the whole job before you wrap up: a first step, like starting a branch or looking around, isn't the job, so carry on to what was asked for at the end (the change, the review, the list of findings). If you can't finish part of it, say plainly what's left and why. When you finish, wrap up like a friendly teammate, for someone who may not code: open with the result in one upbeat line (what works now, or what you found), then how to try it in a sentence or two. Put each link (like http://localhost:3000), command or file path on its own, written out in full, so Squad Code can turn it into a button. If you need something from the person, end with one clear question, with the choices spelled out. Keep it short and warm; a little personality is welcome, a wall of text is not.\n\nThe job: {text}",
         super::setup::brief(job.bot)
     )
 }
@@ -237,6 +237,8 @@ pub fn start(
     let (i, model) = engine::for_job(st, job);
     let p = &agent::PROVIDERS[i];
     let mut opts = st.agent(p.id);
+    // The bot's own sign-in (a key it was given), when it suits this agent.
+    opts.key = engine::key_for(st, job.bot, p.id);
     // "Always allow" rules saved for this project from a job's card.
     if let Some(rules) = opts
         .project_tools
@@ -267,6 +269,13 @@ pub fn start(
         .collect();
     opts.disallowed_tools = add_rules(&opts.disallowed_tools, &setup.tool_rules());
     opts.disallowed_tools = add_rules(&opts.disallowed_tools, &belt_rules(st));
+    // A run holding a key doesn't print its environment, where the key is.
+    if crate::keys::uses_key(&opts.key) {
+        opts.disallowed_tools = add_rules(
+            &opts.disallowed_tools,
+            &["Bash(printenv:*)".to_string(), "Bash(env)".to_string()],
+        );
+    }
     // Unmerged threads it was pointed at live in other worktrees: it may read them.
     if !job.reads.is_empty() {
         opts.add_dirs = add_rules(&opts.add_dirs, &job.reads);

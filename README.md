@@ -252,7 +252,7 @@ An **engine** is one of the coding agents Squad Code drives and the model it run
 | Codex | `codex` | | Amp | `amp` |
 | Gemini | `gemini` | | Droid | `droid` |
 | OpenCode | `opencode` | | Qwen Code | `qwen` |
-| Cursor | `cursor-agent` | | Grok | `grok` |
+| Cursor | `cursor-agent` or `agent` | | Grok | `grok` |
 | Antigravity | `agy` | | Pi | `pi` |
 
 See [provider setup](docs/providers.md) for installing and signing in to each one.

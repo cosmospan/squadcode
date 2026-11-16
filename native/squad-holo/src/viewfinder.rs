@@ -25,12 +25,15 @@ use crate::fin::{FinPose, State, OFFSET_STEP};
 use crate::look::Rgb;
 use crate::Framing;
 
-/// The corner marks at rest.
+/// The corner marks at rest when the pose names no ink: a soft white, for a
+/// dark ground. In the app the corners take the theme's text colour instead
+/// (see [`FinPose::ink`]), so they read on light themes too.
 const LIGHT: Rgb = Rgb(0xE4E4E8);
-/// The corners while thinking: a step dimmer, so the orbiting light leads.
-const MIST: Rgb = Rgb(0xB9B9C0);
-/// The corners when stuck.
-const DULL: Rgb = Rgb(0x5A5A62);
+/// How lit the corners are while thinking: a step dimmer, so the orbiting
+/// light leads.
+const MIST: f64 = 0.8;
+/// How lit the corners are when stuck: faded towards the ground.
+const DULL: f64 = 0.4;
 /// Stuck eyes, the stuck corner and the lead's record light.
 const ALERT: Rgb = Rgb(0xFF6B6B);
 const REC: Rgb = Rgb(0xFF5C5C);
@@ -140,7 +143,7 @@ choices!(Light {
 /// What colour the corner marks are at rest.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Corners {
-    /// A soft white.
+    /// The theme's text colour: dark on light themes, light on dark ones.
     #[default]
     Light,
     /// The bot's own colour.
@@ -148,7 +151,7 @@ pub enum Corners {
 }
 
 choices!(Corners {
-    Light => "light", "Light";
+    Light => "light", "Theme";
     Tinted => "tinted", "Own colour";
 });
 
@@ -316,14 +319,14 @@ struct Rig {
 /// Seconds between idle blinks.
 const BLINK: f64 = 4.2;
 
-fn rig(m: Move, t: f64, col: Rgb) -> Rig {
+fn rig(m: Move, t: f64, col: Rgb, base: Rgb) -> Rig {
     let mut r = Rig {
         inset: 15.0,
         arm: 16.0,
         shut: 0.0,
         turn: 0.0,
         jitter: [0.0; 4],
-        ink: LIGHT,
+        ink: base,
         ink_a: 1.0,
         open: 1.0,
         glance: (0.0, 0.0),
@@ -359,7 +362,7 @@ fn rig(m: Move, t: f64, col: Rgb) -> Rig {
         }
         Move::Think => {
             r.inset = 17.0;
-            r.ink = MIST;
+            r.ink_a = MIST;
             // The lens swings a quarter turn in two beats, resting at 45°.
             r.turn = play(
                 t,
@@ -398,7 +401,7 @@ fn rig(m: Move, t: f64, col: Rgb) -> Rig {
         }
         Move::Stuck => {
             r.inset = 11.0;
-            r.ink = DULL;
+            r.ink_a = DULL;
             // Bursts of jitter, each corner its own way.
             let burst = bump(t, 2.2, 0.0, 0.5);
             for (i, j) in r.jitter.iter_mut().enumerate() {
@@ -666,9 +669,11 @@ fn draw_into(ctx: &mut RenderContext, pose: &FinPose, t: f64, framing: Framing, 
     let col = kit(pose.fin.tint, lead).0;
     let lens = style.lens_for(pose.fin.tint, lead);
     let (mv, look) = act(pose.state);
-    let mut r = rig(mv, t, col);
-    if style.corners == Corners::Tinted && matches!(r.ink, LIGHT | MIST) {
+    let base = pose.ink.unwrap_or(LIGHT);
+    let mut r = rig(mv, t, col, base);
+    if style.corners == Corners::Tinted && r.ink == base && mv != Move::Stuck {
         r.ink = col;
+        r.ink_a = 1.0;
     }
     let mut p = Pen {
         ctx,
@@ -687,14 +692,14 @@ fn draw_into(ctx: &mut RenderContext, pose: &FinPose, t: f64, framing: Framing, 
         for i in 0..4 {
             let a = r.inset - r.jitter[i];
             // Stuck: one corner gives the game away in red.
-            let ink = if mv == Move::Stuck && i == 1 {
-                ALERT
+            let (ink, ink_a) = if mv == Move::Stuck && i == 1 {
+                (ALERT, 1.0)
             } else {
-                r.ink
+                (r.ink, r.ink_a)
             };
             let turn = Affine::rotate(f64::to_radians(90.0 * i as f64));
             p.at(about(mid, turn), |p| {
-                corner(p, lens, a, arm, r.shut, w, ink, r.ink_a)
+                corner(p, lens, a, arm, r.shut, w, ink, ink_a)
             });
         }
     });
@@ -837,6 +842,31 @@ mod tests {
 
     fn pose(state: State) -> FinPose {
         pose_of(Tint::ORANGE, false, state)
+    }
+
+    #[test]
+    fn corners_take_the_theme_ink() {
+        // Opaque pixels averaged: dark ink on a light theme, light on a dark one.
+        let mean = |ink: Rgb| {
+            let mut r = ViewfinderRenderer::new(96);
+            let px = r.draw(&pose(State::Idle).inked(ink), 0.5, Framing::Bust);
+            let solid: Vec<_> = px.chunks(4).filter(|p| p[3] == 255).collect();
+            assert!(!solid.is_empty());
+            solid
+                .iter()
+                .map(|p| p[0] as usize + p[1] as usize + p[2] as usize)
+                .sum::<usize>()
+                / (3 * solid.len())
+        };
+        assert!(mean(Rgb(0x1A1A17)) < 90, "dark ink drew light corners");
+        assert!(mean(Rgb(0xEDEDE6)) > 160, "light ink drew dark corners");
+        // With no ink the corners stay the soft white they were.
+        let mut r = ViewfinderRenderer::new(64);
+        let plain = r.draw(&pose(State::Idle), 0.5, Framing::Bust).to_vec();
+        let white = r
+            .draw(&pose(State::Idle).inked(LIGHT), 0.5, Framing::Bust)
+            .to_vec();
+        assert_eq!(plain, white);
     }
 
     #[test]

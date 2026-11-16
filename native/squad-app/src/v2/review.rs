@@ -119,14 +119,14 @@ impl Shell {
                     .child(
                         div()
                             .flex_1()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .text_color(c(ui::body()))
                             .child(check.command.clone()),
                     )
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .text_color(c(ui::faint()))
                             .child(format!("{}s", check.secs)),
@@ -144,7 +144,7 @@ impl Shell {
                         .bg(c(ui::well()))
                         .border_1()
                         .border_color(c(ui::line()))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.5))
                         .line_height(px(17.))
                         .text_color(c(ui::body()))
@@ -264,7 +264,7 @@ impl Shell {
             .when(!job.checking && !when.is_empty() && n > 0, |d| {
                 d.child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.5))
                         .text_color(c(ui::faint()))
                         .child(when),
@@ -298,7 +298,7 @@ impl Shell {
         let mut tally = div()
             .flex()
             .gap(px(6.))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(11.5));
         let mut parts: Vec<(String, u32)> = Vec::new();
         if pass > 0 {
@@ -384,7 +384,7 @@ impl Shell {
                                 .child(
                                     div()
                                         .truncate()
-                                        .font_family(ui::MONO)
+                                        .font_family(ui::mono())
                                         .text_size(px(11.))
                                         .text_color(c(ui::faint()))
                                         .child(if check.infra.is_empty() || ignored {
@@ -396,7 +396,7 @@ impl Shell {
                         )
                         .child(
                             div()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(11.))
                                 .text_color(c(ui::faint()))
                                 .child(format!("{}s", check.secs)),
@@ -428,7 +428,7 @@ impl Shell {
                     .bg(c(ui::panel()))
                     .border_1()
                     .border_color(c(ui::line_hi()))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .line_height(px(19.))
                     .text_color(c(ui::body()));
@@ -519,7 +519,7 @@ impl Shell {
             .child(
                 div()
                     .when(source != "the project", |d| {
-                        d.font_family(ui::MONO).text_color(c(ui::ink()))
+                        d.font_family(ui::mono()).text_color(c(ui::ink()))
                     })
                     .child(format!("{source}.")),
             )
@@ -608,7 +608,7 @@ impl Shell {
             )
             .child(
                 div()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .flex()
                     .gap(px(6.))
@@ -662,7 +662,7 @@ impl Shell {
                     .child(
                         div()
                             .w(px(14.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.))
                             .text_color(c(match f.status.chars().next() {
                                 Some('A') => ui::t_green(),
@@ -676,14 +676,14 @@ impl Shell {
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .text_color(c(ui::body()))
                             .child(f.path.clone()),
                     )
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .flex()
                             .gap(px(6.))
@@ -854,7 +854,7 @@ impl Shell {
         let mono = |t: String, col: u32| {
             div()
                 .flex_none()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(12.))
                 .text_color(c(col))
                 .child(t)
@@ -883,7 +883,7 @@ impl Shell {
                     div()
                         .min_w_0()
                         .truncate()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(12.))
                         .child(format!("{} \u{2192} {}", job.branch, job.base)),
                 )
@@ -926,7 +926,7 @@ impl Shell {
                     d.child(
                         div()
                             .flex_none()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(10.5))
                             .text_color(c(ui::faint()))
                             .child(if held { "HELD" } else { "CLASH" }),
@@ -968,7 +968,7 @@ impl Shell {
                         div()
                             .min_w_0()
                             .truncate()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .text_color(c(ui::ink()))
                             .child(f.path.clone()),
@@ -978,7 +978,7 @@ impl Shell {
                             .flex()
                             .flex_none()
                             .gap(px(6.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .when(f.added > 0, |d| {
                                 d.child(
@@ -1050,7 +1050,7 @@ impl Shell {
                         .rounded(px(4.))
                         .bg(c(ui::pick_fill()))
                         .text_color(c(ui::pick_on()))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.))
                         .child(super::channel::you_letter()),
                 )
@@ -1074,7 +1074,7 @@ impl Shell {
                     .bg(c(ui::hover()))
                     .border_b_1()
                     .border_color(c(ui::line()))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .text_color(c(ui::ink()))
                     .child(div().min_w_0().truncate().child(path.clone()))
@@ -1279,7 +1279,7 @@ fn branch_chip(name: &str) -> Div {
         .bg(c(ui::raised()))
         .border_1()
         .border_color(c(ui::line()))
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(11.5))
         .text_color(c(ui::body()))
         .child(name.to_string())
@@ -1366,7 +1366,7 @@ impl Shell {
     ) -> Div {
         let mut body = div()
             .py(px(6.))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(12.))
             .line_height(px(20.));
         let lines = numbered(diff);
@@ -1476,7 +1476,7 @@ impl Shell {
                         .border_color(c(ui::accent_bar()))
                         .border_t_1()
                         .border_b_1()
-                        .font_family("Geist")
+                        .font_family(ui::sans())
                         .child(
                             div()
                                 .size(px(20.))
@@ -1512,7 +1512,7 @@ impl Shell {
                                         )
                                         .child(
                                             div()
-                                                .font_family(ui::MONO)
+                                                .font_family(ui::mono())
                                                 .text_size(px(11.))
                                                 .text_color(c(ui::faint()))
                                                 .child(format!("line {line}")),
@@ -1554,7 +1554,7 @@ impl Shell {
                         .bg(c(ui::panel()))
                         .border_1()
                         .border_color(ca(ui::AMBER, 0.5))
-                        .font_family("Geist")
+                        .font_family(ui::sans())
                         .text_size(px(12.5))
                         .child(
                             div().flex_1().min_w_0().child(

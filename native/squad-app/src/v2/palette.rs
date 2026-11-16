@@ -35,6 +35,10 @@ pub enum Act {
     ProjectTerminal,
     /// Show the getting-started card again.
     Guide,
+    /// Go to the next thing waiting on you.
+    NextWaiting,
+    /// Mark every thread in this project as read.
+    ReadAll,
 }
 
 /// The palette's sections, in the order they show.
@@ -317,6 +321,17 @@ impl Shell {
             );
         }
         all.push(
+            Entry::new(Group::GoTo, "Next thing waiting on you", Act::NextWaiting)
+                .icon(IconName::Bell)
+                .keys("\u{2325}\u{2318}A"),
+        );
+        if store.folder().is_some_and(|f| store.any_unread(&f.path)) {
+            all.push(
+                Entry::new(Group::Do, "Mark all threads as read", Act::ReadAll)
+                    .icon(IconName::MailOpen),
+            );
+        }
+        all.push(
             Entry::new(Group::Do, "New job, raced on several engines", Act::NewRace)
                 .icon(IconName::Zap),
         );
@@ -387,6 +402,17 @@ impl Shell {
                 }
             }
             Act::AddFolder => self.pick_folder(cx),
+            Act::NextWaiting => {
+                if !self.next_waiting(cx) {
+                    self.say("Nothing is waiting on you.");
+                }
+            }
+            Act::ReadAll => {
+                if let Some(path) = self.crew.store.folder().map(|f| f.path.clone()) {
+                    self.crew.store.mark_all_seen(&path);
+                    self.crew.store.save();
+                }
+            }
             Act::Thread(t) => {
                 self.crew.store.thread_now = t;
                 self.crew.store.save();
@@ -487,7 +513,7 @@ impl Shell {
                         .px(px(18.))
                         .pt(px(12.))
                         .pb(px(4.))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::faint()))
@@ -502,7 +528,7 @@ impl Shell {
                     .text_color(c(ui::body()))
                     .into_any_element(),
                 _ if e.group == Group::Threads => div()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(13.))
                     .text_color(c(ui::accent_text()))
                     .child("#")
@@ -594,7 +620,7 @@ impl Shell {
                         d.child(
                             div()
                                 .flex_none()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(11.))
                                 .text_color(c(ui::faint()))
                                 .child(e.hint),
@@ -688,7 +714,7 @@ impl Shell {
                             .border_t_1()
                             .border_color(c(ui::line()))
                             .bg(c(ui::bg()))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.))
                             .text_color(c(ui::faint()))
                             .child(foot_key("↑↓", "move"))

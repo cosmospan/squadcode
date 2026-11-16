@@ -26,7 +26,7 @@ Settings → Providers lists which are installed, their versions and paths, and 
 
 Squad Code checks each installed agent's sign-in in the background when it starts and when Settings or New session opens, and again after every turn:
 
-- An API key the CLI reads (such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `GEMINI_API_KEY`), set in your login shell or in the agent's Environment setting, counts as signed in.
+- An API key the CLI reads (such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `GEMINI_API_KEY`), set in your login shell or in the agent's Environment setting, counts as signed in, and so does a key from Engines › API keys chosen for the agent.
 - Codex and Cursor are asked directly (`codex login status`, `cursor-agent status`).
 - Claude Code: its login in the macOS keychain, or `~/.claude/.credentials.json` elsewhere.
 - Gemini CLI: `~/.gemini/oauth_creds.json` or `~/.gemini/.env`. OpenCode: `~/.local/share/opencode/auth.json`.
@@ -35,6 +35,27 @@ Squad Code checks each installed agent's sign-in in the background when it start
 - Copilot, Amp, Droid and Qwen Code are only checked for their API keys; without one Squad Code can't tell, and says nothing.
 
 A signed-out agent is marked in New session and in Settings → Providers, and a turn sent to it shows how to sign in before it starts. A turn that fails because of the sign-in shows the same hint.
+
+## API keys
+
+Instead of (or as well as) an agent's login, you can give Squad Code an API key. Add one in Engines › API keys:
+
+| Key from | Runs | Set in |
+| --- | --- | --- |
+| Anthropic | Claude Code, OpenCode | `ANTHROPIC_API_KEY` |
+| OpenAI | Codex, OpenCode | `OPENAI_API_KEY` and `CODEX_API_KEY` |
+| Google Gemini | Gemini CLI, Antigravity, OpenCode | `GEMINI_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` |
+| xAI | Grok, OpenCode | `XAI_API_KEY` |
+| Cursor | Cursor | `CURSOR_API_KEY` |
+| GitHub Copilot | Copilot | `COPILOT_GITHUB_TOKEN` |
+| Amp | Amp | `AMP_API_KEY` |
+| Factory | Droid | `FACTORY_API_KEY` |
+
+- **Where it's kept**: the secret goes to the macOS Keychain, the Windows Credential Manager, or the Secret Service on Linux (through `secret-tool`). Only its provider, your name for it and its last four characters are in `settings.json`. On Linux without a Secret Service it goes to a file only you can read, `~/.squadcode/keys/<id>`, and Engines says so.
+- **Checking**: Squad Code asks the provider for its list of models when you save the key and when you press Recheck (curl, with the key on stdin). Cursor, Amp and Factory have no way to check a key, so their first run tells.
+- **How an engine signs in**: open the engine in Engines. *As it signs in now* changes nothing. *Its own login* removes key variables inherited from your shell (and, for Claude Code, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`) from its runs, so only the login is billed. A key sets the variables above for each run, after your Environment lines, so the key wins.
+- **Per bot**: Engines › Bot brains shows the keys a bot's engine can take; pick one and that bot's jobs and questions run on it, whatever the engine's own setting.
+- **Exposure**: a key is set only in the process of the run that uses it, never on remote machines, and any line an agent prints is scrubbed of it before Squad Code shows or saves it. A command the agent runs can still read its environment, so use a key with a spending limit. Runs holding a key also deny Claude Code's `printenv` and bare `env`.
 
 ## Per-agent settings
 
