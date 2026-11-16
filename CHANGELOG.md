@@ -21,9 +21,9 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 ### Fixed
 
 - A short answer like "1" to a bot's question now goes to that bot. Peek could only hand work to a bot; when the answer wasn't a job, Peek answered in the bot's place (often promising research it never started). Peek now names the bot that should answer, and the reply goes into that bot's open job in the thread when it has one.
-- Peek sees what a bot last said on its job card. A bot's question at the end of a job ("Where should the toggle live? 1. Header 2. Settings") showed only on the card, so Peek read "2" with no question before it and asked what it meant. The thread's conversation now holds each finished job's last words, without its @lines, which are messages of their own.
+- Peek sees what a bot last said on its job card. A bot's question at the end of a job ("Where should the toggle live? 1. Header 2. Settings") showed only on the card, so Peek read "2" with no question before it and asked what it meant. The thread's conversation now holds each finished job's last words, without its `@lines`, which are messages of their own.
 - Work that fits a built-in bot you removed is offered to that bot, and Squad Code asks to add it first. Peek only knew the bots on the crew, so a security check with no Guard went to Checker or Fixer.
-- A bot's answer to another bot's question now goes back to the bot that asked, even without an @line, so a review reaches the bot that asked for it.
+- A bot's answer to another bot's question now goes back to the bot that asked, even without an `@line`, so a review reaches the bot that asked for it.
 - A bot's answer that mentions "rate limit" or "429", as most security reviews do, no longer marks its job Failed as out of plan and drops what it said.
 - The guard rails no longer stop harmless asks between bots, like "no reset token in production logs" or "purge the cache on save".
 - If a bot fails while another bot waits on its answer, Peek says so in the thread.
@@ -215,7 +215,7 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ### Fixed
 
-- Bots talking to each other: only the turn that just ended is passed on, so a stopped turn no longer repeats an old @mention; a bot's ask shows as the bot's own message, before the job it starts; a bot gets the whole message, not just its @line; and Guard can read the unmerged work it's asked to check.
+- Bots talking to each other: only the turn that just ended is passed on, so a stopped turn no longer repeats an old `@mention`; a bot's ask shows as the bot's own message, before the job it starts; a bot gets the whole message, not just its `@line`; and Guard can read the unmerged work it's asked to check.
 - Signing a server in with your Claude plan no longer rejects the code from the browser. Claude read the long code and the Enter after it as one paste and dropped the Enter, so it never checked the code. Squad now sends the Enter on its own, reads Claude's screen the way a terminal shows it (Claude redraws only what changed, which could garble the token or leave a stray "B" as its last words), and if Claude turns a code down it shows Claude's reason.
 - Connecting to a server no longer fails with "Host key verification failed" when your own `~/.ssh/known_hosts` has an old key for that address. Squad keeps its own list of trusted server keys, trusts a new server on first connect and shows its fingerprint, and if a known server's key changes it stops and offers "I rebuilt it: trust the new key and connect".
 - Connecting to a server that makes you change its password on the first login (as many VPS providers do) no longer stops with "Password change required but no TTY available". Squad asks for a new password, changes it on the server and carries on.
