@@ -732,6 +732,8 @@ impl Shell {
             why: String::new(),
             by: "dm".into(),
             site: String::new(),
+            task: String::new(),
+            title: String::new(),
         };
         self.hand_to(route, task, cx);
         self.crew

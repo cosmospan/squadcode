@@ -68,6 +68,9 @@ pub struct Run {
     read_at: Option<Instant>,
     /// Its output shown in full on the card.
     pub open: bool,
+    /// For a failed install or update: what went wrong and the fixes,
+    /// worked out once when it ended (None inside: nothing Squad knows).
+    trouble: Option<Option<super::fixes::Trouble>>,
 }
 
 /// Where a run stands, as its card says it.
@@ -385,6 +388,7 @@ impl Shell {
             probed: None,
             read_at: None,
             open: false,
+            trouble: None,
         });
         // A run with no message or job to show under opens its card beside
         // the sidebar's run pill, once; it tucks back in when you move on.
@@ -518,6 +522,7 @@ impl Shell {
                         probed: None,
                         read_at: None,
                         open,
+                        trouble: None,
                     },
                 ),
                 Err(why) => self.say(format!("Couldn't start it again: {why}")),
@@ -607,9 +612,260 @@ impl Shell {
         }
     }
 
+    /// Works out, once, why setup run `id` failed and what would fix it.
+    fn diagnose_run(&mut self, id: u64) {
+        let Some(r) = self.runs.iter_mut().find(|r| r.id == id) else {
+            return;
+        };
+        if !r.spec.setup || r.trouble.is_some() || r.state() != State::Failed {
+            return;
+        }
+        let out = unwrap_rows(&r.lines());
+        let cmd = r.spec.cmd.clone();
+        let mut fx = super::fixes::Context {
+            name: String::new(),
+            script: None,
+            brew: crate::install::locate("brew").is_some(),
+            mac: cfg!(target_os = "macos"),
+            stamp: chrono::Local::now().format("%Y%m%d-%H%M").to_string(),
+        };
+        if let Some(p) = engine_of(&cmd) {
+            fx.name = p.name.to_string();
+            fx.script = crate::registry::spec(p.id).and_then(|s| {
+                if cfg!(windows) {
+                    s.install.windows.clone()
+                } else {
+                    s.install.unix.clone()
+                }
+            });
+        }
+        r.trouble = Some(super::fixes::explain(&cmd, &out, &fx));
+    }
+
+    /// Does fix `k` on failed setup run `id`; one that changes something
+    /// asks first, on the card.
+    fn apply_fix(&mut self, id: u64, k: usize, cx: &mut Context<Self>) {
+        use super::fixes::Fix;
+        let Some(fix) = self
+            .runs
+            .iter()
+            .find(|r| r.id == id)
+            .and_then(|r| r.trouble.clone().flatten())
+            .and_then(|t| t.fixes.get(k).cloned())
+        else {
+            return;
+        };
+        match fix {
+            Fix::Run { cmd, confirm, .. } => {
+                if confirm.is_some() && self.run_confirm != Some((id, k)) {
+                    self.run_confirm = Some((id, k));
+                    cx.notify();
+                    return;
+                }
+                self.run_confirm = None;
+                self.dismiss_run(id, cx);
+                self.run_setup(&cmd, cx);
+            }
+            Fix::Keep { path, .. } => {
+                let cmd = self
+                    .runs
+                    .iter()
+                    .find(|r| r.id == id)
+                    .map(|r| r.spec.cmd.clone())
+                    .unwrap_or_default();
+                let p = engine_of(&cmd);
+                // Point the engine at it when Squad wouldn't find it itself.
+                if let Some(p) = p {
+                    let st = cx.global::<crate::settings::AppSettings>();
+                    let found = crate::install::locate(p.bin)
+                        .is_some_and(|f| f == std::path::Path::new(&path));
+                    if !found && st.agent(p.id).binary.trim().is_empty() {
+                        let pid = p.id.to_string();
+                        let at = path.clone();
+                        cx.update_global::<crate::settings::AppSettings, _>(|st, _| {
+                            let mut a = st.agent(&pid);
+                            a.binary = at;
+                            st.agents.insert(pid.clone(), a);
+                            st.save();
+                        });
+                    }
+                }
+                self.run_confirm = None;
+                self.dismiss_run(id, cx);
+                self.say(format!(
+                    "Keeping the {} at {path}. Squad uses that one.",
+                    p.map(|p| p.name).unwrap_or("program")
+                ));
+            }
+            Fix::Copy { cmd, .. } => {
+                cx.write_to_clipboard(ClipboardItem::new_string(cmd));
+                self.say("Copied. Paste it in your terminal.");
+            }
+            Fix::Open { url, .. } => cx.open_url(&url),
+        }
+        cx.notify();
+    }
+
+    /// The part of a failed install's card that says what went wrong and
+    /// offers the fixes.
+    fn fix_panel(&mut self, id: u64, cx: &mut Context<Self>) -> Option<Div> {
+        use super::fixes::Fix;
+        self.diagnose_run(id);
+        let t = self
+            .runs
+            .iter()
+            .find(|r| r.id == id)?
+            .trouble
+            .clone()
+            .flatten()?;
+        let version = t.version.lock().ok().and_then(|v| v.clone());
+        let asking = self.run_confirm.filter(|(r, _)| *r == id).map(|(_, k)| k);
+        let mut found = div().flex().flex_col().gap(px(2.));
+        for line in t
+            .found
+            .iter()
+            .cloned()
+            .chain(version.map(|v| format!("It says: {v}")))
+        {
+            found = found.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(c(ui::muted()))
+                    .child(line),
+            );
+        }
+        let mut buttons = div().flex().flex_wrap().items_center().gap(px(6.));
+        let mut sure = None;
+        for (k, f) in t.fixes.iter().enumerate() {
+            if asking == Some(k) {
+                if let Fix::Run {
+                    label,
+                    confirm,
+                    cmd,
+                } = f
+                {
+                    sure = Some((
+                        k,
+                        label.clone(),
+                        confirm.clone().unwrap_or_default(),
+                        cmd.clone(),
+                    ));
+                }
+            }
+            let key = ("run-fix", id as usize * 100 + k);
+            let b = if k == 0 {
+                ui::solid(key, f.label().to_string())
+            } else {
+                ui::ghost(key, f.label().to_string())
+            };
+            buttons = buttons.child(
+                b.h(px(30.))
+                    .on_click(cx.listener(move |this, _, _, cx| this.apply_fix(id, k, cx))),
+            );
+        }
+        let confirm = sure.map(|(k, label, text, cmd)| {
+            div()
+                .p(px(10.))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(ca(ui::AMBER, 0.45))
+                .bg(ca(ui::AMBER, 0.08))
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .text_color(c(ui::body()))
+                        .child(text),
+                )
+                .child(
+                    div()
+                        .px(px(8.))
+                        .py(px(6.))
+                        .rounded(px(6.))
+                        .bg(c(ui::bg()))
+                        .font_family(ui::mono())
+                        .text_size(px(11.5))
+                        .text_color(c(ui::ink()))
+                        .child(cmd),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(6.))
+                        .child(
+                            ui::solid(("run-fix-go", id as usize), label)
+                                .h(px(30.))
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.apply_fix(id, k, cx)),
+                                ),
+                        )
+                        .child(
+                            ui::ghost(("run-fix-no", id as usize), "Cancel")
+                                .h(px(30.))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.run_confirm = None;
+                                    cx.notify();
+                                })),
+                        ),
+                )
+        });
+        Some(
+            div()
+                .p(px(12.))
+                .rounded(px(8.))
+                .bg(ca(ui::t_red(), 0.06))
+                .border_1()
+                .border_color(ca(ui::t_red(), 0.25))
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap(px(8.))
+                        .child(
+                            Icon::new(IconName::TriangleAlert)
+                                .size(px(15.))
+                                .text_color(c(ui::t_red()))
+                                .mt(px(1.)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.))
+                                .child(
+                                    div()
+                                        .text_size(px(13.5))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(c(ui::ink()))
+                                        .child(t.title.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(12.5))
+                                        .text_color(c(ui::body()))
+                                        .child(t.why.clone()),
+                                )
+                                .child(found),
+                        ),
+                )
+                .when(!t.fixes.is_empty() && confirm.is_none(), |d| {
+                    d.child(buttons)
+                })
+                .children(confirm),
+        )
+    }
+
     /// One run's card: where it stands, its address, its output, and what
     /// you can do with it.
     pub(super) fn run_card(&mut self, id: u64, cx: &mut Context<Self>) -> Option<Div> {
+        let fix = self.fix_panel(id, cx);
         let r = self.runs.iter().find(|r| r.id == id)?;
         let state = r.state();
         let (word, tone) = state.words(r.spec.keeps);
@@ -662,7 +918,7 @@ impl Shell {
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.))
                     .text_color(c(ui::ink()))
                     .child(cmd),
@@ -732,7 +988,7 @@ impl Shell {
                         })
                         .bg(c(ui::panel()))
                         .text_size(px(12.5))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_color(c(if up { ui::t_blue() } else { ui::muted() }))
                         .cursor_pointer()
                         .hover(|s| s.bg(c(ui::hover())))
@@ -782,7 +1038,7 @@ impl Shell {
             .bg(c(term.bg))
             .border_1()
             .border_color(c(if typing { ui::t_blue() } else { term.line }))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(11.5))
             .line_height(px(17.))
             .text_color(c(term.fg))
@@ -893,6 +1149,7 @@ impl Shell {
                 .flex_col()
                 .gap(px(10.))
                 .child(head)
+                .children(fix)
                 .children(address)
                 .child(well)
                 .when(typing, |d| {
@@ -1030,7 +1287,7 @@ impl Shell {
                                 Some(cmd) => div()
                                     .min_w_0()
                                     .truncate()
-                                    .font_family(ui::MONO)
+                                    .font_family(ui::mono())
                                     .text_size(px(11.))
                                     .text_color(c(ui::faint()))
                                     .child(cmd),
@@ -1112,7 +1369,7 @@ impl Shell {
                             div()
                                 .min_w_0()
                                 .truncate()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(12.))
                                 .text_color(c(ui::ink()))
                                 .child(cmd),
@@ -1121,7 +1378,7 @@ impl Shell {
                             d.child(
                                 div()
                                     .flex_none()
-                                    .font_family(ui::MONO)
+                                    .font_family(ui::mono())
                                     .text_size(px(11.5))
                                     .text_color(c(ui::faint()))
                                     .child(format!(":{p}")),
@@ -1230,6 +1487,39 @@ impl Shell {
     }
 }
 
+/// The screen's rows with the ones the shell wrapped joined back up, so a
+/// long path reads whole.
+fn unwrap_rows(rows: &[String]) -> String {
+    let mut out = String::new();
+    for r in rows {
+        out.push_str(r);
+        if r.chars().count() < COLS as usize {
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// The engine an install or update command is for, by its npm package or
+/// its vendor's script.
+fn engine_of(cmd: &str) -> Option<&'static crate::agent::Provider> {
+    crate::agent::PROVIDERS.iter().find(|p| {
+        crate::registry::spec(p.id).is_some_and(|s| {
+            let npm = s.install.npm.as_ref().or(s.package.as_ref());
+            npm.is_some_and(|n| {
+                cmd.split_whitespace().any(|w| {
+                    w == n
+                        || w.strip_prefix(n.as_str())
+                            .is_some_and(|v| v.starts_with('@'))
+                })
+            }) || [&s.install.unix, &s.install.windows]
+                .into_iter()
+                .flatten()
+                .any(|sc| cmd.contains(sc.as_str()))
+        })
+    })
+}
+
 fn spawn(id: u64, spec: &RunSpec) -> Result<pty::Shell, String> {
     // Ids for these shells sit well away from the terminals' own.
     pty::Shell::spawn_program(
@@ -1277,6 +1567,7 @@ mod tests {
             probed: None,
             read_at: None,
             open: false,
+            trouble: None,
         };
         let mut url = None;
         for _ in 0..100 {

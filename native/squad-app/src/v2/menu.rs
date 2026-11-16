@@ -886,7 +886,7 @@ impl Shell {
                         let n = div()
                             .flex_none()
                             .ml(px(10.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(10.5))
                             .font_weight(FontWeight::NORMAL);
                         d.child(match kind {
@@ -1235,7 +1235,7 @@ impl Shell {
                         .bg(c(ui::raised()))
                         .border_1()
                         .border_color(c(ui::line()))
-                        .font_family("Geist Mono")
+                        .font_family(ui::mono())
                         .text_size(px(12.))
                         .text_color(c(ui::ink()))
                         .child(path.clone()),

@@ -62,6 +62,15 @@ impl Figure {
         self
     }
 
+    /// With the viewfinder's outline drawn in `ink`, the theme's text colour,
+    /// so it stays visible on light themes. Other figures are unchanged.
+    pub fn inked(self, ink: Rgb) -> Self {
+        match self {
+            Figure::Viewfinder(p) => Figure::Viewfinder(p.inked(ink)),
+            other => other,
+        }
+    }
+
     /// Easing in from the face of `state`, which it left at `since` seconds
     /// on the drawing clock. Only Peek eases; bubbles snap.
     pub fn easing_from(self, state: fin::State, since: f64) -> Self {

@@ -349,7 +349,7 @@ impl Shell {
             .border_t_1()
             .border_color(c(ui::line()))
             .bg(c(ui::ground()))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(11.5))
             .text_color(c(ui::muted()))
             .child(machine)
@@ -442,7 +442,7 @@ impl Shell {
             )
             .child(
                 div()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .text_color(c(ui::faint()))
                     .child(updated),
@@ -461,7 +461,7 @@ impl Shell {
                 .when(!first, |el| el.border_l_1().border_color(c(ui::line2())))
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(16.))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::ink()))
@@ -518,7 +518,7 @@ impl Shell {
                 .when(several, |el| {
                     el.child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.))
                             .text_color(c(ui::faint()))
                             .child(format!(
@@ -560,14 +560,14 @@ impl Shell {
                                         .child(
                                             div()
                                                 .flex_1()
-                                                .font_family(ui::MONO)
+                                                .font_family(ui::mono())
                                                 .text_size(px(11.))
                                                 .text_color(c(ui::faint()))
                                                 .child(resets),
                                         )
                                         .child(
                                             div()
-                                                .font_family(ui::MONO)
+                                                .font_family(ui::mono())
                                                 .text_size(px(12.))
                                                 .font_weight(FontWeight::MEDIUM)
                                                 .text_color(c(if w.used >= 80. {
@@ -721,7 +721,7 @@ impl Shell {
 fn mono_cap(text: &'static str) -> Div {
     div()
         .flex_none()
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(10.5))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(c(ui::faint()))
