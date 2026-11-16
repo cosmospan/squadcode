@@ -22,6 +22,7 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ### Fixed
 
+- Tagging a bot in a thread's composer no longer squashes "Brings in" and the bot picker against the box's edge. Both now sit inset in their own strip at the top of the box, ruled off from the text, like a reply.
 - **Credit the agent in commits** now does what it says. It was saved but never read, so commits kept whatever lines the agents added to credit themselves, like `Co-Authored-By: Claude` and "Generated with Claude Code". With it off (the default), Shipper takes those lines out of a job's commits before it pushes or merges, out of the pull request it writes, and out of the squash message when it merges on GitHub. Each commit keeps its changes, author and dates, and co-author lines naming people stay. Turn it on to keep the agents' lines.
 - The mascot's corner marks follow the theme: dark on light themes and light on dark ones, so Peek and the crew no longer fade into a light background. They take the theme's text colour, so every look, old and new, gets it. Settings > Mascot previews the bot on the theme's own ground, and the corner choice there is now called Theme or Own colour.
 - Cursor counts as installed and runs when its CLI is on PATH only as `agent`, the shorter name Cursor's CLI also goes by, not just as `cursor-agent`.
