@@ -55,6 +55,10 @@ pub struct Store {
     /// When you last looked at each thread, by "folder#id", for unread dots.
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub seen_at: HashMap<String, u64>,
+    /// Threads you marked as unread, by "folder#id": they show as unread until
+    /// you next go into them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub marked_unread: Vec<String>,
     /// Reactions you put on messages in threads, by "job-<id>" or "talk-<id>".
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub reactions: HashMap<String, Vec<String>>,
@@ -1451,10 +1455,57 @@ impl Store {
         self.seen_at.insert(format!("{folder}#{thread}"), now());
     }
 
+    /// Shows a thread as unread until you next go into it.
+    pub fn mark_unread(&mut self, folder: &str, thread: u64) {
+        let key = format!("{folder}#{thread}");
+        if !self.marked_unread.contains(&key) {
+            self.marked_unread.push(key);
+        }
+    }
+
+    /// Takes away the unread mark you put on a thread, by "folder#id".
+    pub fn clear_marked(&mut self, key: &str) -> bool {
+        let before = self.marked_unread.len();
+        self.marked_unread.retain(|k| k != key);
+        self.marked_unread.len() != before
+    }
+
+    /// Every thread in a project is read now, #general included.
+    pub fn mark_all_seen(&mut self, folder: &str) {
+        let ids: Vec<u64> = std::iter::once(0)
+            .chain(
+                self.threads
+                    .iter()
+                    .filter(|t| t.folder == folder)
+                    .map(|t| t.id),
+            )
+            .collect();
+        for id in ids {
+            self.mark_seen(folder, id);
+            self.clear_marked(&format!("{folder}#{id}"));
+        }
+    }
+
+    /// Whether any thread in a project is unread.
+    pub fn any_unread(&self, folder: &str) -> bool {
+        std::iter::once(0)
+            .chain(
+                self.threads
+                    .iter()
+                    .filter(|t| t.folder == folder && !t.archived)
+                    .map(|t| t.id),
+            )
+            .any(|id| self.unread(folder, id))
+    }
+
     /// Something happened in a thread since you last looked: an answer came
-    /// back, or a job started or ended there.
+    /// back, or a job started or ended there. Or you marked it as unread.
     pub fn unread(&self, folder: &str, thread: u64) -> bool {
-        let Some(&seen) = self.seen_at.get(&format!("{folder}#{thread}")) else {
+        let key = format!("{folder}#{thread}");
+        if self.marked_unread.contains(&key) {
+            return true;
+        }
+        let Some(&seen) = self.seen_at.get(&key) else {
             return false;
         };
         let jobs = self

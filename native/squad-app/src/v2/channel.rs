@@ -1067,6 +1067,8 @@ impl Shell {
         let seen_key = format!("{}#{thread}", folder.path);
         if self.new_mark.0 != seen_key {
             let before = self.crew.store.seen_at.get(&seen_key).copied().unwrap_or(0);
+            // Going into a thread you marked as unread reads it.
+            self.crew.store.clear_marked(&seen_key);
             self.new_mark = (seen_key, before, store::now());
         }
         let since = self.new_mark.1;

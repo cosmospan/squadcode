@@ -946,6 +946,71 @@ impl Shell {
         true
     }
 
+    /// Goes to the next thing waiting on you, oldest first, in any project: a
+    /// bot asking for your OK, a question back with choices in a thread you
+    /// haven't read, or a job to review or that stopped. From one of them, the
+    /// one after it. False when nothing waits.
+    pub(super) fn next_waiting(&mut self, cx: &mut Context<Self>) -> bool {
+        #[derive(Clone, PartialEq)]
+        enum To {
+            Job(u64),
+            Thread(String, u64),
+        }
+        let store = &self.crew.store;
+        let mut waiting: Vec<(u64, To)> = Vec::new();
+        for j in &store.jobs {
+            if let Some(asked) = self.crew.asks_for(j).iter().map(|r| r.asked).min() {
+                waiting.push((asked, To::Job(j.id)));
+            } else if j.needs_you() {
+                waiting.push((j.ended.unwrap_or(j.started), To::Job(j.id)));
+            }
+        }
+        for t in &store.talks {
+            let thread = store.thread_for(&t.folder, t.thread);
+            if t.answer.is_some() && !t.choices.is_empty() && store.unread(&t.folder, thread) {
+                let to = To::Thread(t.folder.clone(), thread);
+                if !waiting.iter().any(|(_, w)| *w == to) {
+                    waiting.push((t.at, to));
+                }
+            }
+        }
+        if waiting.is_empty() {
+            return false;
+        }
+        waiting.sort_by_key(|(at, _)| *at);
+        let here = match self.place {
+            Place::Live(id) => Some(To::Job(id)),
+            Place::Today => store
+                .folder()
+                .map(|f| To::Thread(f.path.clone(), store.thread_here())),
+            _ => None,
+        };
+        let at = here.and_then(|h| waiting.iter().position(|(_, w)| *w == h));
+        let next = match at {
+            Some(i) if waiting.len() > 1 => waiting[(i + 1) % waiting.len()].1.clone(),
+            Some(_) => return false,
+            None => waiting[0].1.clone(),
+        };
+        match next {
+            To::Job(id) => self.go(Place::Live(id), cx),
+            To::Thread(folder, thread) => {
+                if let Some(i) = self
+                    .crew
+                    .store
+                    .folders
+                    .iter()
+                    .position(|f| f.path == folder)
+                {
+                    self.crew.store.current = i;
+                }
+                self.crew.store.thread_now = thread;
+                self.crew.store.save();
+                self.go(Place::Today, cx);
+            }
+        }
+        true
+    }
+
     pub(super) fn thread_rows_in(&self, path: &str) -> Vec<(u64, String, usize, usize)> {
         let store = &self.crew.store;
         let mut ids: Vec<(u64, String)> = vec![(0, "general".into())];
