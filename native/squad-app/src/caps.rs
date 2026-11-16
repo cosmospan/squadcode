@@ -76,7 +76,7 @@ pub fn binary(provider: &'static crate::agent::Provider) -> String {
         .and_then(|map| map.as_ref()?.get(provider.id).cloned())
         .filter(|b| !b.trim().is_empty())
         .map(|b| b.trim().to_string())
-        .unwrap_or_else(|| provider.bin.to_string())
+        .unwrap_or_else(|| crate::agent::default_bin(provider.bin).to_string())
 }
 
 fn store() -> &'static RwLock<HashMap<String, std::sync::Arc<Caps>>> {

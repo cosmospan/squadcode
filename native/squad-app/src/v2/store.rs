@@ -309,8 +309,13 @@ pub struct Job {
     pub thread: u64,
     pub bot: Member,
     pub mode: Mode,
-    /// What the person typed: the bot's instructions.
+    /// What the person typed: the bot's instructions, unless Peek wrote the
+    /// whole ask in `task`.
     pub title: String,
+    /// The whole ask as Peek read it from the conversation, when the
+    /// person's words alone (a reply like "all together") don't say it;
+    /// empty when they do.
+    pub task: String,
     /// Peek's line on why it brought this bot in; empty when you picked the bot.
     pub handoff: String,
     /// Peek's short title for the card, when Smart Peek is on; empty before.
@@ -472,6 +477,16 @@ pub struct Changed {
 impl Job {
     /// The name lists and notices show: Peek's short title when there is one,
     /// else the first line of what the person typed.
+    /// What the bot is to do: Peek's whole ask with the person's words, or
+    /// just their words.
+    pub fn ask(&self) -> String {
+        if self.task.trim().is_empty() {
+            self.title.clone()
+        } else {
+            ask_with_words(&self.task, &self.title)
+        }
+    }
+
     pub fn label(&self) -> &str {
         if self.short.is_empty() {
             split_reply(&self.title)
@@ -495,6 +510,7 @@ impl Default for Job {
             bot: Member::Builder,
             mode: Mode::Build,
             title: String::new(),
+            task: String::new(),
             short: String::new(),
             recap: String::new(),
             fix_turns: 0,
@@ -1257,6 +1273,11 @@ impl Store {
         for j in self.jobs_in(folder, thread) {
             if j.asked_by().is_none() {
                 said.push((j.started, "you".into(), j.title.clone()));
+            }
+            // Peek's word as it brought the bot in, which shows as its own
+            // message: what it took the ask to be.
+            if !j.handoff.is_empty() {
+                said.push((j.started, "peek".into(), j.handoff.clone()));
             }
             // What the bot said last, which shows on its card rather than as a
             // message: often a question, which a reply like "1" answers.
@@ -2456,5 +2477,37 @@ mod reply_tests {
             ..Default::default()
         };
         assert_eq!(job.label(), "make it so");
+    }
+}
+
+/// Peek's whole ask, then the person's own words when they add anything to
+/// it, so the bot reads both and the person's wording still counts.
+pub fn ask_with_words(task: &str, said: &str) -> String {
+    let (task, said) = (task.trim(), said.trim());
+    if said.is_empty() || task.to_lowercase().contains(&said.to_lowercase()) {
+        return task.to_string();
+    }
+    format!("{task}\n\nThe person's own words, last: \u{201c}{said}\u{201d}")
+}
+
+#[cfg(test)]
+mod ask_tests {
+    use super::*;
+
+    #[test]
+    fn the_whole_ask_keeps_the_persons_words() {
+        let a = ask_with_words("Review the API for improvements", "all togther");
+        assert!(a.starts_with("Review the API"), "{a}");
+        assert!(a.contains("\u{201c}all togther\u{201d}"), "{a}");
+        // Words the ask already holds aren't said twice.
+        assert_eq!(
+            ask_with_words("Fix the login", "fix the login"),
+            "Fix the login"
+        );
+        let job = Job {
+            title: "all togther".into(),
+            ..Default::default()
+        };
+        assert_eq!(job.ask(), "all togther");
     }
 }

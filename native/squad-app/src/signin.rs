@@ -81,7 +81,12 @@ fn check(provider: &str, settings: &crate::settings::AppSettings) -> Option<bool
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(std::path::PathBuf::from)?;
     let p = crate::agent::PROVIDERS.iter().find(|p| p.id == provider)?;
-    let env = settings.agent(p.id).env;
+    let opts = settings.agent(p.id);
+    // A key chosen for the agent in Squad Code signs it in.
+    if settings.api_key(&opts.key).is_some() {
+        return Some(true);
+    }
+    let env = opts.env;
     let has_var = |key: &str| {
         std::env::var(key).is_ok_and(|v| !v.is_empty())
             || crate::shellenv::login_var(key).is_some_and(|v| !v.is_empty())
@@ -307,6 +312,27 @@ mod tests {
                 &out(true, "✗ Not logged in")
             ),
             Some(false)
+        );
+        assert_eq!(
+            judge(
+                "cursor",
+                "cursor-agent",
+                &dir,
+                &unset,
+                &out(true, "\n ✓ Logged in as dev@example.com\n")
+            ),
+            Some(true)
+        );
+        // An API key signs Cursor in without asking the CLI.
+        assert_eq!(
+            judge(
+                "cursor",
+                "cursor-agent",
+                &dir,
+                &|k: &str| k == "CURSOR_API_KEY",
+                &|_: &str, _: &[&str]| None
+            ),
+            Some(true)
         );
         assert_eq!(
             judge("codex", "codex", &dir, &unset, &|_: &str, _: &[&str]| None),

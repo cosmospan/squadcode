@@ -18,6 +18,14 @@ pub struct Route {
     /// Where the person asked for it to run: "server", "here", or "" for
     /// their usual choice.
     pub site: String,
+    /// The whole ask as Peek understood it from the conversation, written
+    /// out so the bot can do it alone: a reply like "all together" only
+    /// makes sense with the question it answers. Empty when Peek didn't
+    /// write one; the person's own words go to the bot then.
+    pub task: String,
+    /// A short title for the job's card and branch, from the whole ask and
+    /// spelled right; empty to keep the person's words.
+    pub title: String,
 }
 
 impl Route {
@@ -131,6 +139,8 @@ mod tests {
             why: String::new(),
             by: "engine".into(),
             site: String::new(),
+            task: String::new(),
+            title: String::new(),
         };
         assert!(r.handoff().contains("bug"), "{}", r.handoff());
     }
