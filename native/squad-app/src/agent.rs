@@ -1714,15 +1714,21 @@ mod tests {
         let mut slow = Command::new("sh");
         slow.args(["-c", "sleep 10"]);
         oneshot_within(slow, ".", Duration::from_millis(300), tx);
-        // The quick one answers first; the slow one is stopped at its limit.
+        // The quick one answers; the slow one is stopped at its limit. On a
+        // busy machine the limit can come before the echo, so order is not
+        // part of the promise.
         let got: Vec<Result<String, String>> = (0..2)
             .map(|_| match rx.recv_timeout(Duration::from_secs(5)).unwrap() {
                 Event::Output(result) => result,
                 _ => unreachable!(),
             })
             .collect();
-        assert_eq!(got[0], Ok("recap".into()));
-        assert!(got[1].as_ref().unwrap_err().contains("timed out"));
+        assert!(got.contains(&Ok("recap".into())), "{got:?}");
+        assert!(
+            got.iter()
+                .any(|r| r.as_ref().is_err_and(|e| e.contains("timed out"))),
+            "{got:?}"
+        );
     }
 
     #[test]

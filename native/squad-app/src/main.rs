@@ -20,6 +20,7 @@ mod connections;
 mod copies;
 mod cove;
 mod coveserver;
+mod credits;
 mod crew;
 mod design;
 #[allow(dead_code)]

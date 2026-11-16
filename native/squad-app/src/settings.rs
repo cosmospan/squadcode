@@ -89,7 +89,8 @@ pub struct AppSettings {
     pub default_provider: String,
     /// Stop the computer from sleeping while an agent runs.
     pub keep_awake: bool,
-    /// Add a line crediting the agent to commits made from Squad Code.
+    /// Keep the lines coding agents add to credit themselves in commits; off,
+    /// Shipper takes them out before it pushes or merges (see `credits`).
     pub attribution: bool,
     /// How Peek's outline is drawn, as `weight.ink.eyes` (see
     /// `squad_holo::fin::Line`), such as `bold.pastel.dots`. Empty is the default.
@@ -556,6 +557,7 @@ impl AppSettings {
         REMOVE_BUILD_OUTPUT.store(self.remove_build_output, Ordering::Relaxed);
         AUTOSCROLL.store(self.autoscroll, Ordering::Relaxed);
         KEEP_AWAKE.store(self.keep_awake, Ordering::Relaxed);
+        CREDIT_AGENTS.store(self.attribution, Ordering::Relaxed);
         crate::mcp::set_shared(&self.mcp_shared);
         crate::connections::set_all(&self.connections);
         COVE_TOOLS.store(self.cove_tools, Ordering::Relaxed);
@@ -635,6 +637,13 @@ static CREW_RUNNING: AtomicU32 = AtomicU32::new(3);
 static PLAN_HOLD: AtomicU32 = AtomicU32::new(0);
 
 static CATCH_UP: AtomicBool = AtomicBool::new(true);
+static CREDIT_AGENTS: AtomicBool = AtomicBool::new(false);
+
+/// Whether lines a coding agent adds to credit itself stay in the commits
+/// Shipper pushes and merges (Settings, General, Credit the agent in commits).
+pub fn credit_agents() -> bool {
+    CREDIT_AGENTS.load(Ordering::Relaxed)
+}
 
 pub fn cove_tools() -> bool {
     COVE_TOOLS.load(Ordering::Relaxed)
