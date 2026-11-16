@@ -669,7 +669,7 @@ impl Shell {
             .flex_col()
             .when(fill, |d| d.flex_1().min_h_0())
             .overflow_hidden()
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(FONT))
             .line_height(px(LINE))
             .text_color(c(term_fg()))
@@ -720,7 +720,7 @@ impl Shell {
                     .min_w_0()
                     .pl(px(12.))
                     .truncate()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .text_color(c(term_dim()))
                     .child(place),
@@ -879,7 +879,7 @@ impl Shell {
                     .child(div().size(px(6.)).flex_none().rounded_full().bg(c(dot)))
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .whitespace_nowrap()
                             .child(label.clone()),
@@ -950,7 +950,7 @@ impl Shell {
         let mut bar = div().flex().items_center().gap(px(6.)).child(
             div()
                 .mr(px(2.))
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(11.))
                 .text_color(c(ui::faint()))
                 .child("Quick"),
@@ -968,7 +968,7 @@ impl Shell {
                     .bg(c(ui::raised()))
                     .border_1()
                     .border_color(c(ui::line_hi()))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::body()))
@@ -985,7 +985,7 @@ impl Shell {
         }
         bar = bar.child(div().flex_1()).child(
             div()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(11.))
                 .text_color(c(ui::faint()))
                 .child(format!(

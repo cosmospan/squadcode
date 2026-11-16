@@ -23,6 +23,7 @@ mod emblem;
 mod engine;
 mod engines;
 mod filetab;
+pub(crate) mod fonts;
 mod gitcards;
 mod goal;
 mod history;
@@ -4340,7 +4341,7 @@ impl Render for Shell {
                 this.go(to, cx);
                 cx.stop_propagation();
             }))
-            .font_family("Geist")
+            .font_family(ui::sans())
             .text_color(c(ui::ink()))
             // The ground the sidebar sits on; the page floats over it as a canvas.
             // When the desktop shows through, the sidebar and the page each paint
@@ -4525,6 +4526,9 @@ fn apply_theme(window: &mut Window, cx: &mut App) {
         k.popover = ui::c(ui::float());
         k.popover_foreground = ui::c(ui::ink());
         k.caret = ui::c(ui::ink());
+        // The kit's text boxes and code editors draw in the picked fonts too.
+        k.font_family = ui::sans().into();
+        k.mono_font_family = ui::mono().into();
         k.ring = ui::ca(ui::VIOLET, 0.6);
         k.selection = ui::ca(ui::VIOLET, if t.light { 0.22 } else { 0.38 });
     });
@@ -4536,6 +4540,7 @@ pub fn open_window(cx: &mut App) {
     // The look first: the window opens with the background it needs.
     let st = cx.global::<crate::settings::AppSettings>();
     theme::set_pref(&st.v2_theme, system_dark(cx.window_appearance()));
+    fonts::set(&st.v2_font, &st.v2_code_font);
     issues::set_close_on_merge(st.v2_close_issues);
     work::set_belt(st.v2_belt_secrets, st.v2_belt_checks);
     theme::set_see_through(st.v2_see_through, st.v2_clear);

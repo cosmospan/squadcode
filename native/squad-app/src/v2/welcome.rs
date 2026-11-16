@@ -67,7 +67,7 @@ impl Shell {
                     .items_center()
                     .rounded(px(4.))
                     .cursor_pointer()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .font_weight(FontWeight::MEDIUM)
                     .map(|d| {
@@ -198,7 +198,7 @@ impl Shell {
             .children(lead)
             .child(
                 div()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .text_color(c(ui::faint()))
                     .child(note.into()),
@@ -411,7 +411,7 @@ impl Shell {
                 div()
                     .px(px(22.))
                     .pb(px(6.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(10.5))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::faint()))
@@ -447,7 +447,7 @@ impl Shell {
                             .ml_auto()
                             .min_w_0()
                             .truncate()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .text_color(c(ui::faint()))
                             .child(short),
@@ -649,7 +649,7 @@ impl Shell {
                                     .when(best, |d| {
                                         d.child(
                                             div()
-                                                .font_family(ui::MONO)
+                                                .font_family(ui::mono())
                                                 .text_size(px(10.5))
                                                 .text_color(c(ui::accent_text()))
                                                 .child("RECOMMENDED"),
@@ -722,7 +722,7 @@ impl Shell {
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(c(ui::faint()))
@@ -792,7 +792,7 @@ fn engine_row(mark: &'static str, color: u32, name: &'static str, meta: String) 
                 .rounded(px(8.))
                 .bg(ca(color, 0.16))
                 .text_color(c(color))
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(13.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(mark),
@@ -808,7 +808,7 @@ fn engine_row(mark: &'static str, color: u32, name: &'static str, meta: String) 
                 )
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.))
                         .text_color(c(ui::faint()))
                         .child(meta),

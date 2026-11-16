@@ -505,7 +505,7 @@ impl Shell {
                 div()
                     .px(px(12.))
                     .py(px(10.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(12.5))
                     .line_height(px(19.))
                     .text_color(c(ui::ink()))

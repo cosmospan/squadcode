@@ -318,7 +318,7 @@ impl Shell {
                         .flex()
                         .items_center()
                         .gap(px(6.))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.))
                         .text_color(c(ui::faint()))
                         .child(face)
