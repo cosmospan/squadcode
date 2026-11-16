@@ -52,7 +52,7 @@ fn field(label: &'static str, input: &Entity<InputState>) -> Div {
         .child(
             div()
                 .flex_none()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(9.5))
                 .text_color(c(ui::faint()))
                 .child(label),
