@@ -822,7 +822,7 @@ pub(super) fn byline(name: &str, at: u64) -> Div {
         )
         .child(
             div()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(11.))
                 .text_color(c(ui::faint()))
                 .child(clock(at)),
@@ -948,7 +948,7 @@ pub(super) fn mine(text: String, at: u64, lead: bool) -> Div {
         .rounded(px(6.))
         .bg(c(ui::pick_fill()))
         .text_color(c(ui::pick_on()))
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(13.))
         .font_weight(FontWeight::MEDIUM)
         .child(you_letter())
@@ -1612,7 +1612,7 @@ impl Shell {
             .child(
                 div()
                     .flex_none()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(15.))
                     .text_color(c(ui::accent_text()))
                     .child("#"),
@@ -2238,7 +2238,7 @@ impl Shell {
             .child(
                 div()
                     .flex_none()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .text_color(c(ui::faint()))
                     .child(format!("#{id}")),
@@ -2296,7 +2296,7 @@ impl Shell {
                 d.child(
                     div()
                         .flex_none()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(12.))
                         .text_color(c(ui::t_green()))
                         .child(format!("+{added}")),
@@ -2304,7 +2304,7 @@ impl Shell {
                 .child(
                     div()
                         .flex_none()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(12.))
                         .text_color(c(ui::t_red()))
                         .child(format!("\u{2212}{removed}")),
@@ -2317,7 +2317,7 @@ impl Shell {
                         .flex()
                         .items_center()
                         .gap(px(6.))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(c(ui::t_red()))
@@ -2463,7 +2463,7 @@ impl Shell {
             .child(
                 div()
                     .flex_none()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c(ui::accent_text()))
@@ -2482,7 +2482,7 @@ impl Shell {
                 d.child(
                     div()
                         .flex_none()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.5))
                         .text_color(c(ui::faint()))
                         .child(format!("{n} {}", if n == 1 { "step" } else { "steps" })),
@@ -2495,7 +2495,7 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(10.5))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c(col))
@@ -2565,7 +2565,7 @@ impl Shell {
                             d.child(div().size(px(6.)).rounded(px(1.)).bg(c(ui::t_blue())))
                         })
                         .when(review, |d| {
-                            d.font_family(ui::MONO)
+                            d.font_family(ui::mono())
                                 .text_size(px(10.))
                                 .font_weight(FontWeight::BOLD)
                                 .child("!")
@@ -2602,7 +2602,7 @@ impl Shell {
                         div()
                             .w(px(16.))
                             .flex_none()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(c(if started {
@@ -2630,7 +2630,7 @@ impl Shell {
                     .children(tag.map(|(t, col)| {
                         div()
                             .flex_none()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(10.5))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(c(col))
@@ -3075,7 +3075,7 @@ impl Shell {
                     .hover(|s| s.border_color(c(ui::line_hi())))
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.5))
                             .text_color(c(if i == 0 { ui::t_violet() } else { ui::ink() }))
                             .child(cmd),
@@ -3669,7 +3669,7 @@ impl Shell {
                                     .flex()
                                     .items_center()
                                     .text_size(px(12.))
-                                    .font_family(ui::MONO)
+                                    .font_family(ui::mono())
                                     .text_color(c(ui::body()))
                                     .child(clock),
                             )
@@ -3707,7 +3707,7 @@ impl Shell {
                 .child("Or type")
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.))
                         .text_color(c(ui::muted()))
                         .child("/later 2am"),
@@ -3715,7 +3715,7 @@ impl Shell {
                 .child("or")
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.))
                         .text_color(c(ui::muted()))
                         .child("/later in 3h"),
@@ -3999,7 +3999,7 @@ impl Render for BotCard {
             .bg(c(ui::raised()))
             .border_1()
             .border_color(c(ui::line()))
-            .font_family("Geist")
+            .font_family(ui::sans())
             .shadow(vec![BoxShadow {
                 color: hsla(0., 0., 0., 0.12),
                 offset: point(px(0.), px(6.)),

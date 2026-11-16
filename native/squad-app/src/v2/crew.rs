@@ -85,7 +85,7 @@ impl Shell {
                     .pb(px(6.))
                     .flex()
                     .justify_between()
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(10.5))
                     .text_color(c(ui::faint()))
                     .child("ON THE CREW")
@@ -253,7 +253,7 @@ impl Shell {
                     .child(
                         div()
                             .mt(px(3.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.))
                             .text_color(c(ui::faint()))
                             .child(format!("{engine} \u{b7} {asks}")),
@@ -483,7 +483,7 @@ impl Shell {
                     .child(
                         div()
                             .flex_1()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(13.))
                             .text_color(c(ui::ink()))
                             .child(engine),
@@ -572,7 +572,7 @@ impl Shell {
                         .flex_col()
                         .child(
                             div()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(12.5))
                                 .text_color(c(ui::ink()))
                                 .child(s.name.clone()),
@@ -666,7 +666,7 @@ impl Shell {
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.))
                         .child(
                             div()
@@ -737,7 +737,7 @@ impl Shell {
                                             .py(px(1.))
                                             .rounded(px(3.))
                                             .bg(c(ui::hover()))
-                                            .font_family(ui::MONO)
+                                            .font_family(ui::mono())
                                             .text_size(px(10.5))
                                             .text_color(c(ui::body()))
                                             .child(tag),
@@ -881,7 +881,7 @@ impl Shell {
                     .child(
                         div()
                             .flex_none()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(11.5))
                             .text_color(c(ui::faint()))
                             .child(format!("{} #{id}", j.folder.name)),
@@ -921,7 +921,7 @@ impl Shell {
                 div()
                     .px(px(10.))
                     .pb(px(6.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(10.5))
                     .text_color(c(ui::faint()))
                     .child("NOT ON THE CREW"),
@@ -998,7 +998,7 @@ fn section(title: &str, inner: impl IntoElement) -> Div {
         .gap(px(10.))
         .child(
             div()
-                .font_family(ui::MONO)
+                .font_family(ui::mono())
                 .text_size(px(10.5))
                 .text_color(c(ui::faint()))
                 .child(title.to_uppercase()),

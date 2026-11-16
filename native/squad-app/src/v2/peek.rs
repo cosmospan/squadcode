@@ -135,7 +135,7 @@ fn timeline(rows: Vec<Step>) -> Div {
 fn label(text: &str) -> Div {
     div()
         .mb(px(6.))
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(10.5))
         .font_weight(FontWeight::MEDIUM)
         .text_color(c(ui::faint()))
@@ -159,7 +159,7 @@ fn kv(left: Div, right: Div) -> Div {
 
 fn mono_ink(text: String) -> Div {
     div()
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(12.))
         .text_color(c(ui::ink()))
         .child(text)
@@ -167,7 +167,7 @@ fn mono_ink(text: String) -> Div {
 
 fn mono_tone(text: String, tone: u32) -> Div {
     div()
-        .font_family(ui::MONO)
+        .font_family(ui::mono())
         .text_size(px(12.))
         .text_color(c(tone))
         .child(text)
@@ -248,7 +248,7 @@ impl Shell {
                     .truncate()
                     .flex()
                     .gap(px(6.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .text_color(c(ui::faint()))
                     .child(
@@ -297,7 +297,7 @@ impl Shell {
                 )
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(11.5))
                         .text_color(c(ui::body()))
                         .child(by),
@@ -325,7 +325,7 @@ impl Shell {
             .items_center()
             .gap_x(px(14.))
             .gap_y(px(4.))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(12.))
             .text_color(c(ui::body()))
             .child(ui::mono_status(col, &state_word).flex_none())
@@ -493,7 +493,7 @@ impl Shell {
                     .when(!first, |d| d.border_l_1().border_color(c(ui::line())))
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(15.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(c(ui::ink()))
@@ -501,7 +501,7 @@ impl Shell {
                     )
                     .child(
                         div()
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(10.5))
                             .text_color(c(ui::faint()))
                             .child(k.to_uppercase()),
@@ -673,7 +673,7 @@ impl Shell {
                 .child(label("Checks on GitHub"))
                 .child(
                     div()
-                        .font_family(ui::MONO)
+                        .font_family(ui::mono())
                         .text_size(px(10.5))
                         .text_color(c(ui::faint()))
                         .child(match (done, total) {
@@ -803,7 +803,7 @@ impl Shell {
             .gap(px(8.))
             .border_b_1()
             .border_color(c(ui::line()))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(12.))
             .child(
                 Icon::new(IconName::File)
@@ -868,7 +868,7 @@ impl Shell {
             .justify_between()
             .border_t_1()
             .border_color(c(ui::line()))
-            .font_family(ui::MONO)
+            .font_family(ui::mono())
             .text_size(px(11.))
             .text_color(c(ui::faint()))
             .child(if total > SHOWN {
@@ -901,7 +901,7 @@ impl Shell {
                         .child(label("Changes"))
                         .child(
                             div()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(10.5))
                                 .text_color(c(ui::faint()))
                                 .child(format!(
@@ -943,7 +943,7 @@ impl Shell {
                             .flex()
                             .flex_none()
                             .gap(px(6.))
-                            .font_family(ui::MONO)
+                            .font_family(ui::mono())
                             .text_size(px(12.))
                             .when(f.added > 0, |d| {
                                 d.child(
@@ -1006,7 +1006,7 @@ impl Shell {
                                 .id(SharedString::from(format!("belt-at-{place}")))
                                 .min_w_0()
                                 .truncate()
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(12.))
                                 .text_color(c(ui::ink()))
                                 .child(short)
@@ -1159,7 +1159,7 @@ impl Shell {
                         d.child(
                             div()
                                 .mr(px(4.))
-                                .font_family(ui::MONO)
+                                .font_family(ui::mono())
                                 .text_size(px(10.5))
                                 .text_color(c(ui::faint()))
                                 .child(if held { "HELD" } else { "CLASH" }),
@@ -1345,7 +1345,7 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .font_family(ui::MONO)
+                    .font_family(ui::mono())
                     .text_size(px(11.5))
                     .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
