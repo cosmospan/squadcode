@@ -174,7 +174,7 @@ fn prompt(job: &Job, text: &str, follow_up: bool, checks: &[String], browser: &s
         }
     }
     format!(
-        "{}\n\n{part}{rules}{browser_rule}{crew} When you finish, wrap up like a friendly teammate, for someone who may not code: open with the result in one upbeat line (what works now, or what you found), then how to try it in a sentence or two. Put each link (like http://localhost:3000), command or file path on its own, written out in full, so Squad Code can turn it into a button. If you need something from the person, end with one clear question, with the choices spelled out. Keep it short and warm; a little personality is welcome, a wall of text is not.\n\nThe job: {text}",
+        "{}\n\n{part}{rules}{browser_rule}{crew} Do the whole job before you wrap up: a first step, like starting a branch or looking around, isn't the job, so carry on to what was asked for at the end (the change, the review, the list of findings). If you can't finish part of it, say plainly what's left and why. When you finish, wrap up like a friendly teammate, for someone who may not code: open with the result in one upbeat line (what works now, or what you found), then how to try it in a sentence or two. Put each link (like http://localhost:3000), command or file path on its own, written out in full, so Squad Code can turn it into a button. If you need something from the person, end with one clear question, with the choices spelled out. Keep it short and warm; a little personality is welcome, a wall of text is not.\n\nThe job: {text}",
         super::setup::brief(job.bot)
     )
 }

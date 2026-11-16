@@ -2033,31 +2033,24 @@ impl Shell {
         // so nothing shows as yours.
         let asked_by_you = j.asked_by().is_none();
         let you_lead = asked_by_you && !self.continues("You", j.started);
+        // Peek's hand-off is a message of its own: it says which bot it
+        // brings in and for what, so the bot never turns up unannounced.
         let handoff = (!j.handoff.is_empty()).then(|| {
-            self.streak = Some(("Peek".into(), j.started));
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .py(px(4.))
-                .pl(px(46.))
-                .child(self.avatar(Member::Fin, 18.))
-                .child(
-                    div()
-                        .text_size(px(12.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c(ui::ink()))
-                        .child("Peek"),
+            let lead = !self.continues("Peek", j.started);
+            let head = lead.then(|| {
+                (
+                    self.avatar(Member::Fin, 30.).into_any_element(),
+                    byline("Peek", j.started),
                 )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(12.5))
-                        .text_color(c(ui::muted()))
-                        .child(j.handoff.clone()),
-                )
+            });
+            line(
+                head,
+                div()
+                    .text_size(px(14.))
+                    .line_height(px(21.))
+                    .text_color(c(ui::body()))
+                    .child(j.handoff.clone()),
+            )
         });
         // A race is Peek's to run: it speaks for the tries.
         let speaker = if racing { Member::Fin } else { j.bot };

@@ -143,6 +143,9 @@ pub struct Runtime {
     /// Where the next job runs, when the person said so for it ("server" or
     /// "here"); their usual choice otherwise.
     pub where_next: Option<String>,
+    /// The whole ask for the next job, as Peek read it from the
+    /// conversation, when it wrote one.
+    pub ask_next: Option<NextAsk>,
     /// Messages between bots in each thread (folder, thread) since the
     /// person last spoke there.
     pub relay_hops: HashMap<(String, u64), u32>,
@@ -250,6 +253,7 @@ impl Runtime {
             sites: brain::Sites::default(),
             link: None,
             where_next: None,
+            ask_next: None,
             relay_hops: HashMap::new(),
             relays: Vec::new(),
             steering: Vec::new(),
@@ -355,9 +359,16 @@ impl Runtime {
         text: String,
         folder: store::Folder,
     ) -> Opened {
+        // Peek's reading of the whole ask goes with a job that waits, as
+        // its words; one that starts now keeps it apart (see make_job).
+        let ask = self.ask_next.take();
+        let waits = |text: &str| match &ask {
+            Some(a) => a.words(text),
+            None => text.to_string(),
+        };
         // An issue it names is read first; the job starts once it's in.
         if let Some(r) = super::issues::find(&text) {
-            let id = self.queue_later(bot, mode, text, folder, 0);
+            let id = self.queue_later(bot, mode, waits(&text), folder, 0);
             self.keep_handoff(id);
             self.say(format!(
                 "Reading {} first. {} starts as soon as it's read.",
@@ -367,8 +378,8 @@ impl Runtime {
             return Opened::Waiting(id);
         }
         if let Some(busy) = self.store.busy(bot) {
-            let (title, id) = (busy.title.clone(), busy.id);
-            let later = self.queue_later(bot, mode, text, folder, 0);
+            let (title, id) = (busy.label().to_string(), busy.id);
+            let later = self.queue_later(bot, mode, waits(&text), folder, 0);
             self.keep_handoff(later);
             self.say(format!(
                 "{} is still on \u{201c}{title}\u{201d}. This one is next in line and starts as soon as it's free.",
@@ -376,6 +387,7 @@ impl Runtime {
             ));
             return Opened::Busy(id);
         }
+        self.ask_next = ask;
         let job = self.make_job(st, bot, mode, &text, folder, None, None);
         let id = job.id;
         self.store.jobs.push(job);
@@ -486,6 +498,21 @@ impl Runtime {
             ..Default::default()
         };
         job.thread = self.store.thread_here();
+        // Peek's reading of the whole ask: the card and branch take its
+        // title, and the bot gets all of it, with the person's own words.
+        // The person's words stay the job's title, as what they said.
+        let ask = self.ask_next.take();
+        let said = text;
+        let whole;
+        let text: &str = match &ask {
+            Some(a) => {
+                job.short = a.title.clone();
+                job.task = a.task.clone();
+                whole = a.words(said);
+                &whole
+            }
+            None => said,
+        };
         if let Some((goal, context)) = part {
             if let Some(g) = self.store.goals.iter().find(|g| g.id == goal) {
                 job.thread = g.thread;
@@ -499,7 +526,7 @@ impl Runtime {
         if job.goal == 0 {
             let talk = self
                 .store
-                .thread_context(&job.folder.path, job.thread, text);
+                .thread_context(&job.folder.path, job.thread, said);
             if !talk.is_empty() {
                 job.context = format!("{talk}\n\n{}", job.context).trim().to_string();
             }
@@ -553,9 +580,12 @@ impl Runtime {
                 job.reads.push(j.worktree.clone());
             }
         }
-        // Peek's short title for the card, when Smart Peek is on.
-        if let Some(rx) = brain::tasks::ask(st, &job, false) {
-            self.peeking.push((job.id, rx));
+        // Peek's short title for the card, when Smart Peek is on and Peek
+        // didn't name it already.
+        if job.short.is_empty() {
+            if let Some(rx) = brain::tasks::ask(st, &job, false) {
+                self.peeking.push((job.id, rx));
+            }
         }
         if let Some((i, race)) = pick {
             job.pick = crate::agent::PROVIDERS[i].id.to_string();
@@ -735,7 +765,14 @@ impl Runtime {
         // A job that may change files gets its own branch and worktree, so your
         // checkout stays as it is and its changes wait for your approval.
         if mode.writes() && !handed {
-            match work::isolate(&job.folder.path, text, job.id) {
+            // Named for the ask: Peek's title when it wrote one, so a reply
+            // like "all togther" doesn't name the branch.
+            let name = if job.short.is_empty() {
+                text
+            } else {
+                &job.short
+            };
+            match work::isolate(&job.folder.path, name, job.id) {
                 Ok(Some(iso)) => {
                     job.feed.push(store::Item::Note(format!(
                         "Working on its own branch, {}, so your checkout stays as it is.",
@@ -975,12 +1012,12 @@ impl Runtime {
             engine::label_of(i, &model)
         )));
         job.conflict.clear();
+        let ask = job.ask();
         let text = if job.worktree.is_empty() {
-            job.title.clone()
+            ask
         } else {
             format!(
-                "{}\n\nAn earlier run may have left work in the files. Check what is already done before redoing it.",
-                job.title
+                "{ask}\n\nAn earlier run may have left work in the files. Check what is already done before redoing it."
             )
         };
         match jobs::start(st, job, &text, false) {
@@ -3768,6 +3805,30 @@ impl Runtime {
     }
 }
 
+/// The whole ask Peek wrote for a job it hands on, read from the
+/// conversation: what the bot is to do, and the job's title.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NextAsk {
+    pub task: String,
+    pub title: String,
+}
+
+impl NextAsk {
+    /// The ask in a route Peek decided, when it wrote one.
+    pub fn of(route: &brain::route::Route) -> Option<NextAsk> {
+        (!route.task.trim().is_empty()).then(|| NextAsk {
+            task: route.task.trim().to_string(),
+            title: route.title.trim().to_string(),
+        })
+    }
+
+    /// What the bot is told: the whole ask, then the person's own words,
+    /// when they say something the ask doesn't already.
+    pub fn words(&self, said: &str) -> String {
+        store::ask_with_words(&self.task, said)
+    }
+}
+
 /// Whether the bot has had more than one turn on `job`.
 fn several_turns(job: &store::Job) -> bool {
     job.fix_turns > 0 || job.feed.iter().any(|i| matches!(i, store::Item::You(_)))
@@ -3867,7 +3928,7 @@ fn fresh_branch(job: &mut store::Job) -> Option<String> {
     {
         return None;
     }
-    match work::isolate(&job.folder.path, &job.title, job.id) {
+    match work::isolate(&job.folder.path, job.label(), job.id) {
         Ok(Some(iso)) => {
             job.feed.push(store::Item::Note(format!(
                 "Its last branch is done with, so this goes on a new one, {}, and your checkout stays as it is.",
@@ -5647,6 +5708,34 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
     }
 
     #[test]
+    fn a_short_reply_starts_the_whole_ask_peek_read() {
+        let mut b = bench("whole-ask");
+        // The person answered Peek's question with "all togther"; Peek read
+        // the whole ask from the conversation.
+        b.rt.ask_next = Some(NextAsk {
+            task: "WRITE-A Branch off main-develop, then review the API, web app and worker for improvements".into(),
+            title: "Review scope for improvements".into(),
+        });
+        let id = b.start("all togther");
+        b.settle();
+        let job = b.job(id);
+        // The card and branch are named for the ask, not the reply.
+        assert_eq!(job.label(), "Review scope for improvements");
+        assert_eq!(job.branch, "squad/review-scope-improvements");
+        // What the person said stays theirs.
+        assert_eq!(job.title, "all togther");
+        // The bot was told the whole ask, and the person's words.
+        let call = b.calls().join("\n");
+        assert!(
+            call.contains("review the API, web app and worker"),
+            "{call}"
+        );
+        assert!(call.contains("all togther"), "{call}");
+        assert!(job.ask().contains("review the API"), "{}", job.ask());
+        assert!(b.rt.ask_next.is_none(), "it goes with one job only");
+    }
+
+    #[test]
     fn a_job_goes_from_start_to_merged() {
         let mut b = bench("merge");
         let id = b.start("WRITE-A Add a file called a");
@@ -5807,4 +5896,108 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\"
         assert_eq!(b.job(id).status, Status::Stopped);
         assert!(b.calls()[1].contains("Carry on"));
     }
+}
+
+/// Peek's hand-off with the real engines, start to end, on the installed
+/// Claude Code: `cargo test -p squadcode whole_ask_real_job -- --ignored --nocapture`.
+/// The person asks for a branch off main-develop and a scope review, Peek
+/// asks which area, they answer "all togther"; Peek reads it, and the bot it
+/// picks gets the whole ask. Prints the decision and the job as it ended.
+#[cfg(test)]
+#[test]
+#[ignore]
+fn whole_ask_real_job() {
+    use std::path::Path;
+    let base = std::env::temp_dir().join(format!("squad-real-ask-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let repo = base.join("shop");
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+    };
+    for (path, body) in [
+        ("api/orders.js", "const db = require('./db');\n// GET /orders: every order with its customer\nmodule.exports = async (req, res) => {\n  const orders = await db.all('SELECT * FROM orders');\n  for (const o of orders) {\n    o.customer = await db.get('SELECT * FROM customers WHERE id = ?', o.customer_id);\n  }\n  res.json(orders);\n};\n"),
+        ("web/src/Orders.jsx", "import { useEffect, useState } from 'react';\nexport default function Orders() {\n  const [orders, setOrders] = useState([]);\n  useEffect(() => { setInterval(() => fetch('/orders').then(r => r.json()).then(setOrders), 1000); });\n  return <ul>{orders.map(o => <li>{o.customer.name}: {o.total}</li>)}</ul>;\n}\n"),
+        ("worker/emails.js", "const db = require('../api/db');\nconst send = require('./send');\n// Runs every minute: email every order placed since the last run.\nmodule.exports = async () => {\n  const orders = await db.all('SELECT * FROM orders');\n  for (const o of orders) {\n    if (!o.emailed) { await send(o); await db.run('UPDATE orders SET emailed = 1 WHERE id = ?', o.id); }\n  }\n};\n"),
+        ("README.md", "# shop\nAn API, a web app and a worker.\n"),
+    ] {
+        let p = repo.join(path);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    }
+    git(&["init", "-q", "-b", "main"]);
+    git(&["add", "."]);
+    git(&["commit", "-qm", "init"]);
+    git(&["checkout", "-qb", "main-develop"]);
+
+    let s = |a: &str, b: &str| (a.to_string(), b.to_string());
+    let recent = vec![
+        s("you", "hi guys"),
+        s("peek", "Hey! Peek here, with the crew ready to build, fix, test or review whatever you need. What are we working on in #optimisation?"),
+        s("you", "can we do one tgin checkout from maind evelopa dn lets review scope for implviemnt"),
+        s("peek", "Happy to branch off main-develop and scope it out first. What should the new branch be called, and what are we optimising: API speed, the web app, the worker, or something else?"),
+    ];
+    let crew = Member::CREW.to_vec();
+    let text = "all togther";
+    let seen = brain::think::Seen {
+        project: "shop",
+        thread: "optimisation",
+        summary: "",
+        recent: &recent,
+        crew: &crew,
+        running: &[],
+        in_thread: &[],
+        server: "",
+        picked: "Do",
+    };
+    let out = std::process::Command::new("claude")
+        .args(["-p", "--model", "haiku", &brain::think::prompt(text, &seen)])
+        .current_dir(&base)
+        .output()
+        .expect("claude");
+    let reply = String::from_utf8_lossy(&out.stdout).to_string();
+    let Some((brain::front::Front::Hand(route), say)) = brain::think::parse(&reply, text, &crew)
+    else {
+        panic!("Peek didn't hand it on: {reply}");
+    };
+    println!("Peek: {say}\n-> {} ({:?})\n   title: {}\n   task: {}", route.bot.name(), route.mode, route.title, route.task);
+
+    let st = AppSettings::default();
+    let folder = store::Folder {
+        name: "shop".into(),
+        path: repo.to_string_lossy().into_owned(),
+        ..Default::default()
+    };
+    let mut rt = Runtime::new(tests::quiet_store());
+    rt.ask_next = NextAsk::of(&route);
+    let Opened::Job(id) = rt.start_job(&st, route.bot, route.mode, text.into(), folder) else {
+        panic!("no job started");
+    };
+    let t = Instant::now();
+    while !rt.runners.is_empty() || rt.store.jobs.iter().any(|j| j.checking) {
+        rt.poll(&st, None);
+        assert!(t.elapsed() < Duration::from_secs(900), "the job never ended");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let job = rt.store.job(id).cloned().unwrap();
+    println!(
+        "\n#{id} {} by {} ({:?}), branch {:?}, files changed {}\nThe person said: {}\n\n{}",
+        job.label(),
+        job.bot.name(),
+        job.status,
+        job.branch,
+        job.changes.len(),
+        job.title,
+        job.last_words().unwrap_or("(nothing)")
+    );
+    for j in &rt.store.jobs {
+        if !j.worktree.is_empty() && Path::new(&j.worktree).exists() {
+            let _ = crate::git::remove_worktree(&j.folder.path, &j.worktree);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&base);
 }
