@@ -1774,16 +1774,14 @@ impl Shell {
                 }
                 .unwrap_or(0);
                 div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(super::live::typing(self.now()))
-                    .child(
-                        div()
-                            .text_size(px(12.5))
-                            .text_color(c(ui::muted()))
-                            .child(format!("thinking \u{b7} {secs}s")),
-                    )
+                    .text_size(px(14.))
+                    .line_height(px(21.))
+                    .text_color(c(ui::faint()))
+                    .child(super::live::thinking_line(
+                        "thinking",
+                        &format!(" \u{b7} {secs}s"),
+                        self.now(),
+                    ))
             }
             None => super::live::note_line("No answer came back. Ask again."),
         };
