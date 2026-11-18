@@ -590,20 +590,13 @@ impl Shell {
         }
         // The review itself is the workspace's Changes tab, beside this.
         if running {
-            let dots = typing(self.now());
             feed = feed.child(
                 div()
                     .ml(px(40.))
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(dots)
-                    .child(
-                        div()
-                            .text_size(px(12.5))
-                            .text_color(c(ui::muted()))
-                            .child(job.doing()),
-                    ),
+                    .text_size(px(13.))
+                    .line_height(px(20.))
+                    .text_color(c(ui::faint()))
+                    .child(thinking_line(&job.doing(), "", self.now())),
             );
         }
         // Keep the newest line in view while it runs.
@@ -1828,30 +1821,79 @@ pub(super) fn note_line(text: &str) -> Div {
         .child(text.to_string())
 }
 
-/// Three dots bouncing in turn, for a bot that is mid-thought.
-pub(super) fn typing(now: f64) -> Div {
-    let mut dots = div()
-        .px(px(14.))
-        .h(px(34.))
-        .rounded(px(14.))
-        .bg(ca(ui::panel(), 0.85))
-        .border_1()
-        .border_color(c(ui::line()))
-        .flex()
-        .items_center()
-        .gap(px(5.));
-    for i in 0..3 {
-        let p = ((now * 1.6 - i as f64 * 0.18).rem_euclid(1.0) * std::f64::consts::TAU)
-            .sin()
-            .max(0.0);
-        dots = dots.child(
-            div()
-                .size(px(7.))
-                .rounded_full()
-                .relative()
-                .top(px(-3. * p as f32))
-                .bg(ca(ui::BLUE, 0.45 + 0.55 * p as f32)),
-        );
+/// Where the light is in a thinking line's sweep, in characters from the
+/// start, at `now`: it crosses `n` characters, rests a beat, and goes again.
+/// The band starts and ends just off the words so they settle to plain grey.
+fn sweep_at(n: usize, now: f64) -> f64 {
+    let n = n as f64;
+    let cross = (1.2 + n * 0.03).clamp(1.3, 2.6);
+    let t = (now.rem_euclid(cross + REST) / cross).min(1.0);
+    let eased = t * t * (3.0 - 2.0 * t);
+    -SWEEP_BAND + eased * (n + 2.0 * SWEEP_BAND)
+}
+
+/// How wide the light in a thinking line is, in characters either side.
+const SWEEP_BAND: f64 = 4.5;
+/// The pause between sweeps, in seconds.
+const REST: f64 = 0.5;
+
+/// What a bot is up to while it thinks, in faint words that a soft light
+/// sweeps across, left to right, like a lens finding focus. `tail` (say,
+/// how long it has been) follows in the same faint colour and stays still.
+/// The row it sits in should set its text colour to [`ui::faint`].
+pub(super) fn thinking_line(text: &str, tail: &str, now: f64) -> StyledText {
+    let n = text.chars().count();
+    let at = sweep_at(n, now);
+    let base = ui::faint();
+    let lit = ui::ink();
+    let mut runs = Vec::new();
+    for (i, (from, ch)) in text.char_indices().enumerate() {
+        let d = (i as f64 + 0.5 - at).abs();
+        let k = (1.0 - d / SWEEP_BAND).max(0.0);
+        if k <= 0.0 {
+            continue;
+        }
+        let k = (k * k * (3.0 - 2.0 * k)) as f32;
+        runs.push((
+            from..from + ch.len_utf8(),
+            HighlightStyle {
+                color: Some(c(super::theme::mix(base, lit, k * 0.95))),
+                ..Default::default()
+            },
+        ));
     }
-    dots
+    if !tail.is_empty() {
+        runs.push((
+            text.len()..text.len() + tail.len(),
+            HighlightStyle {
+                color: Some(c(ui::faint())),
+                ..Default::default()
+            },
+        ));
+    }
+    StyledText::new(format!("{text}{tail}")).with_highlights(runs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sweep_at, REST, SWEEP_BAND};
+
+    #[test]
+    fn the_light_crosses_the_words_and_rests_off_them() {
+        let n = 8;
+        // It starts just off the left and ends just off the right.
+        assert!(sweep_at(n, 0.0) <= -SWEEP_BAND + 1e-9);
+        let cross = (1.2 + n as f64 * 0.03).clamp(1.3, 2.6);
+        assert!(sweep_at(n, cross + REST * 0.5) >= n as f64 + SWEEP_BAND - 1e-9);
+        // Halfway through the crossing it is over the middle of the words.
+        let mid = sweep_at(n, cross / 2.0);
+        assert!((mid - n as f64 / 2.0).abs() < 0.01, "{mid}");
+        // And it moves only forward within a sweep.
+        let mut last = f64::MIN;
+        for i in 0..=20 {
+            let at = sweep_at(n, cross * i as f64 / 20.0);
+            assert!(at >= last);
+            last = at;
+        }
+    }
 }

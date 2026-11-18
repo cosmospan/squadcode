@@ -4,6 +4,10 @@ All notable changes to Squad Code are documented here. Entries before 2.0 were w
 
 ## [Unreleased]
 
+### Changed
+
+- A bot that's thinking no longer shows three bouncing dots in a bubble. Its line now reads like the message it's about to send ("thinking · 3s" in a thread, "reading the code · 3s" in a DM, or what a running job is doing), in faint text that a soft light sweeps across, left to right, every couple of seconds, like a lens finding focus. It takes the theme's own text colours, so it reads the same in every theme, light or dark.
+
 ## [2.0.0-alpha.16] - 2026-11-16
 
 ### Added

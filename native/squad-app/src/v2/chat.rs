@@ -10,7 +10,7 @@ use squad_holo::Mood;
 
 use super::channel::{self, Msg};
 use super::data::Member;
-use super::live::{note_line, plain, typing};
+use super::live::{note_line, plain, thinking_line};
 use super::store::Said;
 use super::ui::{self, c, ca};
 use super::Pane;
@@ -136,16 +136,14 @@ impl Shell {
                 .map(|a| a.started.elapsed().as_secs())
                 .unwrap_or(0);
             let dots = div()
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .child(typing(self.now()))
-                .child(
-                    div()
-                        .text_size(px(12.5))
-                        .text_color(c(ui::muted()))
-                        .child(format!("reading the code \u{b7} {secs}s")),
-                );
+                .text_size(px(14.))
+                .line_height(px(21.))
+                .text_color(c(ui::faint()))
+                .child(thinking_line(
+                    "reading the code",
+                    &format!(" \u{b7} {secs}s"),
+                    self.now(),
+                ));
             let lead = !self.continues(who.name(), super::store::now());
             body = body.child(self.bot_line(who, Mood::Thinking, 0, lead, dots, None));
         }
